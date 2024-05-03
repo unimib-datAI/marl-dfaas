@@ -42,6 +42,9 @@ def main():
 
 
 def main_old():
+    # Register the environment to the Gymnasium registry.
+    gym.register(id="TrafficManagementEnv-v0", entry_point="environment:TrafficManagementEnv")
+
     env = gym.make('TrafficManagementEnv-v0')
     env.reset()
 

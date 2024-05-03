@@ -410,5 +410,4 @@ class TrafficManagementEnv(gym.Env):
 
         return done
 
-# Register the environment to the Gymnasium registry.
-gym.register(id="TrafficManagementEnv-v0", entry_point="environment:TrafficManagementEnv")
+
