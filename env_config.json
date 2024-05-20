@@ -1,0 +1,7 @@
+{
+    "env_name": "TrafficManagementEnv",
+    "min_time": 0,
+    "max_time": 100,
+    "time_step": 1,
+    "debug": true
+}

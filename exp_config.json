@@ -1,0 +1,8 @@
+{
+    "algorithm": "PPO",
+    "env_config_file": "env_config.json",
+    "ray_config_file": "ray_config.json",
+    "stopping_criteria": {
+        "max_iterations": 2
+    }
+}

@@ -1,23 +1,13 @@
 import math
-import random
 
 import gymnasium as gym
 import numpy as np
 
 from ray.rllib.utils.spaces import simplex
-from ray.tune.registry import register_env
 
-from RL4CC.environment.base_environment import BaseEnvironment
+import random
 
-def TrafficManagementEnvCreator(env_config):
-    env = gym.wrappers.TimeLimit(TrafficManagementEnv(env_config),
-                                 max_episode_steps=100)
-
-    return env
-
-register_env("TrafficManagementEnv", TrafficManagementEnvCreator)
-
-class TrafficManagementEnv(BaseEnvironment):
+class TrafficManagementEnv(gym.Env):
     def __init__(self, config):
         """
         State:
@@ -30,7 +20,6 @@ class TrafficManagementEnv(BaseEnvironment):
         config is a dictionary with the env's configuration. If a property is
         not set, the default value is used.
         """
-
         self.action_space = simplex.Simplex(shape=(3,))
         self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0]),
                                                 high=np.array([150, 100, 100, 1, 1]),
@@ -62,6 +51,7 @@ class TrafficManagementEnv(BaseEnvironment):
         self.reset()
 
     def reset(self, *, seed=None, options=None):
+        super().reset()
 
         # Congested flags.
         self.congested_queue_full = False
