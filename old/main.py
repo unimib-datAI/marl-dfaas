@@ -18,19 +18,19 @@ register_env("TrafficManagementEnv", TrafficManagementEnvCreator)
 
 def main():
     env_config = {
-        "debug": True
+        "debug": False
     }
 
     algo = (
         PPOConfig()
         .framework(framework="torch")
         .rollouts(num_rollout_workers=1)
-        .resources(num_gpus=0)
+        .resources(num_gpus=1)
         .environment(env="TrafficManagementEnv", env_config=env_config)
         .build()
     )
 
-    episodes = 2
+    episodes = 10
     for i in range(episodes):
         print(f'---------------------')
         print(f'Episode {i} of {episodes}')

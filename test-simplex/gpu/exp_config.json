@@ -1,0 +1,11 @@
+{
+  "algorithm": "PPO",
+  "env_config_file": "test-simplex/gpu/env_config.json",
+  "ray_config_file": "test-simplex/gpu/ray_config.json",
+  "stopping_criteria": {
+    "max_iterations": 1
+  },
+  "logger": {
+    "verbosity": 2
+  }
+}

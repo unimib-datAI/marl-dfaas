@@ -32,9 +32,9 @@ class TrafficManagementEnv(BaseEnvironment):
         """
 
         self.action_space = simplex.Simplex(shape=(3,))
-        self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0]),
-                                                high=np.array([150, 100, 100, 1, 1]),
-                                                dtype = np.float32)
+        self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0], dtype=np.float32),
+                                                high=np.array([150, 100, 100, 1, 1], dtype=np.float32),
+                                                dtype=np.float32)
 
         # Minimium and maximum possible reward. Overwrites parent attribute.
         self.reward_range = (-np.inf, np.inf)
@@ -94,7 +94,7 @@ class TrafficManagementEnv(BaseEnvironment):
 
         # Initial observation and info.
         obs = self._observation()
-        info = self._additional_info()
+        info = self._additional_info(0)
 
         return obs, info
 
@@ -111,12 +111,14 @@ class TrafficManagementEnv(BaseEnvironment):
 
         return obs
 
-    def _additional_info(self):
+    def _additional_info(self, reward):
         """Builds and returns the info dictionary for the current step.
 
         For more information see gymnasium.Env.step.
         """
-        info = {"current_time": self.current_step}
+        info = {"current_time": self.current_step,
+                "reward": reward
+                }
 
         return info
 
@@ -162,7 +164,7 @@ class TrafficManagementEnv(BaseEnvironment):
         terminated = self._update_observation_space()
 
         obs = self._observation()
-        info = self._additional_info()
+        info = self._additional_info(reward)
         truncated = False
 
         if self.debug:
