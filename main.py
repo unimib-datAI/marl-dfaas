@@ -1,6 +1,18 @@
 import sys
 import json
 
+# I need to log stdout and stderr to a log file. For this reason, I need to
+# replace sys.stdout and sys.stderr with a custom wrapper as quickly as
+# possible. This wrapper will be used transparently by Ray, RL4CC and my code.
+#
+# The only difference is that after the experiment is run, I can set the output
+# path for the log, inside the "run()" function.
+#
+# This is a dirty hacky.
+import utils
+sys.stdout = utils.OutputDuplication()
+sys.stderr = sys.stdout
+
 from RL4CC.experiments.train import TrainingExperiment
 from RL4CC.algorithms.algorithm import Algorithm
 from RL4CC.utilities.postprocessing import evaluate_policy
@@ -8,8 +20,8 @@ from RL4CC.utilities.logger import Logger
 from RL4CC.utilities.common import load_config_file, write_config_file
 
 import traffic_env
-import utils
 
+# Logger used in this file.
 logger = Logger(name="DFAAS", verbose=2)
 logger_sep = "-" * 80
 
@@ -35,6 +47,9 @@ def train():
 
     exp = TrainingExperiment(exp_config_path)
     policy = exp.run()
+
+    # Set logging output file.
+    sys.stdout.set_logfile(exp.logdir + "/main.log")
 
     logger.log(logger_sep)
     logger.log(f"END of training experiment")
