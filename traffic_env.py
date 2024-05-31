@@ -94,7 +94,7 @@ class TrafficManagementEnv(BaseEnvironment):
 
         # Initial observation and info.
         obs = self._observation()
-        info = self._additional_info(0)
+        info = self._additional_info()
 
         return obs, info
 
@@ -111,14 +111,22 @@ class TrafficManagementEnv(BaseEnvironment):
 
         return obs
 
-    def _additional_info(self, reward):
+    def _additional_info(self, actions=(), reward=0):
         """Builds and returns the info dictionary for the current step.
 
         For more information see gymnasium.Env.step.
         """
-        info = {"current_time": self.current_step,
-                "reward": reward
-                }
+        info = {}
+        # These two keys are required by BaseCallback (from RL4CC).
+        info["current_time"] = self.current_step
+        info["reward"] = reward
+
+        info["congested"] = self.congested_queue_full or self.congested_forward_exceed
+
+        info["actions"] = {}
+        info["actions"]["local"] = actions[0] if len(actions) == 3 else 0
+        info["actions"]["forwarded"] = actions[1] if len(actions) == 3 else 0
+        info["actions"]["rejected"] = actions[2] if len(actions) == 3 else 0
 
         return info
 
@@ -148,9 +156,6 @@ class TrafficManagementEnv(BaseEnvironment):
         # forward capacity will not be exceeded.
         self.forward_exceed = max(0, forwarded - self.forward_capacity)
 
-        # Calculate reward for the agent.
-        reward = self._calculate_reward(local, forwarded, rejected)
-
         # Process requests locally, building a CPU workload that contains the
         # requests processed by the node in this time step. The method also
         # updates the queue workload and returns the number of rejected requests
@@ -158,13 +163,19 @@ class TrafficManagementEnv(BaseEnvironment):
         # there is no CPU and RAM available, and by the queue workload because
         # it is full).
         cpu_workload, new_rejected = self._manage_workload(local)
-        self.total_rejected_requests += rejected + new_rejected
+        rejected += new_rejected
+        local -= new_rejected
+
+        self.total_rejected_requests += rejected
+
+        # Calculate reward for the agent.
+        reward = self._calculate_reward(local, forwarded, rejected)
 
         # Update the observation_space. Note that cpu_workload is not used.
         terminated = self._update_observation_space()
 
         obs = self._observation()
-        info = self._additional_info(reward)
+        info = self._additional_info(actions=(local, forwarded, rejected), reward=reward)
         truncated = False
 
         if self.debug:
