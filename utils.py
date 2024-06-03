@@ -13,8 +13,6 @@ class NumpyEncoder(json.JSONEncoder):
 
         return json.JSONEncoder.default(self, obj)
 
-import sys
-
 class OutputDuplication():
     """A sys.stdout duplicator: it writes data to both sys.stdout and a file.
 
@@ -40,7 +38,7 @@ class OutputDuplication():
             self.logfile.write(message)
 
     def set_logfile(self, logfile):
-        file = open(logfile, mode="a", encoding="utf-8")
+        file = open(logfile, mode="w", encoding="utf-8")
 
         file.writelines(self.buffer)
         self.logfile = file

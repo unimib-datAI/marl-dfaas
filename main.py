@@ -57,19 +57,65 @@ def train():
 
     return exp, policy
 
+def get_eval_config(exp_config):
+    """Returns a dictionary representing the evaluation configuration.
+
+    The evaluation config is extracted and built from the given experiment
+    config.
+
+    The returned dictionary has the following keys:
+
+        * "num_episodes_for_scenario" of type int (default is 1),
+        * "allow_exploration" of type bool (default is False).
+    """
+    # The evaluation config dictionary is written directly to the given
+    # experiment config. RL4CC ignores any unknown keys in the config. This step
+    # is also done after RL4CC has trained the model.
+    if "evaluation" not in exp_config.keys():
+        exp_config["evaluation"] = {}
+
+    eval_config = exp_config["evaluation"]
+
+    num_eps_key = "num_episodes_for_scenario"
+    if num_eps_key not in eval_config.keys():
+        eval_config[num_eps_key] = 1
+    elif (t := type(eval_config[num_eps_key])) is not int:
+        logger.err(f"{num_eps_key!r} must be of type int, is {t.__name__}")
+        sys.exit(1)
+
+    explore_key = "allow_exploration"
+    if explore_key not in eval_config.keys():
+        eval_config[explore_key] = False
+    elif (t := type(eval_config[explore_key])) is not bool:
+        logger.err(f"{explore_key!r} must be of type bool, is {t.__name__}")
+        sys.exit(1)
+
+    return eval_config
+
+
 def evaluation(experiment, policy):
+    config = get_eval_config(experiment.exp_config)
+
+    episodes = config["num_episodes_for_scenario"]
+    allow_exploration = config["allow_exploration"]
+
     logger.log(logger_sep)
     logger.log(f"START of evaluation")
+    logger.log(f"  Episodes for scenario: {episodes}")
+    logger.log(f"  Allow exploration: {allow_exploration}")
     logger.log(logger_sep)
 
-    # Scenarios to tests.
-    scenarios = ["scenario" + str(i+1) for i in range(3)]
+    # Results dictionary. "evaluations" contains the results for each scenario
+    # evaluation.
     results = {
         "train_scenario": experiment.env_config["scenario"],
+        "num_episodes_for_scenario": episodes,
+        "allow_exploration": allow_exploration,
         "evaluations": {}
     }
 
-    for scenario in scenarios:
+    # Scenarios to test.
+    for scenario in ["scenario" + str(i+1) for i in range(3)]:
         # Get original env_config from the experiment.
         env_config_path = experiment.exp_config["env_config_file"]
         env_config = load_config_file(env_config_path)
@@ -78,17 +124,22 @@ def evaluation(experiment, policy):
         env_config["scenario"] = scenario
         env = traffic_env.TrafficManagementEnv(env_config)
 
-        logger.log(f"Evaluate policy with scenario {scenario!r}")
+        # Evaluate the model with the specified scenario.
+        logger.log(f"Evaluating policy with scenario {scenario!r}")
+        result = evaluate_policy(policy=policy,
+                                 env=env,
+                                 num_eval_episodes=episodes,
+                                 explore=allow_exploration)
 
-        results["evaluations"][scenario] = evaluate_policy(policy=policy, env=env)
+        results["evaluations"][scenario] = result
 
-    # Save results.
+    # Save results as JSON file to disk.
     dump = json.dumps(results, cls=utils.NumpyEncoder)
-    path = write_config_file(dump, experiment.logdir, "scenarios_evaluations.json")
+    path = write_config_file(dump, experiment.logdir, "evaluations_scenarios.json")
 
     logger.log(logger_sep)
     logger.log(f"END of evaluation")
-    logger.log(f"Raw results saved in {path!r}")
+    logger.log(f"   Raw results saved in {path!r}")
     logger.log(logger_sep)
 
 def from_checkpoint():

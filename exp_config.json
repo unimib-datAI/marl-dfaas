@@ -7,5 +7,8 @@
     },
     "logger": {
         "verbosity": 2
+    },
+    "evaluation": {
+        "num_episodes_for_scenario": 50
     }
 }
