@@ -14,26 +14,47 @@ from RL4CC.utilities.logger import Logger
 logger = Logger(name="DFAAS-METRICS", verbose=2)
 
 def aggregate_data(data):
-    # Prepare an empty array to store all rewards (all steps for each episode).
-    len_rewards = len(data) * len(data[0]["evaluation_steps"])
-    rewards = np.empty(shape=len_rewards)
-    rewards_idx = 0
+    """Returns the following aggregated data given the evaluations for a single
+    scenario as data:
 
-    steps_cong = 0 # Steps in congested state.
-    rejected_reqs = 0 # Number of rejected requests.
+    - Mean of the rewards,
+    - Standard deviation of the rewards,
+    - Mean of steps in congested state,
+    - Mean of rejected requests.
+
+    All values are calculated for episode, not for steps in all episodes (e.g.
+    mean of rejected requests for episode).
+    """
+    # Prepare the empty arrays to store the metrics for each episode.
+    num_episodes = len(data)
+    steps_cong = np.empty(shape=num_episodes, dtype=np.int64)
+    rejected_reqs = np.empty(shape=num_episodes, dtype=np.int64)
+    rewards = np.empty(shape=num_episodes)
+    idx = 0
+
+    # Iterate over all episodes.
     for episode in data:
+        tmp_steps_cong = 0
+        tmp_rejected_reqs = 0
+        tmp_rewards = 0
+
         for step in episode["evaluation_steps"]:
-            steps_cong += step["obs_info"]["congested"]
-            rejected_reqs += step["obs_info"]["actions"]["rejected"]
+            tmp_steps_cong += step["obs_info"]["congested"]
+            tmp_rejected_reqs += step["obs_info"]["actions"]["rejected"]
+            tmp_rewards += step["reward"]
 
-            rewards[rewards_idx] = step["reward"]
-            rewards_idx += 1
+        steps_cong[idx] = tmp_steps_cong
+        rejected_reqs[idx] = tmp_rejected_reqs
+        rewards[idx] = tmp_rewards
+        idx += 1
 
-    # Calculate the mean and standard deviation.
-    mean = np.mean(rewards)
-    std = np.std(rewards)
+    # Calculate the means and standard deviation.
+    rewards_mean = np.mean(rewards)
+    rewards_std = np.std(rewards)
+    steps_cong_mean = np.mean(steps_cong)
+    rejected_reqs_mean = np.mean(rejected_reqs)
 
-    return mean, std, steps_cong, rejected_reqs
+    return rewards_mean, rewards_std, steps_cong_mean, rejected_reqs_mean
 
 
 def calculate_metrics(results_directory):
