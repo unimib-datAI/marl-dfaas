@@ -1,12 +1,9 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
 import numpy as np
-
-import utils
-sys.stdout = utils.OutputDuplication()
-sys.stderr = sys.stdout
 
 from RL4CC.utilities.logger import Logger
 
@@ -69,16 +66,6 @@ def calculate_metrics(results_directory):
         logger.err(f"Failed to read {eval_file}: {e}")
         sys.exit(1)
 
-    # We do not set the log file until after we have read the evaluation JSON
-    # file, because now we are sure that the directory exists.
-    sys.stdout.set_logfile(f"{results_directory}/metrics.log")
-
-    logger.log(f"START metrics calculation")
-    logger.log(f"  Train scenario: {data['train_scenario']!r}")
-    logger.log(f"  Episodes for each scenario: {data['num_episodes_for_scenario']}")
-    logger.log(f"  Exploration allowed? {data['allow_exploration']}")
-    logger.breakline()
-
     # This dictionary contains the metrics data that will be saved at the end.
     metrics_data = {"train_scenario": data["train_scenario"],
                     "num_episodes_for_scenario": data["num_episodes_for_scenario"],
@@ -87,8 +74,6 @@ def calculate_metrics(results_directory):
                     }
 
     for scenario in data["evaluations"]:
-        logger.log(f"Metrics for scenario {scenario!r}")
-
         mean, std, steps_cong, rejected_reqs = aggregate_data(data["evaluations"][scenario])
 
         metrics_data["metrics"][scenario] = {"mean": mean,
@@ -96,12 +81,6 @@ def calculate_metrics(results_directory):
                                              "steps_cong": steps_cong,
                                              "rejected_reqs": rejected_reqs
                                              }
-
-        logger.log(f"  Average reward: {mean}")
-        logger.log(f"  Dev. Std. of reward: {std}")
-        logger.log(f"  Steps in congestion state: {steps_cong}")
-        logger.log(f"  Rejected requests: {rejected_reqs}")
-        logger.breakline()
 
     # Save metrics data as JSON file to disk.
     metrics_file = "evaluations_metrics.json"
@@ -113,13 +92,37 @@ def calculate_metrics(results_directory):
       sys.exit(1)
 
 
+def main(experiments_directory):
+    experiments_path = Path(experiments_directory, "experiments.json")
+    try:
+        with open(experiments_path, "r") as file:
+            experiments = json.load(file)
+    except IOError as e:
+      logger.err(f"Failed to read {experiments_path.as_posix()!r}: {e}")
+      sys.exit(1)
+
+    for algo in experiments.values():
+        for params in algo.values():
+            for scenario in params.values():
+                for exp in scenario.values():
+                    if not exp["done"]:
+                        logger.warn(f"Skip experiment {exp['id']!r} because it is not done")
+                        continue
+
+                    exp_directory = Path(experiments_directory, exp["directory"])
+
+                    calculate_metrics(exp_directory.as_posix())
+
+                    logger.log(f"Metrics calculated and saves for {exp['id']!r}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="metrics",
                                      description="Metrics extraction from evaluation phase")
 
-    parser.add_argument(dest="results_directory",
-                        help="Directory where the evaluation results are saved.")
+    parser.add_argument(dest="experiments_directory",
+                        help="Directory with the experiments.json file")
 
     args = parser.parse_args()
 
-    calculate_metrics(args.results_directory)
+    main(args.experiments_directory)
