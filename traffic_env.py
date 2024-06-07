@@ -1,5 +1,4 @@
 import math
-import random
 
 import gymnasium as gym
 import numpy as np
@@ -30,7 +29,6 @@ class TrafficManagementEnv(BaseEnvironment):
         config is a dictionary with the env's configuration. If a property is
         not set, the default value is used.
         """
-
         self.action_space = simplex.Simplex(shape=(3,))
         self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0], dtype=np.float32),
                                                 high=np.array([150, 100, 100, 1, 1], dtype=np.float32),
@@ -51,6 +49,7 @@ class TrafficManagementEnv(BaseEnvironment):
         self.amplitude_requests = config.get("amplitude_requests", 50)
         self.period = config.get("period", 50)
         self.scenario = config.get("scenario", "scenario1")
+        self.seed = config.get("seed", 0)
 
         # Max steps for the environment.
         self.max_steps = config.get("max_steps", 100)
@@ -58,8 +57,11 @@ class TrafficManagementEnv(BaseEnvironment):
         # Call 'print' function on each step.
         self.debug = config.get("debug", False)
 
+        # Create the RNG used to generate input requests and forward capacity.
+        self.rng = np.random.default_rng(seed=self.seed)
+
         # Reset the environment.
-        self.reset()
+        self.reset(seed=self.seed)
 
     def reset(self, *, seed=None, options=None):
 
@@ -85,12 +87,15 @@ class TrafficManagementEnv(BaseEnvironment):
         # Current step (from 0 to self.max_steps).
         self.current_step = 0
 
+        # Seed.
+        if seed is not None:
+            self.seed = seed
+
+        # Recreate the RNG from start.
+        self.rng = np.random.default_rng(seed=self.seed)
+
         # Set initial input requests and forward capacity.
-        self.input_requests, self.forward_capacity = self._get_requests_capacity(self.scenario,
-                                                                                 self.average_requests,
-                                                                                 self.amplitude_requests,
-                                                                                 self.current_step,
-                                                                                 self.period)
+        self.input_requests, self.forward_capacity = self._get_requests_capacity()
 
         # Initial observation and info.
         obs = self._observation()
@@ -286,7 +291,7 @@ class TrafficManagementEnv(BaseEnvironment):
         for i in range(requests):
             # The class is selected from a uniform distribution, while CPU usage
             # and memory are selected from two normal distributions.
-            sample = np.random.uniform()
+            sample = self.rng.uniform()
             if sample < 0.33:
                 req = 'A'
             elif sample < 0.67:
@@ -298,11 +303,11 @@ class TrafficManagementEnv(BaseEnvironment):
             load = {'class': req}
 
             # 'cpu' key.
-            shares = np.random.normal(classes[req]['cpu_mean'], std_dev)
+            shares = self.rng.normal(classes[req]['cpu_mean'], std_dev)
             load['cpu'] = np.clip(shares, classes[req]['cpu_min'], classes[req]['cpu_max'])
 
             # 'memory' key.
-            memory = np.random.normal(classes[req]['ram_mean'], std_dev)
+            memory = self.rng.normal(classes[req]['ram_mean'], std_dev)
             load['memory'] = np.clip(memory, classes[req]['ram_min'], classes[req]['ram_max'])
 
             # 'position' key.
@@ -364,16 +369,15 @@ class TrafficManagementEnv(BaseEnvironment):
  
         return cpu_workload, rejected_requests
 
-    @staticmethod
-    def _get_requests_capacity(scenario, average_requests, amplitude_requests, step, period):
+    def _get_requests_capacity(self):
         # Update input requests and forward capacity for the next time step.
-        match scenario:
+        match self.scenario:
             # RANDOM - RANDOM scenario
             case 'scenario1':
                 average_capacity = 50
                 std_dev = 10
-                input_requests = int(random.gauss(average_requests, std_dev))
-                forward_capacity = int(random.gauss(average_capacity, std_dev))
+                input_requests = int(self.rng.normal(self.average_requests, std_dev))
+                forward_capacity = int(self.rng.normal(average_capacity, std_dev))
 
             # SINUSOIDE NOISY - SINUSOIDE NOISY scenario
             case 'scenario2':
@@ -381,21 +385,21 @@ class TrafficManagementEnv(BaseEnvironment):
                 amplitude_capacity = 50
 
                 noise_ratio = .1
-                base_input = average_requests + amplitude_requests * math.sin(2 * math.pi * step / period)
-                noisy_input = base_input + noise_ratio * random.gauss(0, amplitude_requests)
+                base_input = self.average_requests + self.amplitude_requests * math.sin(2 * math.pi * self.current_step / self.period)
+                noisy_input = base_input + noise_ratio * self.rng.normal(0, self.amplitude_requests)
                 input_requests = int(noisy_input)
 
-                base_capacity = average_capacity + amplitude_capacity * math.sin(2 * math.pi * step / period)
-                noisy_capacity = base_capacity + noise_ratio * random.gauss(0, amplitude_capacity)
+                base_capacity = average_capacity + amplitude_capacity * math.sin(2 * math.pi * self.current_step / self.period)
+                noisy_capacity = base_capacity + noise_ratio * self.rng.normal(0, amplitude_capacity)
                 forward_capacity = int(noisy_capacity)
 
             # SINUSOIDE - SINUSOIDE scenario
             case 'scenario3':
-                input_requests = int(average_requests + amplitude_requests * math.sin(2 * math.pi * step / period))
-                forward_capacity = int(25 + 75 * (1 + math.sin(2 * math.pi * step / period)) / 2)
+                input_requests = int(self.average_requests + self.amplitude_requests * math.sin(2 * math.pi * self.current_step / self.period))
+                forward_capacity = int(25 + 75 * (1 + math.sin(2 * math.pi * self.current_step / self.period)) / 2)
 
             case _:
-                assert False, f"Unreachable code with scenario {scenario!r}"
+                assert False, f"Unreachable code with scenario {self.scenario!r}"
 
         return input_requests, forward_capacity
 
@@ -403,11 +407,8 @@ class TrafficManagementEnv(BaseEnvironment):
     def _update_observation_space(self):
         """It updates the observation space for the next step."""
         # Update input requests and forward capacity.
-        self.input_requests, self.forward_capacity = self._get_requests_capacity(self.scenario,
-                                                                                 self.average_requests,
-                                                                                 self.amplitude_requests,
-                                                                                 self.current_step,
-                                                                                 self.period)
+        self.input_requests, self.forward_capacity = self._get_requests_capacity()
+
         # Update queue capacity.
         self.queue_capacity = self.max_queue_capacity - len(self.queue_workload)
         assert self.queue_capacity >= 0, "Queue capacity can't be negative!"

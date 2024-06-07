@@ -158,10 +158,11 @@ def prepare_experiments(dfaas_config_path):
     path = write_config_file(dump, results_dir.as_posix(), default_dfaas_config_path)
     logger.log(f"DFAAS config written to {path!r}")
 
-    # Generate the seeds used by each class of experiments.
+    # Generate the seeds used by each class of experiments. Note that the seed
+    # must be a non-negative integer.
     seed_gen = np.random.default_rng()
     iinfo = np.iinfo(np.int64)
-    seeds = seed_gen.integers(iinfo.min, high=iinfo.max, size=dfaas_config["seeds"])
+    seeds = seed_gen.integers(0, high=iinfo.max, size=dfaas_config["seeds"])
 
     # Experiments is a dictionary that contains all the experiments done, in
     # progress and to do. It matches an experiment with a specific subfolder
