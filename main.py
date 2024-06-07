@@ -30,7 +30,7 @@ import traffic_env
 # Logger used in this file.
 logger = Logger(name="DFAAS", verbose=2)
 
-def main(dfaas_config_path):
+def main(dfaas_config_path, experiments_prefix):
     dfaas_config, experiments = prepare_experiments(dfaas_config_path)
 
     # Default exp_config with env_config and ray_config.
@@ -76,34 +76,41 @@ def main(dfaas_config_path):
     dfaas_dir = Path(dfaas_config["results_directory"]).absolute()
 
     # Run all experiments.
-    for exp_id in experiments["PPO"]["standard"]["scenario1"].keys():
-        logger.log(f"Running experiment ID {exp_id}")
+    for algo in experiments.values():
+        for params in algo.values():
+            for scenario in params.values():
+                for exp in scenario.values():
+                    if (experiments_prefix is not None
+                        and len(experiments_prefix) >= 1
+                        and not exp["id"].startswith(tuple(experiments_prefix))):
+                        logger.log(f"Skipping experiment ID {exp['id']}")
+                        continue
+                    logger.log(f"Running experiment ID {exp['id']}")
 
-        seed = experiments["PPO"]["standard"]["scenario1"][exp_id]["seed"]
+                    # Base on the global exp_config, copy the config and set the
+                    # experiment specific settings.
+                    exp_config = deepcopy(default_exp_config)
+                    exp_config["logdir"] = dfaas_config['results_directory']
+                    exp_config["seed"] = exp_config["env_config"]["seed"] = exp["seed"]
+                    exp_config["id"] = exp["id"]
 
-        # Based on the global exp_config, copy the config and set experiment
-        # specific settings.
-        exp_config = deepcopy(default_exp_config)
-        exp_config["logdir"] = dfaas_config['results_directory']
-        exp_config["seed"] = exp_config["env_config"]["seed"] = seed
-        exp_config["id"] = exp_id
+                    # Run the experiment.
+                    train_exp, policy = train(exp_config)
 
-        # Run the experiment.
-        exp, policy = train(exp_config)
+                    # exp.logdir is the absolute path to the experiment results
+                    # directory.  We want a path relative to dfaas_dir because
+                    # we already know the absolute directory (is dfaas_dir).
+                    # This is necessary to avois any absolute paths in the
+                    # output files.
+                    out_dir = Path(train_exp.logdir).relative_to(dfaas_dir).as_posix()
 
-        # exp.logdir is the absolute path to the experiment results directory.
-        # We want a path relative to dfaas_dir because we already know the
-        # absolute directory (is dfaas_dir). This is necessary to avois any
-        # absolute paths in the output files.
-        out_dir = Path(exp.logdir).relative_to(dfaas_dir).as_posix()
+                    # Update experiment data.
+                    exp["done"] = True
+                    exp["directory"] = out_dir
 
-        # Update experiment data.
-        experiments["PPO"]["standard"]["scenario1"][exp_id]["done"] = True
-        experiments["PPO"]["standard"]["scenario1"][exp_id]["directory"] = out_dir
-
-        # Update the experiments data to disk.
-        dump = json.dumps(experiments)
-        write_config_file(dump, dfaas_config["results_directory"], "experiments.json")
+                    # Update the experiments data to disk.
+                    dump = json.dumps(experiments)
+                    write_config_file(dump, dfaas_config["results_directory"], "experiments.json")
 
     path = Path(dfaas_config["results_directory"], "experiments.json").absolute()
     logger.log(f"Experiments data written to {path.as_posix()!r}")
@@ -293,7 +300,12 @@ if __name__ == '__main__':
     parser.add_argument("--dfaas-config",
                         help="DFAAS JSON configuration file.",
                         dest="dfaas_config_path")
+    parser.add_argument("--experiments", "-e",
+                        help="Run only experiments with the given prefix ID (a list)",
+                        action="append",
+                        default=[],
+                        dest="experiments_prefix")
 
     args = parser.parse_args()
 
-    main(args.dfaas_config_path)
+    main(args.dfaas_config_path, args.experiments_prefix)
