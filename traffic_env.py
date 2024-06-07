@@ -8,13 +8,16 @@ from ray.tune.registry import register_env
 
 from RL4CC.environment.base_environment import BaseEnvironment
 
+
 def TrafficManagementEnvCreator(env_config):
     env = gym.wrappers.TimeLimit(TrafficManagementEnv(env_config),
                                  max_episode_steps=100)
 
     return env
 
+
 register_env("TrafficManagementEnv", TrafficManagementEnvCreator)
+
 
 class TrafficManagementEnv(BaseEnvironment):
     def __init__(self, config):
@@ -144,14 +147,14 @@ class TrafficManagementEnv(BaseEnvironment):
 
         if self.debug:
             print(f'State of the system at time step {self.current_step} of {self.max_steps}')
-            print(f'Current status (before applying action):')
+            print('Current status (before applying action):')
             print(f'  Step: {self.current_step}')
             print(f'  Congested? {self.congested_queue_full or self.congested_forward_exceed}')
             print(f'  Queue capacity: {self.queue_capacity}')
             print(f'  Input requests: {self.input_requests}')
             print(f'  Forward capacity: {self.forward_capacity}')
             print(f'  Steps in congestion / not in congestion: {self.congested_steps} / {self.current_step - self.congested_steps}')
- 
+
         # In some cases, the agent will try to forward more requests than are
         # available. We need to track this so that it can be transformed into a
         # negative reward for the agent and to enable the congestion state at
@@ -184,12 +187,12 @@ class TrafficManagementEnv(BaseEnvironment):
         truncated = False
 
         if self.debug:
-            print(f'Action chosen:')
-            print(f'  Local requests processed:', local)
-            print(f'  Forwarded requests:', forwarded)
-            print(f'  Rejected requests:', rejected)
+            print('Action chosen:')
+            print('  Local requests processed:', local)
+            print('  Forwarded requests:', forwarded)
+            print('  Rejected requests:', rejected)
             print(f'Reward: {reward}')
-            print(f'Current status (after applying action):')
+            print('Current status (after applying action):')
             print(f'  Congested? {self.congested_queue_full or self.congested_forward_exceed}')
             print(f'  Queue capacity: {self.queue_capacity}')
             print(f'  Forward exceed: {self.forward_exceed}')
@@ -207,9 +210,9 @@ class TrafficManagementEnv(BaseEnvironment):
         # number of requests is a discrete number, so there is a fraction of the
         # action probabilities that is left out of the calculation.
         actions = [
-                int(prob_local * self.input_requests), # local requests
-                int(prob_forwarded * self.input_requests), # forwarded requests
-                int(prob_rejected * self.input_requests)] # rejected requests
+                int(prob_local * self.input_requests),  # local requests
+                int(prob_forwarded * self.input_requests),  # forwarded requests
+                int(prob_rejected * self.input_requests)]  # rejected requests
         processed_requests = sum(actions)
 
         # There is a fraction of unprocessed input requests. We need to fix this
@@ -366,7 +369,7 @@ class TrafficManagementEnv(BaseEnvironment):
                 self.queue_workload.append(request)
             else:
                 rejected_requests += 1
- 
+
         return cpu_workload, rejected_requests
 
     def _get_requests_capacity(self):
@@ -401,8 +404,11 @@ class TrafficManagementEnv(BaseEnvironment):
             case _:
                 assert False, f"Unreachable code with scenario {self.scenario!r}"
 
-        return input_requests, forward_capacity
+        # Force values outside limits to respect observation space.
+        input_requests = np.clip(input_requests, 0, 150)
+        forward_capacity = np.clip(forward_capacity, 0, 100)
 
+        return input_requests, forward_capacity
 
     def _update_observation_space(self):
         """It updates the observation space for the next step."""
@@ -442,4 +448,7 @@ class TrafficManagementEnv(BaseEnvironment):
 
         return done
 
-
+    @staticmethod
+    def get_scenarios():
+        """Returns a list of the supported scenarios."""
+        return ["scenario" + str(i+1) for i in range(3)]

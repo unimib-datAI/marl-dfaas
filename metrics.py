@@ -1,7 +1,7 @@
 import argparse
-import json
-import sys
 from pathlib import Path
+
+import utils
 
 import numpy as np
 
@@ -9,6 +9,7 @@ from RL4CC.utilities.logger import Logger
 
 # Logger used in this file.
 logger = Logger(name="DFAAS-METRICS", verbose=2)
+
 
 def aggregate_data(data):
     """Returns the following aggregated data given the evaluations for a single
@@ -63,7 +64,7 @@ def calculate_metrics(exp_dir):
     experiments."""
     # Read raw evaluations data from the experiment.
     eval_path = Path(exp_dir, "evaluations_scenarios.json")
-    data = json_to_dict(eval_path)
+    data = utils.json_to_dict(eval_path)
 
     # A dictionary containing some general information about the reports and the
     # calculated metrics data.
@@ -74,8 +75,8 @@ def calculate_metrics(exp_dir):
                }
 
     # Each scenario has its own metrics, we cannot mix them.
-    for scenario in data["evaluations"]:
-        mean, std, steps_cong, rejected_reqs = aggregate_data(data["evaluations"][scenario])
+    for (scenario, scenario_data) in data["scenarios"].items():
+        mean, std, steps_cong, rejected_reqs = aggregate_data(scenario_data)
 
         metrics["scenarios"][scenario] = {"rewards_mean": mean,
                                           "rewards_std": std,
@@ -95,7 +96,7 @@ def calculate_aggregate_metrics(exp_dirs):
     # Read only the metrics file data of the first experiment to know how many
     # scenarios there are and to set up the arrays.
     metrics_path = Path(exp_dirs[0], "metrics.json")
-    metrics = json_to_dict(metrics_path)
+    metrics = utils.json_to_dict(metrics_path)
     raw_data = {}
     for (scenario, scenario_data) in metrics["scenarios"].items():
         # This array contains the individual metrics for each experiment and
@@ -117,7 +118,7 @@ def calculate_aggregate_metrics(exp_dirs):
     idx = 1
     for exp_dir in exp_dirs[1:]:
         metrics_path = Path(exp_dir, "metrics.json")
-        metrics = json_to_dict(metrics_path)
+        metrics = utils.json_to_dict(metrics_path)
 
         for (scenario, scenario_data) in metrics["scenarios"].items():
             raw_data[scenario]["rewards_mean"][idx] = scenario_data["rewards_mean"]
@@ -153,12 +154,7 @@ def calculate_aggregate_metrics(exp_dirs):
 
 def main(experiments_directory):
     experiments_path = Path(experiments_directory, "experiments.json")
-    try:
-        with open(experiments_path, "r") as file:
-            experiments = json.load(file)
-    except IOError as e:
-      logger.err(f"Failed to read {experiments_path.as_posix()!r}: {e}")
-      sys.exit(1)
+    experiments = utils.json_to_dict(experiments_path)
 
     # Dictionary of aggregated metrics, stored as "metrics.json" in the main
     # experiments directory.
@@ -184,7 +180,7 @@ def main(experiments_directory):
 
                     # Save the metrics to disk.
                     metrics_path = Path(exp_directory, "metrics.json")
-                    dict_to_json(metrics, metrics_path)
+                    utils.dict_to_json(metrics, metrics_path)
 
                 # When calculating aggregate metrics, all sub-experiments must
                 # be run.
@@ -202,34 +198,7 @@ def main(experiments_directory):
 
                 # Save the updated metrics data to disk.
                 aggr_metrics_path = Path(experiments_directory, "metrics.json")
-                dict_to_json(aggr_metrics, aggr_metrics_path)
-
-
-def dict_to_json(data, file_path):
-    # Make sure to have a Path object, because we want the absolute path.
-    if isinstance(file_path, str):
-        file_path = Path(file_path)
-    file_path = file_path.absolute()
-
-    try:
-        with open(file_path, "w") as file:
-            json.dump(data, file)
-    except IOError as e:
-      logger.err(f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}")
-      sys.exit(1)
-
-def json_to_dict(file_path):
-    # Make sure to have a Path object, because we want the absolute path.
-    if isinstance(file_path, str):
-        file_path = Path(file_path)
-    file_path = file_path.absolute()
-
-    try:
-        with open(file_path, "r") as file:
-            return json.load(file)
-    except IOError as e:
-      logger.err(f"Failed to read json file from {file_path.as_posix()!r}: {e}")
-      sys.exit(1)
+                utils.dict_to_json(aggr_metrics, aggr_metrics_path)
 
 
 if __name__ == "__main__":

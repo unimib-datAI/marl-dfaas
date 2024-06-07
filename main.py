@@ -1,21 +1,10 @@
-import sys
-import json
 from pathlib import Path
+import sys
 import argparse
 from datetime import datetime
 from copy import deepcopy
 
-# I need to log stdout and stderr to a log file. For this reason, I need to
-# replace sys.stdout and sys.stderr with a custom wrapper as quickly as
-# possible. This wrapper will be used transparently by Ray, RL4CC and my code.
-#
-# The only difference is that after the experiment is run, I can set the output
-# path for the log, inside the "run()" function.
-#
-# This is a dirty hacky.
 import utils
-#sys.stdout = utils.OutputDuplication()
-#sys.stderr = sys.stdout
 
 import numpy as np
 
@@ -23,79 +12,50 @@ from RL4CC.experiments.train import TrainingExperiment
 from RL4CC.algorithms.algorithm import Algorithm
 from RL4CC.utilities.postprocessing import evaluate_policy
 from RL4CC.utilities.logger import Logger
-from RL4CC.utilities.common import load_config_file, write_config_file, not_defined
+from RL4CC.utilities.common import not_defined
 
-import traffic_env
+from traffic_env import TrafficManagementEnv
 
 # Logger used in this file.
 logger = Logger(name="DFAAS", verbose=2)
 
+
 def main(dfaas_config_path, experiments_prefix):
     dfaas_config, experiments = prepare_experiments(dfaas_config_path)
-
-    # Default exp_config with env_config and ray_config.
-    default_exp_config = {
-            "algorithm": "PPO",
-            "env_config": {
-                "env_name": "TrafficManagementEnv",
-                "min_time": 0,
-                "max_time": 100,
-                "time_step": 1,
-                "scenario": "scenario1"
-                },
-            "ray_config": {
-                "framework": "torch",
-                "callbacks": {
-                    "callbacks_class": "RL4CC.callbacks.base_callbacks.BaseCallbacks"
-                    },
-                "rollouts": {
-                    "duration_unit": "episodes",
-                    "duration_per_worker": 1,
-                    "num_rollout_workers": 1
-                    },
-                "training": {
-                    "batch_size": 64,
-                    "num_train_batches": 5
-                    },
-                "debugging": {
-                    "log_level": "INFO"
-                    }
-                },
-            "stopping_criteria": {
-                "max_iterations": 1
-                },
-            "logger": {
-                "verbosity": 2
-                },
-            "evaluation": {
-                "num_episodes_for_scenario": 50
-                },
-            }
 
     # The absolute path to the DFAAS output directory.
     dfaas_dir = Path(dfaas_config["results_directory"]).absolute()
 
+    # Where to save the experiments dictionary.
+    experiments_path = Path(dfaas_dir, "experiments.json")
+
     # Run all experiments.
-    for algo in experiments.values():
-        for params in algo.values():
-            for scenario in params.values():
-                for exp in scenario.values():
+    for (algo, algo_values) in experiments.items():
+        for params in algo_values.values():
+            for (scenario, scenario_value) in params.items():
+                for exp in scenario_value.values():
                     if (experiments_prefix is not None
-                        and len(experiments_prefix) >= 1
-                        and not exp["id"].startswith(tuple(experiments_prefix))):
+                       and len(experiments_prefix) >= 1
+                       and not exp["id"].startswith(tuple(experiments_prefix))):
                         logger.log(f"Skipping experiment ID {exp['id']}")
                         continue
                     logger.log(f"Running experiment ID {exp['id']}")
 
-                    # Base on the global exp_config, copy the config and set the
-                    # experiment specific settings.
-                    exp_config = deepcopy(default_exp_config)
+                    # Based on "base_exp_config", make a copy and adjust some
+                    # properties for this experiment.
+                    exp_config = deepcopy(dfaas_config["base_exp_config"])
+                    exp_config["algorithm"] = algo
                     exp_config["logdir"] = dfaas_config['results_directory']
-                    exp_config["seed"] = exp_config["env_config"]["seed"] = exp["seed"]
                     exp_config["id"] = exp["id"]
+                    exp_config["env_config"]["seed"] = exp["seed"]
+                    exp_config["env_config"]["scenario"] = scenario
+                    exp_config["ray_config"]["debugging"]["seed"] = exp["seed"]
 
                     # Run the experiment.
                     train_exp, policy = train(exp_config)
+
+                    # Evaluate the experiment.
+                    evaluate(dfaas_config["eval_config"], train_exp, policy)
 
                     # exp.logdir is the absolute path to the experiment results
                     # directory.  We want a path relative to dfaas_dir because
@@ -109,24 +69,20 @@ def main(dfaas_config_path, experiments_prefix):
                     exp["directory"] = out_dir
 
                     # Update the experiments data to disk.
-                    dump = json.dumps(experiments)
-                    write_config_file(dump, dfaas_config["results_directory"], "experiments.json")
+                    utils.dict_to_json(experiments, experiments_path)
 
-    path = Path(dfaas_config["results_directory"], "experiments.json").absolute()
-    logger.log(f"Experiments data written to {path.as_posix()!r}")
+    logger.log(f"Experiments data written to {experiments_path.as_posix()!r}")
 
 
 def prepare_experiments(dfaas_config_path):
-    default_dfaas_config_path = "dfaas_config.json"
-    if dfaas_config_path is None:
-        logger.warn(f"No DFAAS config JSON file given, using default ({default_dfaas_config_path!r})")
-        dfaas_config_path = default_dfaas_config_path
-
     # Read the DFAAS configuration file.
-    dfaas_config = load_config_file(dfaas_config_path)
-    if dfaas_config is None:
-        logger.err(f"Failed to read DFAAS config file {dfaas_config_path!r}")
-        sys.exit(1)
+    if dfaas_config_path is None:
+        dfaas_config_path = Path(Path.cwd(), "dfaas_config.json")
+        logger.warn(f"No DFAAS config JSON file given, using default {dfaas_config_path.as_posix()!r}")
+    elif isinstance(dfaas_config_path, str):
+        # Make sure dfaas_config_path is a Path object
+        dfaas_config_path = Path(dfaas_config_path).absolute()
+    dfaas_config = utils.json_to_dict(dfaas_config_path)
 
     # Check the "results_directory" property in the configuration. This property
     # sets the base directory where the main global experiment is run.
@@ -148,21 +104,34 @@ def prepare_experiments(dfaas_config_path):
     # experiments.
     dfaas_config["results_directory"] = results_dir.as_posix()
 
+    # Number of seeds to try for each experiment.
     default_seeds = 5
     if not_defined("seeds", dfaas_config):
         logger.warn(f"No 'seeds' property found, using default ({default_seeds})")
         dfaas_config["seeds"] = default_seeds
 
-    # Save the modified dfaas_config to disk as a JSON file.
-    dump = json.dumps(dfaas_config)
-    path = write_config_file(dump, results_dir.as_posix(), default_dfaas_config_path)
-    logger.log(f"DFAAS config written to {path!r}")
+    # The user can give the values of the seeds, but it is optional: if
+    # 'seeds_values' is not given, we generate new seeds.
+    if not_defined("seeds_values", dfaas_config):
+        logger.warn("No 'seeds_values' property found, generating new seeds")
 
-    # Generate the seeds used by each class of experiments. Note that the seed
-    # must be a non-negative integer.
-    seed_gen = np.random.default_rng()
-    iinfo = np.iinfo(np.int64)
-    seeds = seed_gen.integers(0, high=iinfo.max, size=dfaas_config["seeds"])
+        # Generate the seeds used by each class of experiments. Note that the
+        # seed must be a non-negative 32 bit integer.
+        seed_gen = np.random.default_rng()
+        iinfo = np.iinfo(np.uint32)
+        seeds = seed_gen.integers(0, high=iinfo.max, size=dfaas_config["seeds"])
+    elif dfaas_config["seeds"] != len(dfaas_config["seeds_values"]):
+        # If the user give a list of seeds, must equals the given number of
+        # seeds.
+        logger.err(f"'seeds_values' list length ({len(dfaas_config['seed_values'])}) must be equal to 'seeds' ({dfaas_config['seeds']})")
+        sys.exit(1)
+    else:
+        seeds = np.array(dfaas_config["seeds_values"], dtype=np.uint32)
+
+    # Save the updated dfaas config to the results directory.
+    mod_dfaas_config_path = Path(results_dir, "dfaas_config.json")
+    utils.dict_to_json(dfaas_config, mod_dfaas_config_path)
+    logger.log(f"DFAAS config written to {mod_dfaas_config_path.as_posix()!r}")
 
     # Experiments is a dictionary that contains all the experiments done, in
     # progress and to do. It matches an experiment with a specific subfolder
@@ -195,94 +164,56 @@ def prepare_experiments(dfaas_config_path):
 
     return dfaas_config, experiments
 
+
 def train(exp_config):
-    logger.log(f"START of training experiment")
+    logger.log("START of training experiment")
     logger.log(f"  Algorithm: {exp_config['algorithm']}")
     logger.log(f"  Environment scenario: {exp_config['env_config']['scenario']}")
-    logger.log(f"  Seed: {exp_config['seed']}")
+    logger.log(f"  Seed: {exp_config['env_config']['seed']}")
 
     exp = TrainingExperiment(exp_config=exp_config)
     policy = exp.run()
 
-    evaluation(exp, policy)
-
     return exp, policy
 
-def get_eval_config(exp_config):
-    """Returns a dictionary representing the evaluation configuration.
 
-    The evaluation config is extracted and built from the given experiment
-    config.
+def evaluate(eval_config, train_experiment, policy):
+    """Evaluation evaluates the given policy and the trained experiment with all
+    scenarios and writes the output as "evaluation_scenarios.json" in the
+    experiment directory.
 
-    The returned dictionary has the following keys:
-
-        * "num_episodes_for_scenario" of type int (default is 1),
-        * "allow_exploration" of type bool (default is False).
-    """
-    # The evaluation config dictionary is written directly to the given
-    # experiment config. RL4CC ignores any unknown keys in the config. This step
-    # is also done after RL4CC has trained the model.
-    if "evaluation" not in exp_config.keys():
-        exp_config["evaluation"] = {}
-
-    eval_config = exp_config["evaluation"]
-
-    num_eps_key = "num_episodes_for_scenario"
-    if num_eps_key not in eval_config.keys():
-        eval_config[num_eps_key] = 1
-    elif (t := type(eval_config[num_eps_key])) is not int:
-        logger.err(f"{num_eps_key!r} must be of type int, is {t.__name__}")
-        sys.exit(1)
-
-    explore_key = "allow_exploration"
-    if explore_key not in eval_config.keys():
-        eval_config[explore_key] = False
-    elif (t := type(eval_config[explore_key])) is not bool:
-        logger.err(f"{explore_key!r} must be of type bool, is {t.__name__}")
-        sys.exit(1)
-
-    return eval_config
-
-
-def evaluation(experiment, policy):
-    """Evaluations evaluates a single experiment against all three scenarios and
-    saves the result to a JSON file in the experiment results directory."""
-    config = get_eval_config(experiment.exp_config)
-
-    episodes = config["num_episodes_for_scenario"]
-    allow_exploration = config["allow_exploration"]
+    The evaluation can be configured using the eval_config dictionary."""
+    episodes = eval_config["num_episodes_for_scenario"]
+    allow_exploration = eval_config["allow_exploration"]
 
     # Results dictionary. "evaluations" contains the results for each scenario
     # evaluation.
     results = {
-        "train_scenario": experiment.env_config["scenario"],
+        "train_scenario": train_experiment.env_config["scenario"],
         "num_episodes_for_scenario": episodes,
         "allow_exploration": allow_exploration,
-        "evaluations": {}
+        "scenarios": {}
     }
 
     # Scenarios to test.
-    for scenario in ["scenario" + str(i+1) for i in range(3)]:
-        # Get original env_config from the experiment.
-        env_config = deepcopy(experiment.exp_config["env_config"])
-
-        # Set the scenario the policy will be evaluated with.
+    for scenario in TrafficManagementEnv.get_scenarios():
+        # Copy and adjust the original env_config.
+        env_config = deepcopy(train_experiment.exp_config["env_config"])
         env_config["scenario"] = scenario
-        env = traffic_env.TrafficManagementEnv(env_config)
 
-        # Evaluate the model with the specified scenario.
+        env = TrafficManagementEnv(env_config)
+
+        # Evaluate the policy with the given environment.
         result = evaluate_policy(policy=policy,
                                  env=env,
                                  num_eval_episodes=episodes,
                                  explore=allow_exploration)
 
-        results["evaluations"][scenario] = result
+        results["scenarios"][scenario] = result
 
-    # Save results as JSON file to disk.
-    dump = json.dumps(results, cls=utils.NumpyEncoder)
-    path = write_config_file(dump, experiment.logdir, "evaluations_scenarios.json")
-
-    logger.log(f"Evaluation of {experiment.exp_config['id']!r} saved in {path!r}")
+    eval_results_path = Path(train_experiment.logdir, "evaluations_scenarios.json")
+    utils.dict_to_json(results, eval_results_path)
+    logger.log(f"Evaluation of {train_experiment.exp_config['id']!r} saved in {eval_results_path.as_posix()!r}")
 
 
 def from_checkpoint():

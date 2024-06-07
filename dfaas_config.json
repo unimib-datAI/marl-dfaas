@@ -1,3 +1,41 @@
 {
-    "results_directory": "results"
+    "results_directory": "results",
+    "seeds": 5,
+    "seeds_values": [0, 1, 2, 3, 4],
+    "base_exp_config": {
+        "env_config": {
+            "env_name": "TrafficManagementEnv",
+            "min_time": 0,
+            "max_time": 100,
+            "time_step": 1
+        },
+        "ray_config": {
+            "framework": "torch",
+            "callbacks": {
+                "callbacks_class": "RL4CC.callbacks.base_callbacks.BaseCallbacks"
+            },
+            "rollouts": {
+                "duration_unit": "episodes",
+                "duration_per_worker": 1,
+                "num_rollout_workers": 1
+            },
+            "training": {
+                "batch_size": 100,
+                "num_train_batches": 1
+            },
+            "debugging": {
+                "log_level": "INFO"
+            }
+        },
+        "stopping_criteria": {
+            "max_iterations": 1
+        },
+        "logger": {
+            "verbosity": 2
+        }
+    },
+    "eval_config": {
+        "num_episodes_for_scenario": 50,
+        "allow_exploration": false
+    }
 }
