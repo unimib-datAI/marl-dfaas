@@ -54,42 +54,101 @@ def aggregate_data(data):
     return rewards_mean, rewards_std, steps_cong_mean, rejected_reqs_mean
 
 
-def calculate_metrics(results_directory):
-    # This dictionary contains the raw data resulted from the previous phase.
-    data = {}
+def calculate_metrics(exp_dir):
+    """Returns a dictionary with the calculated metrics from the given
+    experiment directory where the metrics.json file is located.
 
-    eval_file = "evaluations_scenarios.json"
-    try:
-        with open(f"{results_directory}/{eval_file}") as file:
-            data = json.load(file)
-    except IOError as e:
-        logger.err(f"Failed to read {eval_file}: {e}")
-        sys.exit(1)
+    This function calculates the metrics for a single experiment, while
+    calculate_aggregate_metrics() calculates the aggregate metrics for a list of
+    experiments."""
+    # Read raw evaluations data from the experiment.
+    eval_path = Path(exp_dir, "evaluations_scenarios.json")
+    data = json_to_dict(eval_path)
 
-    # This dictionary contains the metrics data that will be saved at the end.
-    metrics_data = {"train_scenario": data["train_scenario"],
-                    "num_episodes_for_scenario": data["num_episodes_for_scenario"],
-                    "allow_exploration": data["allow_exploration"],
-                    "metrics": {}
-                    }
+    # A dictionary containing some general information about the reports and the
+    # calculated metrics data.
+    metrics = {"train_scenario": data["train_scenario"],
+               "num_episodes_for_scenario": data["num_episodes_for_scenario"],
+               "allow_exploration": data["allow_exploration"],
+               "scenarios": {}
+               }
 
+    # Each scenario has its own metrics, we cannot mix them.
     for scenario in data["evaluations"]:
         mean, std, steps_cong, rejected_reqs = aggregate_data(data["evaluations"][scenario])
 
-        metrics_data["metrics"][scenario] = {"mean": mean,
-                                             "std": std,
-                                             "steps_cong": steps_cong,
-                                             "rejected_reqs": rejected_reqs
-                                             }
+        metrics["scenarios"][scenario] = {"rewards_mean": mean,
+                                          "rewards_std": std,
+                                          "steps_cong_mean": steps_cong,
+                                          "rejected_reqs_mean": rejected_reqs
+                                          }
 
-    # Save metrics data as JSON file to disk.
-    metrics_file = "evaluations_metrics.json"
-    try:
-        with open(f"{results_directory}/{metrics_file}", "w") as file:
-            json.dump(metrics_data, file)
-    except IOError as e:
-      logger.err(f"Failed to write metrics results to {metrics_file!r}: {e}")
-      sys.exit(1)
+    return metrics
+
+
+def calculate_aggregate_metrics(exp_dirs):
+    """Returns a dictionary with the computed aggregated metrics from the given
+    experiment directories where the metrics.json file exists."""
+    assert len(exp_dirs) >= 1
+    num_exp = len(exp_dirs)
+
+    # Read only the metrics file data of the first experiment to know how many
+    # scenarios there are and to set up the arrays.
+    metrics_path = Path(exp_dirs[0], "metrics.json")
+    metrics = json_to_dict(metrics_path)
+    raw_data = {}
+    for (scenario, scenario_data) in metrics["scenarios"].items():
+        # This array contains the individual metrics for each experiment and
+        # scenario (each scenario has its own metrics).
+        raw_data[scenario] = {}
+        raw_data[scenario]["rewards_mean"] = np.empty(shape=num_exp)
+        raw_data[scenario]["rewards_std"] = np.empty(shape=num_exp)
+        raw_data[scenario]["steps_cong_mean"] = np.empty(shape=num_exp)
+        raw_data[scenario]["rejected_reqs_mean"] = np.empty(shape=num_exp)
+
+        # Start filling the arrays.
+        raw_data[scenario]["rewards_mean"][0] = scenario_data["rewards_mean"]
+        raw_data[scenario]["rewards_std"][0] = scenario_data["rewards_std"]
+        raw_data[scenario]["steps_cong_mean"][0] = scenario_data["steps_cong_mean"]
+        raw_data[scenario]["rejected_reqs_mean"][0] = scenario_data["rejected_reqs_mean"]
+
+    # Iterate over all experiment metrics and finish to fill the raw_data
+    # arrays.
+    idx = 1
+    for exp_dir in exp_dirs[1:]:
+        metrics_path = Path(exp_dir, "metrics.json")
+        metrics = json_to_dict(metrics_path)
+
+        for (scenario, scenario_data) in metrics["scenarios"].items():
+            raw_data[scenario]["rewards_mean"][idx] = scenario_data["rewards_mean"]
+            raw_data[scenario]["rewards_std"][idx] = scenario_data["rewards_std"]
+            raw_data[scenario]["steps_cong_mean"][idx] = scenario_data["steps_cong_mean"]
+            raw_data[scenario]["rejected_reqs_mean"][idx] = scenario_data["rejected_reqs_mean"]
+
+        idx += 1
+
+    # Now it is possible to calculate the aggregated metrics.
+    aggr_metrics = {}
+    for (scenario, scenario_data) in raw_data.items():
+        aggr_metrics[scenario] = {
+                "rewards_mean": scenario_data["rewards_mean"].mean(),
+                "rewards_min": scenario_data["rewards_mean"].min(),
+                "rewards_max": scenario_data["rewards_mean"].max(),
+
+                "rewards_std_mean": scenario_data["rewards_std"].mean(),
+                "rewards_std_min": scenario_data["rewards_std"].min(),
+                "rewards_std_max": scenario_data["rewards_std"].max(),
+
+                "steps_cong_mean": scenario_data["steps_cong_mean"].mean(),
+                "steps_cong_min": scenario_data["steps_cong_mean"].min(),
+                "stesp_cong_max": scenario_data["steps_cong_mean"].max(),
+
+                "rejected_reqs_mean": scenario_data["rejected_reqs_mean"].mean(),
+                "rejected_reqs_min": scenario_data["rejected_reqs_mean"].min(),
+                "rejected_reqs_max": scenario_data["rejected_reqs_mean"].max(),
+                }
+
+    return aggr_metrics
 
 
 def main(experiments_directory):
@@ -101,19 +160,76 @@ def main(experiments_directory):
       logger.err(f"Failed to read {experiments_path.as_posix()!r}: {e}")
       sys.exit(1)
 
-    for algo in experiments.values():
-        for params in algo.values():
-            for scenario in params.values():
-                for exp in scenario.values():
+    # Dictionary of aggregated metrics, stored as "metrics.json" in the main
+    # experiments directory.
+    aggr_metrics = {}
+
+    for (algo, algo_value) in experiments.items():
+        for (params, params_value) in algo_value.items():
+            for (scenario, scenario_value) in params_value.items():
+                all_done = True
+                exp_dirs = []
+
+                # Calculate metrics for a single experiment.
+                for exp in scenario_value.values():
                     if not exp["done"]:
-                        logger.warn(f"Skip experiment {exp['id']!r} because it is not done")
+                        logger.warn(f"Skipping experiment {exp['id']!r} because it is not done")
+                        all_done = False
                         continue
+                    logger.log(f"Calculating metrics for {exp['id']!r}")
 
                     exp_directory = Path(experiments_directory, exp["directory"])
+                    exp_dirs.append(exp_directory)
+                    metrics = calculate_metrics(exp_directory)
 
-                    calculate_metrics(exp_directory.as_posix())
+                    # Save the metrics to disk.
+                    metrics_path = Path(exp_directory, "metrics.json")
+                    dict_to_json(metrics, metrics_path)
 
-                    logger.log(f"Metrics calculated and saves for {exp['id']!r}")
+                # When calculating aggregate metrics, all sub-experiments must
+                # be run.
+                exp_id = f"{algo}:{params}:{scenario}"
+                if not all_done:
+                    logger.warn(f"Skipping aggregate experiment {exp_id!r} because not all experiments are done")
+                    continue
+                logger.log(f"Calculating aggregate metrics for {exp_id!r}")
+
+                # Calculate aggregate metrics for all the same experiments but
+                # with different seeds.
+                metrics = calculate_aggregate_metrics(exp_dirs)
+                aggr_metrics[exp_id] = metrics
+                aggr_metrics[exp_id]["id"] = exp_id
+
+                # Save the updated metrics data to disk.
+                aggr_metrics_path = Path(experiments_directory, "metrics.json")
+                dict_to_json(aggr_metrics, aggr_metrics_path)
+
+
+def dict_to_json(data, file_path):
+    # Make sure to have a Path object, because we want the absolute path.
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    file_path = file_path.absolute()
+
+    try:
+        with open(file_path, "w") as file:
+            json.dump(data, file)
+    except IOError as e:
+      logger.err(f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}")
+      sys.exit(1)
+
+def json_to_dict(file_path):
+    # Make sure to have a Path object, because we want the absolute path.
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    file_path = file_path.absolute()
+
+    try:
+        with open(file_path, "r") as file:
+            return json.load(file)
+    except IOError as e:
+      logger.err(f"Failed to read json file from {file_path.as_posix()!r}: {e}")
+      sys.exit(1)
 
 
 if __name__ == "__main__":
