@@ -405,7 +405,7 @@ class TrafficManagementEnv(BaseEnvironment):
                 assert False, f"Unreachable code with scenario {self.scenario!r}"
 
         # Force values outside limits to respect observation space.
-        input_requests = np.clip(input_requests, 0, 150)
+        input_requests = np.clip(input_requests, 50, 150)
         forward_capacity = np.clip(forward_capacity, 0, 100)
 
         return input_requests, forward_capacity
