@@ -31,8 +31,8 @@ def main(dfaas_config_path, experiments_prefix):
 
     # Run all experiments.
     for (algo, algo_values) in experiments.items():
-        for params in algo_values.values():
-            for (scenario, scenario_value) in params.items():
+        for (params, params_values) in algo_values.items():
+            for (scenario, scenario_value) in params_values.items():
                 for exp in scenario_value.values():
                     if (experiments_prefix is not None
                        and len(experiments_prefix) >= 1
@@ -50,6 +50,11 @@ def main(dfaas_config_path, experiments_prefix):
                     exp_config["env_config"]["seed"] = exp["seed"]
                     exp_config["env_config"]["scenario"] = scenario
                     exp_config["ray_config"]["debugging"]["seed"] = exp["seed"]
+
+                    # Get the algorithm's parameters ("standard" or "tuned") and
+                    # then update the configuration.
+                    parameters = dfaas_config["parameters"][algo][params]
+                    exp_config["ray_config"]["training"].update(parameters)
 
                     # Run the experiment.
                     train_exp, policy = train(exp_config)
