@@ -135,6 +135,9 @@ def calculate_aggregate_metrics(exp_dirs):
     # Now it is possible to calculate the aggregated metrics.
     aggr_metrics = {}
     for (scenario, scenario_data) in raw_data.items():
+        # Coefficient of variation percentual.
+        rewards_cv_percent = scenario_data["rewards_std"].mean() / scenario_data["rewards_mean"].mean() * 100
+
         aggr_metrics[scenario] = {
                 "rewards_mean": scenario_data["rewards_mean"].mean(),
                 "rewards_min": scenario_data["rewards_mean"].min(),
@@ -143,6 +146,8 @@ def calculate_aggregate_metrics(exp_dirs):
                 "rewards_std_mean": scenario_data["rewards_std"].mean(),
                 "rewards_std_min": scenario_data["rewards_std"].min(),
                 "rewards_std_max": scenario_data["rewards_std"].max(),
+
+                "rewards_cv_percent": rewards_cv_percent,
 
                 "steps_cong_mean": scenario_data["steps_cong_mean"].mean(),
                 "steps_cong_min": scenario_data["steps_cong_mean"].min(),
