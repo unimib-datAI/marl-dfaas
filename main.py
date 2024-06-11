@@ -52,6 +52,8 @@ def main(dfaas_config_path, experiments_prefix):
                     exp_config["id"] = exp["id"]
                     exp_config["env_config"]["seed"] = exp["seed"]
                     exp_config["env_config"]["scenario"] = scenario
+                    # The "debugging" key may be not present.
+                    exp_config["ray_config"].setdefault("debugging", {})
                     exp_config["ray_config"]["debugging"]["seed"] = exp["seed"]
 
                     # Get the algorithm's parameters ("standard" or "tuned") and
