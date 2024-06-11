@@ -29,6 +29,9 @@ def main(dfaas_config_path, experiments_prefix):
     # Where to save the experiments dictionary.
     experiments_path = Path(dfaas_dir, "experiments.json")
 
+    # Save a first version of the experiments to disk.
+    utils.dict_to_json(experiments, experiments_path)
+
     # Run all experiments.
     for (algo, algo_values) in experiments.items():
         for (params, params_values) in algo_values.items():
