@@ -182,9 +182,19 @@ def evaluate(eval_config, train_experiment, policy):
     scenarios and writes the output as "evaluation_scenarios.json" in the
     experiment directory.
 
-    The evaluation can be configured using the eval_config dictionary."""
+    The evaluation can be configured using the eval_config dictionary. It has
+    the following keys:
+
+    - num_episodes_for_scenario: how many episodes to run for a single scenario
+      (positive integer),
+    - allow_exploration: whether the policy can select new exploration actions
+      instead of just the best rewarded action (boolean),
+    - starting_seed: the seed used to create the RNG that generates the seeds
+      used for each episode.
+    """
     episodes = eval_config["num_episodes_for_scenario"]
     allow_exploration = eval_config["allow_exploration"]
+    starting_seed = eval_config["starting_seed"]
 
     # Results dictionary. "evaluations" contains the results for each scenario
     # evaluation.
@@ -192,6 +202,7 @@ def evaluate(eval_config, train_experiment, policy):
         "train_scenario": train_experiment.env_config["scenario"],
         "num_episodes_for_scenario": episodes,
         "allow_exploration": allow_exploration,
+        "starting_seed": starting_seed,
         "scenarios": {}
     }
 
@@ -207,7 +218,8 @@ def evaluate(eval_config, train_experiment, policy):
         result = evaluate_policy(policy=policy,
                                  env=env,
                                  num_eval_episodes=episodes,
-                                 explore=allow_exploration)
+                                 explore=allow_exploration,
+                                 seed=starting_seed)
 
         results["scenarios"][scenario] = result
 

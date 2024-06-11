@@ -52,7 +52,6 @@ class TrafficManagementEnv(BaseEnvironment):
         self.amplitude_requests = config.get("amplitude_requests", 50)
         self.period = config.get("period", 50)
         self.scenario = config.get("scenario", "scenario1")
-        self.seed = config.get("seed", 0)
 
         # Max steps for the environment.
         self.max_steps = config.get("max_steps", 100)
@@ -60,14 +59,14 @@ class TrafficManagementEnv(BaseEnvironment):
         # Call 'print' function on each step.
         self.debug = config.get("debug", False)
 
-        # Create the RNG used to generate input requests and forward capacity.
-        self.rng = np.random.default_rng(seed=self.seed)
+        # The original seed for the RNG. This remain the same even if "reset()"
+        # is called with a different seed.
+        self.original_seed = config.get("seed", 0)
 
-        # Reset the environment.
-        self.reset(seed=self.seed)
+        # Reset the environment. It also create the RNG.
+        self.reset(seed=self.original_seed)
 
     def reset(self, *, seed=None, options=None):
-
         # Congested flags.
         self.congested_queue_full = False
         self.congested_forward_exceed = False
@@ -91,10 +90,9 @@ class TrafficManagementEnv(BaseEnvironment):
         self.current_step = 0
 
         # Seed.
-        if seed is not None:
-            self.seed = seed
+        self.seed = seed if seed is not None else self.original_seed
 
-        # Recreate the RNG from start.
+        # Create the RNG used to generate input requests and forward capacity.
         self.rng = np.random.default_rng(seed=self.seed)
 
         # Set initial input requests and forward capacity.
@@ -135,6 +133,8 @@ class TrafficManagementEnv(BaseEnvironment):
         info["actions"]["local"] = actions[0] if len(actions) == 3 else 0
         info["actions"]["forwarded"] = actions[1] if len(actions) == 3 else 0
         info["actions"]["rejected"] = actions[2] if len(actions) == 3 else 0
+
+        info["seed"] = self.seed
 
         return info
 

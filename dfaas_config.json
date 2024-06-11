@@ -20,15 +20,15 @@
                 "num_rollout_workers": 1
             },
             "training": {
-                "batch_size": 100,
-                "num_train_batches": 1
+                "batch_size": 32,
+                "num_train_batches": 3
             },
             "debugging": {
                 "log_level": "INFO"
             }
         },
         "stopping_criteria": {
-            "max_iterations": 1
+            "max_iterations": 1000
         },
         "logger": {
             "verbosity": 2
@@ -36,6 +36,7 @@
     },
     "eval_config": {
         "num_episodes_for_scenario": 50,
-        "allow_exploration": false
+        "allow_exploration": false,
+        "starting_seed": 0
     }
 }

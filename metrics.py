@@ -46,6 +46,8 @@ def aggregate_data(data):
         rewards[idx] = tmp_rewards
         idx += 1
 
+    assert idx == num_episodes, "The ndarrays have some elements not accessed"
+
     # Calculate the means and standard deviation.
     rewards_mean = np.mean(rewards)
     rewards_std = np.std(rewards)
@@ -127,6 +129,8 @@ def calculate_aggregate_metrics(exp_dirs):
             raw_data[scenario]["rejected_reqs_mean"][idx] = scenario_data["rejected_reqs_mean"]
 
         idx += 1
+
+    assert idx == num_exp, "The ndarrays have some unitialized data"
 
     # Now it is possible to calculate the aggregated metrics.
     aggr_metrics = {}
