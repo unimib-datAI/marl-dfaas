@@ -1,6 +1,8 @@
 import math
 
 import gymnasium as gym
+from gymnasium.utils.env_checker import check_env
+from gymnasium.envs.registration import EnvSpec
 import numpy as np
 
 from ray.rllib.utils.spaces import simplex
@@ -20,7 +22,7 @@ register_env("TrafficManagementEnv", TrafficManagementEnvCreator)
 
 
 class TrafficManagementEnv(BaseEnvironment):
-    def __init__(self, config):
+    def __init__(self, config={}):
         """
         State:
             - Nr. of input requests (integer),
@@ -33,9 +35,8 @@ class TrafficManagementEnv(BaseEnvironment):
         not set, the default value is used.
         """
         self.action_space = simplex.Simplex(shape=(3,))
-        self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0], dtype=np.float32),
-                                                high=np.array([150, 100, 100, 1, 1], dtype=np.float32),
-                                                dtype=np.float32)
+        self.observation_space = gym.spaces.Box(low=np.array([50, 0, 0, 0, 0]),
+                                                high=np.array([150, 100, 100, 1, 1]))
 
         # Minimium and maximum possible reward. Overwrites parent attribute.
         self.reward_range = (-np.inf, np.inf)
@@ -62,6 +63,10 @@ class TrafficManagementEnv(BaseEnvironment):
         # The original seed for the RNG. This remain the same even if "reset()"
         # is called with a different seed.
         self.original_seed = config.get("seed", 0)
+
+        # Required by Gymnasium API, not used.
+        self.spec = EnvSpec(id="TrafficManagementEnv",
+                            entry_point="traffic_env:TrafficManagementEnv")
 
         # Reset the environment. It also create the RNG.
         self.reset(seed=self.original_seed)
@@ -94,6 +99,7 @@ class TrafficManagementEnv(BaseEnvironment):
 
         # Create the RNG used to generate input requests and forward capacity.
         self.rng = np.random.default_rng(seed=self.seed)
+        self.np_random = self.rng  # Required by the Gymnasium API
 
         # Set initial input requests and forward capacity.
         self.input_requests, self.forward_capacity = self._get_requests_capacity()
@@ -113,7 +119,8 @@ class TrafficManagementEnv(BaseEnvironment):
                         self.queue_capacity,
                         self.forward_capacity,
                         self.congested_queue_full,
-                        self.congested_forward_exceed])
+                        self.congested_forward_exceed],
+                       dtype=np.float32)
 
         return obs
 
@@ -452,3 +459,9 @@ class TrafficManagementEnv(BaseEnvironment):
     def get_scenarios():
         """Returns a list of the supported scenarios."""
         return ["scenario" + str(i+1) for i in range(3)]
+
+
+if __name__ == "__main__":
+    env = TrafficManagementEnv({})
+
+    check_env(env)
