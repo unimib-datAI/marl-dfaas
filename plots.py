@@ -11,10 +11,9 @@ from RL4CC.utilities.logger import Logger
 
 logger = Logger(name="DFAAS-PLOTS", verbose=2)
 
-
-def make_plots_experiment(exp_dir, exp_id):
-    """Reads the results.json file in the given experiment directory and creates
-    the specific plots for the experiments, saving them in the same directory.
+def make_training_plot(exp_dir, exp_id):
+    """Makes the plots related to the training phase for the given
+    experiment. Data is extracted from the "result.json" file.
 
     The experiment ID is needed to annotate the plots."""
     # Each item is one experiment training iteration object.
@@ -75,6 +74,12 @@ def make_plots_experiment(exp_dir, exp_id):
 
     # Save the plot.
     fig.savefig(Path(exp_dir, "training_plot.pdf"))
+
+
+def make_plots_experiment(exp_dir, exp_id):
+    """Makes plots related for a single experiment."""
+
+    make_training_plot(exp_dir, exp_id)
 
 
 def main(exp_dir, exp_prefix):
