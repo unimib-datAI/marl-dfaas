@@ -61,16 +61,21 @@ class TrafficManagementEnv(BaseEnvironment):
         # Call 'print' function on each step.
         self.debug = config.get("debug", False)
 
-        # The original seed for the RNG. This remain the same even if "reset()"
-        # is called with a different seed.
-        self.original_seed = config.get("seed", 0)
+        # The master seed for the RNG. This is used in each episode (each
+        # "reset()") to create a new RNG that will be used for generating input
+        # requests and forward capacity.
+        #
+        # Using the master seed make sure to generate a reproducible sequence of
+        # seeds.
+        self.master_seed = config.get("seed", 0)
+        self.master_rng = np.random.default_rng(seed=self.master_seed)
 
         # Required by Gymnasium API, not used.
         self.spec = EnvSpec(id="TrafficManagementEnv",
                             entry_point="traffic_env:TrafficManagementEnv")
 
-        # Reset the environment. It also create the RNG.
-        self.reset(seed=self.original_seed)
+        # Reset the environment. A new RNG will be created.
+        self.reset()
 
     def reset(self, *, seed=None, options=None):
         # Congested flags.
@@ -96,7 +101,8 @@ class TrafficManagementEnv(BaseEnvironment):
         self.current_step = 0
 
         # Seed.
-        self.seed = seed if seed is not None else self.original_seed
+        iinfo = np.iinfo(np.uint32)
+        self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)
 
         # Create the RNG used to generate input requests and forward capacity.
         self.rng = np.random.default_rng(seed=self.seed)
@@ -142,6 +148,7 @@ class TrafficManagementEnv(BaseEnvironment):
         info["actions"]["forwarded"] = actions[1] if len(actions) == 3 else 0
         info["actions"]["rejected"] = actions[2] if len(actions) == 3 else 0
 
+        info["master_seed"] = self.master_seed
         info["seed"] = self.seed
 
         return info
