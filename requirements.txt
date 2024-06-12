@@ -7,3 +7,5 @@ pandas
 typer
 scikit-image
 lz4
+flake8
+matplotlib

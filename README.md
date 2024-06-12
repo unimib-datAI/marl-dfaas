@@ -16,6 +16,8 @@ pandas
 typer
 scikit-image
 lz4
+flake8
+matplotlib
 ```
 
 Only Ray (RRLib) must be bounded to a specific version (here 2.10.0).
