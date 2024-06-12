@@ -2,6 +2,7 @@ import math
 
 import gymnasium as gym
 from gymnasium.utils.env_checker import check_env
+from gymnasium.utils.passive_env_checker import env_step_passive_checker, env_reset_passive_checker
 from gymnasium.envs.registration import EnvSpec
 import numpy as np
 
@@ -464,4 +465,17 @@ class TrafficManagementEnv(BaseEnvironment):
 if __name__ == "__main__":
     env = TrafficManagementEnv({})
 
+    # Check the environment.
     check_env(env)
+
+    # Run passive checker. These passive checker are from Gymnasium and are not
+    # exposed as public API.
+    # TODO: may be redundand, just use check_env()
+    obs, info = env_reset_passive_checker(env)
+    done = False
+    while not done:
+        action = env.action_space.sample()
+
+        obs, reward, terminated, truncated, info = env_step_passive_checker(env, action)
+
+        done = terminated or truncated
