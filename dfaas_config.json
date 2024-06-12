@@ -12,7 +12,7 @@
         "ray_config": {
             "framework": "torch",
             "callbacks": {
-                "callbacks_class": "RL4CC.callbacks.base_callbacks.BaseCallbacks"
+                "callbacks_class": "callbacks.TrafficManagementCallbacks"
             },
             "rollouts": {
                 "duration_unit": "episodes",
@@ -41,12 +41,7 @@
     },
     "parameters": {
         "PPO": {
-            "standard": {
-                "lambda": 0.95,
-                "clip_param": 0.2,
-                "entropy_coeff": 0.01,
-                "lr": 0.0003
-            },
+            "standard": {},
             "tuned": {
                 "gamma": 0.91,
                 "lambda": 0.95,
