@@ -1,8 +1,10 @@
 from pathlib import Path
 import argparse
 import json
+import concurrent.futures
 
 import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 
 import utils
@@ -132,15 +134,18 @@ def make_evaluation_plot(exp_dir, exp_id):
         plt.close(fig)
 
 
-def make_plots_experiment(exp_dir, exp_id):
+def make_plots_single_experiment(exp_dir, exp_id):
     """Makes plots related to a single experiment. The plots are stored in the
     'plots' directory within the experiment directory."""
+    logger.log(f"Making plots for experiment ID {exp_id}")
+
     # Make sure the directory is created.
     Path(exp_dir, "plots").mkdir(parents=True, exist_ok=True)
 
     make_training_plot(exp_dir, exp_id)
 
-    make_evaluation_plot(exp_dir, exp_id)
+    # TODO: useless plots?
+    # make_evaluation_plot(exp_dir, exp_id)
 
 
 def get_metrics_training_exp(exp_dir):
@@ -190,7 +195,9 @@ def get_metrics_training_exp(exp_dir):
     return result
 
 
-def make_aggregate_plots(exp_dirs, exp_id):
+def make_aggregate_plots(exp_dirs, exp_id, res_dir):
+    logger.log(f"Making aggregate plots for {exp_id!r}")
+
     # Each value is a ndarray for each experiment.
     reward_mean = []
     reward_total = []
@@ -244,7 +251,8 @@ def make_aggregate_plots(exp_dirs, exp_id):
     for ax in axs.flat:
         ax.set_xlabel("Iteration")
 
-    return fig
+    fig.savefig(Path(res_dir, "plots", "training", f"{exp_id}.pdf"))
+    plt.close(fig)
 
 
 def make_experiments_plots(exp_dir, exp_prefix):
@@ -257,6 +265,10 @@ def make_experiments_plots(exp_dir, exp_prefix):
     # single experiment).
     Path(exp_dir, "plots", "training").mkdir(parents=True, exist_ok=True)
 
+    # Make plots concurrently.
+    executor = concurrent.futures.ThreadPoolExecutor()
+    tasks = []
+
     # Make plots for all experiments.
     for (algo, algo_values) in experiments.items():
         for (params, params_values) in algo_values.items():
@@ -265,8 +277,8 @@ def make_experiments_plots(exp_dir, exp_prefix):
                 all_done = False
                 for exp in scenario_value.values():
                     # Make plots only for experiments selected by the user
-                    # (only if the user give the argument, otherwise consider
-                    # all experiments).
+                    # (only if the user give the argument, otherwise
+                    # consider all experiments).
                     if (exp_prefix is not None and len(exp_prefix) >= 1
                        and not exp["id"].startswith(tuple(exp_prefix))):
                         logger.log(f"Skipping experiment ID {exp['id']}")
@@ -277,25 +289,70 @@ def make_experiments_plots(exp_dir, exp_prefix):
                         logger.warn(f"Skipping experiment {exp['id']!r} because it is not done")
                         continue
 
-                    logger.log(f"Making plots for experiment ID {exp['id']}")
-
                     # Make plots for a single experiment. We only give the
                     # experiment's directory and its ID.
                     exp_directory = Path(exp_dir, exp["directory"])
                     exp_dirs.append(exp_directory)
-                    make_plots_experiment(exp_directory, exp['id'])
+
+                    task = executor.submit(make_plots_single_experiment, exp_directory, exp["id"])
+                    tasks.append(task)
 
                     all_done = True
 
-                # When making aggregate plots, all sub-experiments must be run.
+                # When making aggregate plots, all sub-experiments must be
+                # run.
                 exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
                     logger.warn(f"Skipping making plot for aggregate experiment {exp_id!r} because not all experiments are done")
                     continue
-                logger.log(f"Making aggregate plots for {exp_id!r}")
-                fig = make_aggregate_plots(exp_dirs, exp_id)
-                fig.savefig(Path(exp_dir, "plots", "training", f"{exp_id}.pdf"))
-                plt.close(fig)
+                task = executor.submit(make_aggregate_plots, exp_dirs, exp_id, exp_dir)
+                tasks.append(task)
+
+    executor.shutdown()
+
+    for task in tasks:
+        # If there is an exception, it will be thrown.
+        task.result()
+
+
+def make_scenario_plots(plots_dir, scenario):
+    logger.log(f"Making plots for scenario {scenario!r}")
+
+    env = TrafficManagementEnv({"scenario": scenario})
+    env.reset()
+
+    step = 0
+    max_steps = env.max_steps
+
+    input_requests = np.empty(shape=env.max_steps, dtype=np.int64)
+    forward_capacity = np.empty(shape=env.max_steps, dtype=np.int64)
+
+    while step < max_steps:
+        action = env.action_space.sample()
+        obs, _, _, _, _ = env.step(action)
+
+        input_requests[step] = obs[0]
+        forward_capacity[step] = obs[1]
+
+        step += 1
+
+    # Make the plot.
+    fig = plt.figure(figsize=(19.2, 14.3), dpi=300, layout="constrained")
+    fig.suptitle(f"Scenario {scenario!r}")
+    axs = fig.subplots(ncols=1, nrows=2)
+
+    axs[0].plot(input_requests)
+    axs[0].set_title("Input requests")
+
+    axs[1].plot(forward_capacity)
+    axs[1].set_title("Forwarding capacity")
+
+    for ax in axs.flat:
+        ax.set_xlabel("Step")
+
+    # Save the plot.
+    fig.savefig(Path(plots_dir, f"{scenario}.pdf"))
+    plt.close(fig)
 
 
 def make_environment_plots(exp_dir):
@@ -304,49 +361,25 @@ def make_environment_plots(exp_dir):
     plots_dir = Path(exp_dir, "plots", "environment")
     plots_dir.mkdir(parents=True, exist_ok=True)
 
+    executor = concurrent.futures.ThreadPoolExecutor()
+    tasks = []
+
     for scenario in TrafficManagementEnv.get_scenarios():
-        logger.log(f"Making plots for scenario {scenario!r}")
+        task = executor.submit(make_scenario_plots, plots_dir, scenario)
+        tasks.append(task)
 
-        env = TrafficManagementEnv({"scenario": scenario})
-        env.reset()
+    executor.shutdown()
 
-        step = 0
-        max_steps = env.max_steps
-
-        input_requests = np.empty(shape=env.max_steps, dtype=np.int64)
-        forward_capacity = np.empty(shape=env.max_steps, dtype=np.int64)
-
-        while step < max_steps:
-            action = env.action_space.sample()
-            obs, _, _, _, _ = env.step(action)
-
-            input_requests[step] = obs[0]
-            forward_capacity[step] = obs[1]
-
-            step += 1
-
-        # Make the plot.
-        fig = plt.figure(figsize=(19.2, 14.3), dpi=300, layout="constrained")
-        fig.suptitle(f"Scenario {scenario!r}")
-        axs = fig.subplots(ncols=1, nrows=2)
-
-        axs[0].plot(input_requests)
-        axs[0].set_title("Input requests")
-
-        axs[1].plot(forward_capacity)
-        axs[1].set_title("Forwarding capacity")
-
-        for ax in axs.flat:
-            ax.set_xlabel("Step")
-
-        # Save the plot.
-        fig.savefig(Path(plots_dir, f"{scenario}.pdf"))
-        plt.close(fig)
+    for task in tasks:
+        task.result()
 
 
 def main(exp_dir, exp_prefix):
     plots_path = Path(exp_dir, "plots")
     plots_path.mkdir(parents=True, exist_ok=True)
+
+    # Use only the PDF (non-interactive) backend.
+    matplotlib.use("pdf", force=True)
 
     make_experiments_plots(exp_dir, exp_prefix)
 
