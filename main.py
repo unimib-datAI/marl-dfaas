@@ -224,6 +224,7 @@ def evaluate(eval_config, train_experiment, policy):
         # Copy and adjust the original env_config.
         env_config = deepcopy(train_experiment.exp_config["env_config"])
         env_config["scenario"] = scenario
+        env_config["seed"] = starting_seed
 
         env = TrafficManagementEnv(env_config)
 
@@ -231,8 +232,7 @@ def evaluate(eval_config, train_experiment, policy):
         result = evaluate_policy(policy=policy,
                                  env=env,
                                  num_eval_episodes=episodes,
-                                 explore=allow_exploration,
-                                 seed=starting_seed)
+                                 explore=allow_exploration)
 
         results["scenarios"][scenario] = result
 
