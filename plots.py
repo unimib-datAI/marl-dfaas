@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import utils
+from traffic_env import TrafficManagementEnv
 
 from RL4CC.utilities.logger import Logger
 
@@ -156,7 +157,7 @@ def make_aggregate_plots(exp_dirs, exp_id):
     return fig
 
 
-def main(exp_dir, exp_prefix):
+def make_experiments_plots(exp_dir, exp_prefix):
     """Create plots for the DFaaS RL experiments."""
     # Read and parse the experiments.json file.
     experiments_path = Path(exp_dir, "experiments.json")
@@ -164,16 +165,14 @@ def main(exp_dir, exp_prefix):
 
     # Directory that will contains plots related to macro-experiments (not the
     # single experiment).
-    plots_path = Path(exp_dir, "plots")
-    plots_path.mkdir(parents=True, exist_ok=True)
-    Path(plots_path, "training").mkdir(parents=True, exist_ok=True)
+    Path(exp_dir, "plots", "training").mkdir(parents=True, exist_ok=True)
 
     # Make plots for all experiments.
     for (algo, algo_values) in experiments.items():
         for (params, params_values) in algo_values.items():
             for (scenario, scenario_value) in params_values.items():
                 exp_dirs = []
-                all_done = True
+                all_done = False
                 for exp in scenario_value.values():
                     # Make plots only for experiments selected by the user
                     # (only if the user give the argument, otherwise consider
@@ -186,7 +185,6 @@ def main(exp_dir, exp_prefix):
                     # Make plots only for finished experiments.
                     if not exp["done"]:
                         logger.warn(f"Skipping experiment {exp['id']!r} because it is not done")
-                        all_done = False
                         continue
 
                     logger.log(f"Making plots for experiment ID {exp['id']}")
@@ -197,6 +195,8 @@ def main(exp_dir, exp_prefix):
                     exp_dirs.append(exp_directory)
                     make_plots_experiment(exp_directory, exp['id'])
 
+                    all_done = True
+
                 # When making aggregate plots, all sub-experiments must be run.
                 exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
@@ -205,6 +205,60 @@ def main(exp_dir, exp_prefix):
                 logger.log(f"Making aggregate plots for {exp_id!r}")
                 fig = make_aggregate_plots(exp_dirs, exp_id)
                 fig.savefig(Path(exp_dir, "plots", "training", f"{exp_id}.pdf"))
+
+
+def make_environment_plots(exp_dir):
+    """Makes some basic plots to show how the scenarios generate input requests
+    and forwarding capacity for each scenario."""
+    plots_dir = Path(exp_dir, "plots", "environment")
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    for scenario in TrafficManagementEnv.get_scenarios():
+        logger.log(f"Making plots for scenario {scenario!r}")
+
+        env = TrafficManagementEnv({"scenario": scenario})
+        env.reset()
+
+        step = 0
+        max_steps = env.max_steps
+
+        input_requests = np.empty(shape=env.max_steps, dtype=np.int64)
+        forward_capacity = np.empty(shape=env.max_steps, dtype=np.int64)
+
+        while step < max_steps:
+            action = env.action_space.sample()
+            obs, _, _, _, _ = env.step(action)
+
+            input_requests[step] = obs[0]
+            forward_capacity[step] = obs[1]
+
+            step += 1
+
+        # Make the plot.
+        fig = plt.figure(figsize=(19.2, 14.3), dpi=300, layout="constrained")
+        fig.suptitle(f"Scenario {scenario!r}")
+        axs = fig.subplots(ncols=1, nrows=2)
+
+        axs[0].plot(input_requests)
+        axs[0].set_title("Input requests")
+
+        axs[1].plot(forward_capacity)
+        axs[1].set_title("Forwarding capacity")
+
+        for ax in axs.flat:
+            ax.set_xlabel("Step")
+
+        # Save the plot.
+        fig.savefig(Path(plots_dir, f"{scenario}.pdf"))
+
+
+def main(exp_dir, exp_prefix):
+    plots_path = Path(exp_dir, "plots")
+    plots_path.mkdir(parents=True, exist_ok=True)
+
+    make_experiments_plots(exp_dir, exp_prefix)
+
+    make_environment_plots(exp_dir)
 
 
 if __name__ == "__main__":
