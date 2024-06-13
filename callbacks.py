@@ -31,6 +31,15 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         episode.user_data["rejected_reqs"] = []
         episode.hist_data["rejected_reqs"] = []
 
+        episode.user_data["input_requests"] = []
+        episode.hist_data["input_requests"] = []
+
+        episode.user_data["forwarding_capacity"] = []
+        episode.hist_data["forwarding_capacity"] = []
+
+        episode.user_data["actions"] = []
+        episode.hist_data["actions"] = []
+
     def on_episode_step(self, *, episode, **kwargs):
         """Called on each episode step (after the action has been logged).
 
@@ -45,11 +54,18 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         reward = info["reward"]
         congested = info["congested"]
         rejected_reqs = info["actions"]["rejected"]
+        obs = info["obs"]
+        input_requests = obs[0]
+        forwarding_capacity = obs[1]
+        action = tuple(info["actions"].values())
 
         episode.user_data["current_time"].append(current_time)
         episode.user_data["reward"].append(reward)
         episode.user_data["congested"].append(congested)
         episode.user_data["rejected_reqs"].append(rejected_reqs)
+        episode.user_data["input_requests"].append(input_requests)
+        episode.user_data["forwarding_capacity"].append(forwarding_capacity)
+        episode.user_data["actions"].append(action)
 
     def on_episode_end(self, *, episode, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
@@ -61,6 +77,9 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         episode.hist_data["reward"] = episode.user_data["reward"]
         episode.hist_data["congested"] = episode.user_data["congested"]
         episode.hist_data["rejected_reqs"] = episode.user_data["rejected_reqs"]
+        episode.hist_data["input_requests"] = episode.user_data["input_requests"]
+        episode.hist_data["forwarding_capacity"] = episode.user_data["forwarding_capacity"]
+        episode.hist_data["actions"] = episode.user_data["actions"]
 
         episode.custom_metrics["reward_mean"] = np.mean(episode.hist_data["reward"])
         episode.custom_metrics["congested_steps"] = np.sum(episode.hist_data["congested"])

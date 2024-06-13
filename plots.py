@@ -134,6 +134,79 @@ def make_evaluation_plot(exp_dir, exp_id):
         plt.close(fig)
 
 
+def single_exp_iter(exp_dir, exp_id):
+    plots_dir = Path(exp_dir, "plots")
+
+    # Iteration steps when the plots will be made.
+    iter_plots = [0, 500, 999]
+
+    # Each item is an iteration object, but only the steps provided by
+    # iter_plots.
+    iters = {}
+
+    # Filter the "result.json" and load only the interested iterations.
+    result_path = Path(exp_dir, "result.json")
+    with result_path.open() as result:
+        # The "result.json" file is not a valid JSON file. Each row is an
+        # isolated JSON object, the result of one training iteration.
+        iter_idx = 0
+        while (raw_iter := result.readline()) != "":
+            if iter_idx in iter_plots:
+                iters[iter_idx] = json.loads(raw_iter)
+
+            iter_idx += 1
+
+    for (iter_idx, iter) in iters.items():
+        steps = iter["hist_stats"]["episode_lengths"][0]
+
+        input_requests = np.empty(shape=steps, dtype=np.int64)
+        forwarding_capacity = np.empty(shape=steps, dtype=np.int64)
+        actions = np.empty(shape=(steps, 3), dtype=np.int64)
+
+        for step in range(steps):
+            input_requests[step] = iter["hist_stats"]["input_requests"][step]
+            forwarding_capacity[step] = iter["hist_stats"]["forwarding_capacity"][step]
+            actions[step] = iter["hist_stats"]["actions"][step]
+
+        assert step == steps-1, f"step is {step}, expected {steps-1}"
+
+        # Make the plot.
+        fig = plt.figure(figsize=(28.79, 21.45), dpi=600, layout="constrained")
+        fig.suptitle(f"{exp_id} on iteration {iter_idx}")
+        axs = fig.subplots(ncols=1, nrows=3)
+
+        # We need to shift the lines and bars one to the right. Why? Because the
+        # actions of a step refer to the previously observed environment.
+        #
+        # So we start from step=1 in the X axis.
+        steps_x = np.arange(start=1, stop=steps)
+
+        axs[0].plot(steps_x, input_requests[:-1])
+        axs[0].set_title("Input requests")
+
+        axs[1].plot(steps_x, forwarding_capacity[:-1])
+        axs[1].set_title("Forwarding capacity")
+
+        # Get the action by column and skip the first item.
+        local = actions[1:, 0]
+        forwarded = actions[1:, 1]
+        rejected = actions[1:, 2]
+
+        axs[2].bar(x=steps_x, height=local, label="Local")
+        axs[2].bar(x=steps_x, height=forwarded, label="Forwarded", bottom=local)
+        axs[2].bar(x=steps_x, height=rejected, label="Rejected", bottom=local+forwarded)
+        axs[2].plot(steps_x, input_requests[:-1], linewidth=3, color="r", label="Input requests")
+        axs[2].set_title("Actions")
+        axs[2].legend()
+
+        for ax in axs.flat:
+            ax.set_xlabel("Step")
+
+        # Save the plot.
+        fig.savefig(Path(plots_dir, f"training_iter_{iter_idx}.pdf"))
+        plt.close(fig)
+
+
 def make_plots_single_experiment(exp_dir, exp_id):
     """Makes plots related to a single experiment. The plots are stored in the
     'plots' directory within the experiment directory."""
@@ -143,6 +216,8 @@ def make_plots_single_experiment(exp_dir, exp_id):
     Path(exp_dir, "plots").mkdir(parents=True, exist_ok=True)
 
     make_training_plot(exp_dir, exp_id)
+
+    single_exp_iter(exp_dir, exp_id)
 
     # TODO: useless plots?
     # make_evaluation_plot(exp_dir, exp_id)
@@ -281,7 +356,7 @@ def make_experiments_plots(exp_dir, exp_prefix):
                     # consider all experiments).
                     if (exp_prefix is not None and len(exp_prefix) >= 1
                        and not exp["id"].startswith(tuple(exp_prefix))):
-                        logger.log(f"Skipping experiment ID {exp['id']}")
+                        logger.warn(f"Skipping experiment ID {exp['id']}")
                         continue
 
                     # Make plots only for finished experiments.
