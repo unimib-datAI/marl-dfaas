@@ -45,12 +45,102 @@ def make_training_plot(exp_dir, exp_id):
         ax.set_xlabel("Iteration")
 
     # Save the plot.
-    fig.savefig(Path(exp_dir, "training_plot.pdf"))
+    fig.savefig(Path(exp_dir, "plots", "training_plot.pdf"))
+    plt.close(fig)
+
+
+def make_evaluation_plot(exp_dir, exp_id):
+    # Read raw evaluations data from the experiment.
+    eval_path = Path(exp_dir, "evaluations_scenarios.json")
+    data = utils.json_to_dict(eval_path)
+
+    num_episodes = data["num_episodes_for_scenario"]
+    # We assume that each episode has the same evaluation steps.
+    eval_steps = len(data["scenarios"]["scenario1"][0]["evaluation_steps"])
+
+    for scenario in data["scenarios"]:
+        reward_mean = np.empty(shape=(num_episodes, eval_steps))
+        reward_total = np.empty(shape=(num_episodes, eval_steps))
+        congested_steps = np.empty(shape=(num_episodes, eval_steps))
+        rejected_reqs_total = np.empty(shape=(num_episodes, eval_steps))
+
+        # Fill the arrays with the data.
+        for episode in data["scenarios"][scenario]:
+            ep_idx = episode["episode"]
+
+            # There is not "rejected_reqs_total" inside the data for each step.
+            # We need to calculate this value manually step after step.
+            rejected_reqs_total_tmp = 0
+
+            for eval_step in episode["evaluation_steps"]:
+                step_idx = eval_step["step"]
+
+                rejected_reqs_total_tmp += eval_step["obs_info"]["actions"]["rejected"]
+
+                reward_mean[ep_idx, step_idx] = eval_step["reward"]
+                reward_total[ep_idx, step_idx] = eval_step["total_reward"]
+                congested_steps[ep_idx, step_idx] = eval_step["obs_info"]["congested"]
+                rejected_reqs_total[ep_idx, step_idx] = rejected_reqs_total_tmp
+
+            assert step_idx == eval_steps-1, f"step_idx is {step_idx}, it should be {eval_steps}"
+
+        assert ep_idx == num_episodes-1, f"ep_idx is {ep_idx}, it should be {num_episodes}"
+
+        # Now make the aggregated plot. A figure with four plots: one for each
+        # metrics.
+        fig = plt.figure(figsize=(19.2, 14.3), dpi=300, layout="constrained")
+        fig.suptitle(f"Evaluation {exp_id} with scenario {scenario!r}")
+        axs = fig.subplots(ncols=2, nrows=2)
+
+        # Reward mean plot.
+        axs[0, 0].set_title("Reward mean (each step)")
+        for step in range(eval_steps):
+            # We need to plot the entire column, not the row! Because each
+            # column is a single step in the episode for all episodes.
+            axs[0, 0].plot(reward_mean[:, step], alpha=.4)
+        # Print the mean of each reward mean (column by column, this is why axis=0).
+        axs[0, 0].plot(np.mean(reward_mean, axis=0), color="r", label="Mean")
+        axs[0, 0].legend()
+
+        # Reward total plot.
+        axs[0, 1].set_title("Reward total (cumulative)")
+        for step in range(eval_steps):
+            axs[0, 1].plot(reward_total[:, step], alpha=.4)
+        axs[0, 1].plot(np.mean(reward_total, axis=0), color="r", label="Mean")
+        axs[0, 1].legend()
+
+        # Congested steps plot.
+        axs[1, 0].set_title("Congested steps (each step)")
+        for step in range(eval_steps):
+            axs[1, 0].plot(congested_steps[:, step], alpha=.4)
+        axs[1, 0].plot(np.mean(congested_steps, axis=0), color="r", label="Mean")
+        axs[1, 0].legend()
+
+        # Rejected requests total.
+        axs[1, 1].plot(rejected_reqs_total)
+        axs[1, 1].set_title("Rejected requests total (cumulative)")
+        for step in range(eval_steps):
+            axs[1, 1].plot(rejected_reqs_total[:, step], alpha=.4)
+        axs[1, 1].plot(np.mean(rejected_reqs_total, axis=0), color="r", label="Mean")
+        axs[1, 1].legend()
+
+        for ax in axs.flat:
+            ax.set_xlabel("Steps in each episode")
+
+        # Save the plot.
+        fig.savefig(Path(exp_dir, "plots", f"eval_{scenario}.pdf"))
+        plt.close(fig)
 
 
 def make_plots_experiment(exp_dir, exp_id):
-    """Makes plots related for a single experiment."""
+    """Makes plots related to a single experiment. The plots are stored in the
+    'plots' directory within the experiment directory."""
+    # Make sure the directory is created.
+    Path(exp_dir, "plots").mkdir(parents=True, exist_ok=True)
+
     make_training_plot(exp_dir, exp_id)
+
+    make_evaluation_plot(exp_dir, exp_id)
 
 
 def get_metrics_training_exp(exp_dir):
@@ -205,6 +295,7 @@ def make_experiments_plots(exp_dir, exp_prefix):
                 logger.log(f"Making aggregate plots for {exp_id!r}")
                 fig = make_aggregate_plots(exp_dirs, exp_id)
                 fig.savefig(Path(exp_dir, "plots", "training", f"{exp_id}.pdf"))
+                plt.close(fig)
 
 
 def make_environment_plots(exp_dir):
@@ -250,6 +341,7 @@ def make_environment_plots(exp_dir):
 
         # Save the plot.
         fig.savefig(Path(plots_dir, f"{scenario}.pdf"))
+        plt.close(fig)
 
 
 def main(exp_dir, exp_prefix):
