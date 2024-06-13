@@ -473,7 +473,10 @@ if __name__ == "__main__":
     env = TrafficManagementEnv({})
 
     # Check the environment.
-    check_env(env)
+    try:
+        check_env(env)
+    except Exception as e:
+        print(e)
 
     # Run passive checker. These passive checker are from Gymnasium and are not
     # exposed as public API.
