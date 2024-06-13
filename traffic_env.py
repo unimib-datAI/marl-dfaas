@@ -151,6 +151,11 @@ class TrafficManagementEnv(BaseEnvironment):
         info["master_seed"] = self.master_seed
         info["seed"] = self.seed
 
+        # Why we duplicate observation also here? Because I need these data in
+        # the callbacks, and the EpisodeV2 object doesn't have a method to get
+        # the observation data.
+        info["obs"] = self._observation()
+
         return info
 
     def step(self, action):
