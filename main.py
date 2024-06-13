@@ -20,11 +20,14 @@ from traffic_env import TrafficManagementEnv
 logger = Logger(name="DFAAS", verbose=2)
 
 
-def main(dfaas_config_path, experiments_prefix):
+def main(dfaas_config_path, experiments_prefix, note):
     dfaas_config, experiments = prepare_experiments(dfaas_config_path)
 
     # The absolute path to the DFAAS output directory.
     dfaas_dir = Path(dfaas_config["results_directory"]).absolute()
+
+    # Save the note in the output directory.
+    Path(dfaas_dir, "notes.txt").write_text(note + "\n", encoding="utf-8")
 
     # Where to save the experiments dictionary.
     experiments_path = Path(dfaas_dir, "experiments.json")
@@ -259,7 +262,10 @@ if __name__ == '__main__':
                         action="append",
                         default=[],
                         dest="experiments_prefix")
+    parser.add_argument("--note", "-n",
+                        help="Annotate the main experiment with a string",
+                        default="")
 
     args = parser.parse_args()
 
-    main(args.dfaas_config_path, args.experiments_prefix)
+    main(args.dfaas_config_path, args.experiments_prefix, args.note)
