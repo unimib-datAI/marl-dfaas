@@ -137,8 +137,8 @@ def make_evaluation_plot(exp_dir, exp_id):
 def single_exp_iter(exp_dir, exp_id):
     plots_dir = Path(exp_dir, "plots")
 
-    # Iteration steps when the plots will be made.
-    iter_plots = [0, 500, 999]
+    # Number of iteration steps when the plots will be made.
+    iter_plots_each = 500
 
     # Each item is an iteration object, but only the steps provided by
     # iter_plots.
@@ -151,7 +151,8 @@ def single_exp_iter(exp_dir, exp_id):
         # isolated JSON object, the result of one training iteration.
         iter_idx = 0
         while (raw_iter := result.readline()) != "":
-            if iter_idx in iter_plots:
+            # We need to subtract 1 because the steps starts from zero.
+            if iter_idx % (iter_plots_each - 1):
                 iters[iter_idx] = json.loads(raw_iter)
 
             iter_idx += 1
