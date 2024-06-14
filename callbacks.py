@@ -9,6 +9,17 @@ class TrafficManagementCallbacks(DefaultCallbacks):
     See API documentation for DefaultCallbacks, I use only a subset of the
     callbacks and keyword arguments."""
 
+    def __init__(self):
+        self.keys = ["current_time",
+                     "reward",
+                     "congested",
+                     "rejected_reqs",
+                     "input_requests",
+                     "queue_capacity",
+                     "forwarding_capacity",
+                     "actions"
+                     ]
+
     def on_episode_start(self, *, episode, **kwargs):
         """Callback run right after an Episode has started.
 
@@ -19,26 +30,9 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         assert episode.length <= 0, "'on_episode_start()' callback should be called right after env reset!"
 
         # See API documentation for Episode class.
-        episode.user_data["current_time"] = []
-        episode.hist_data["current_time"] = []
-
-        episode.user_data["reward"] = []
-        episode.hist_data["reward"] = []
-
-        episode.user_data["congested"] = []
-        episode.hist_data["congested"] = []
-
-        episode.user_data["rejected_reqs"] = []
-        episode.hist_data["rejected_reqs"] = []
-
-        episode.user_data["input_requests"] = []
-        episode.hist_data["input_requests"] = []
-
-        episode.user_data["forwarding_capacity"] = []
-        episode.hist_data["forwarding_capacity"] = []
-
-        episode.user_data["actions"] = []
-        episode.hist_data["actions"] = []
+        for key in self.keys:
+            episode.user_data[key] = []
+            episode.hist_data[key] = []
 
     def on_episode_step(self, *, episode, **kwargs):
         """Called on each episode step (after the action has been logged).
@@ -56,7 +50,8 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         rejected_reqs = info["actions"]["rejected"]
         obs = info["obs"]
         input_requests = obs[0]
-        forwarding_capacity = obs[1]
+        queue_capacity = obs[1]
+        forwarding_capacity = obs[2]
         action = tuple(info["actions"].values())
 
         episode.user_data["current_time"].append(current_time)
@@ -64,6 +59,7 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         episode.user_data["congested"].append(congested)
         episode.user_data["rejected_reqs"].append(rejected_reqs)
         episode.user_data["input_requests"].append(input_requests)
+        episode.user_data["queue_capacity"].append(queue_capacity)
         episode.user_data["forwarding_capacity"].append(forwarding_capacity)
         episode.user_data["actions"].append(action)
 
@@ -73,13 +69,8 @@ class TrafficManagementCallbacks(DefaultCallbacks):
 
         Only the episode keyword argument is used, other arguments will be
         ignored."""
-        episode.hist_data["current_time"] = episode.user_data["current_time"]
-        episode.hist_data["reward"] = episode.user_data["reward"]
-        episode.hist_data["congested"] = episode.user_data["congested"]
-        episode.hist_data["rejected_reqs"] = episode.user_data["rejected_reqs"]
-        episode.hist_data["input_requests"] = episode.user_data["input_requests"]
-        episode.hist_data["forwarding_capacity"] = episode.user_data["forwarding_capacity"]
-        episode.hist_data["actions"] = episode.user_data["actions"]
+        for key in self.keys:
+            episode.hist_data[key] = episode.user_data[key]
 
         episode.custom_metrics["reward_mean"] = np.mean(episode.hist_data["reward"])
         episode.custom_metrics["congested_steps"] = np.sum(episode.hist_data["congested"])

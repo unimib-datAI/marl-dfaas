@@ -152,7 +152,7 @@ def single_exp_iter(exp_dir, exp_id):
         iter_idx = 0
         while (raw_iter := result.readline()) != "":
             # We need to subtract 1 because the steps starts from zero.
-            if iter_idx % (iter_plots_each - 1):
+            if iter_idx % (iter_plots_each - 1) == 0:
                 iters[iter_idx] = json.loads(raw_iter)
 
             iter_idx += 1
@@ -161,12 +161,16 @@ def single_exp_iter(exp_dir, exp_id):
         steps = iter["hist_stats"]["episode_lengths"][0]
 
         input_requests = np.empty(shape=steps, dtype=np.int64)
+        queue_capacity = np.empty(shape=steps, dtype=np.int64)
         forwarding_capacity = np.empty(shape=steps, dtype=np.int64)
+        congested = np.empty(shape=steps, dtype=np.int64)
         actions = np.empty(shape=(steps, 3), dtype=np.int64)
 
         for step in range(steps):
             input_requests[step] = iter["hist_stats"]["input_requests"][step]
+            queue_capacity[step] = iter["hist_stats"]["queue_capacity"][step]
             forwarding_capacity[step] = iter["hist_stats"]["forwarding_capacity"][step]
+            congested[step] = iter["hist_stats"]["congested"][step]
             actions[step] = iter["hist_stats"]["actions"][step]
 
         assert step == steps-1, f"step is {step}, expected {steps-1}"
@@ -182,11 +186,21 @@ def single_exp_iter(exp_dir, exp_id):
         # So we start from step=1 in the X axis.
         steps_x = np.arange(start=1, stop=steps)
 
-        axs[0].plot(steps_x, input_requests[:-1])
-        axs[0].set_title("Input requests")
+        # Make the inverse array of congested_state.
+        not_congested = np.asarray(congested, dtype=bool)
+        not_congested = np.invert(not_congested)
+        not_congested = np.asarray(not_congested, dtype=np.int64)
 
-        axs[1].plot(steps_x, forwarding_capacity[:-1])
-        axs[1].set_title("Forwarding capacity")
+        # Do not stack the bars, because the two input array is one inverse of
+        # the other, so they don't stack or overlap.
+        axs[0].bar(x=steps_x, height=congested[:-1], color="r", label="Congested")
+        axs[0].bar(x=steps_x, height=not_congested[:-1], color="g", label="Not congested")
+        axs[0].set_title("Congested state")
+
+        axs[1].plot(steps_x, forwarding_capacity[:-1], label="Forwarding capacity")
+        axs[1].plot(steps_x, queue_capacity[:-1], label="Queue capacity")
+        axs[1].set_title("Forwarding and Queue capacities")
+        axs[1].legend()
 
         # Get the action by column and skip the first item.
         local = actions[1:, 0]
@@ -204,8 +218,10 @@ def single_exp_iter(exp_dir, exp_id):
             ax.set_xlabel("Step")
 
         # Save the plot.
-        fig.savefig(Path(plots_dir, f"training_iter_{iter_idx}.pdf"))
+        path = Path(plots_dir, f"training_iter_{iter_idx}.pdf")
+        fig.savefig(path)
         plt.close(fig)
+        logger.log(f"{exp_id}: {path.as_posix()!r}")
 
 
 def make_plots_single_experiment(exp_dir, exp_id):
