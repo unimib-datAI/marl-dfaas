@@ -2,6 +2,7 @@ from pathlib import Path
 import argparse
 import json
 import concurrent.futures
+import traceback
 
 import matplotlib.pyplot as plt
 import matplotlib
@@ -232,9 +233,15 @@ def make_plots_single_experiment(exp_dir, exp_id):
     # Make sure the directory is created.
     Path(exp_dir, "plots").mkdir(parents=True, exist_ok=True)
 
-    make_training_plot(exp_dir, exp_id)
+    try:
+        make_training_plot(exp_dir, exp_id)
+    except Exception as error:
+        logger.err(f"Failed to make plots for summary of training of experiment {exp_id!r}: {traceback.format_exc()}")
 
-    single_exp_iter(exp_dir, exp_id)
+    try:
+        single_exp_iter(exp_dir, exp_id)
+    except Exception as error:
+        logger.err(f"Failed to make plots for single iterations during training of experiment {exp_id!r}: {traceback.format_exc()}")
 
     # TODO: useless plots?
     # make_evaluation_plot(exp_dir, exp_id)
