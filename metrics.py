@@ -178,7 +178,6 @@ def main(experiments_directory):
                 # Calculate metrics for a single experiment.
                 for exp in scenario_value.values():
                     if not exp["done"]:
-                        logger.warn(f"Skipping experiment {exp['id']!r} because it is not done")
                         all_done = False
                         continue
                     logger.log(f"Calculating metrics for {exp['id']!r}")
@@ -195,7 +194,6 @@ def main(experiments_directory):
                 # be run.
                 exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
-                    logger.warn(f"Skipping aggregate experiment {exp_id!r} because not all experiments are done")
                     continue
                 logger.log(f"Calculating aggregate metrics for {exp_id!r}")
 
