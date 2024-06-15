@@ -12,6 +12,7 @@ class TrafficManagementCallbacks(DefaultCallbacks):
     def __init__(self):
         self.keys = ["current_time",
                      "reward",
+                     "reward_components",
                      "congested",
                      "rejected_reqs",
                      "input_requests",
@@ -46,6 +47,7 @@ class TrafficManagementCallbacks(DefaultCallbacks):
 
         current_time = info["current_time"]
         reward = info["reward"]
+        reward_components = info["reward_components"]
         congested = info["congested"]
         rejected_reqs = info["actions"]["rejected"]
         obs = info["obs"]
@@ -56,6 +58,7 @@ class TrafficManagementCallbacks(DefaultCallbacks):
 
         episode.user_data["current_time"].append(current_time)
         episode.user_data["reward"].append(reward)
+        episode.user_data["reward_components"].append(reward_components)
         episode.user_data["congested"].append(congested)
         episode.user_data["rejected_reqs"].append(rejected_reqs)
         episode.user_data["input_requests"].append(input_requests)
