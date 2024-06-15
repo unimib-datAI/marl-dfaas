@@ -135,6 +135,19 @@ def make_evaluation_plot(exp_dir, exp_id):
         plt.close(fig)
 
 
+def get_cumulated_array(data, **kwargs):
+    """Returns an ndarray with the cumulated sum passing kwargs to the clip
+    method.
+
+    Used to make stacked bar charta with negative and positive values."""
+    # See: https://stackoverflow.com/a/38900035
+    cum = data.clip(**kwargs)
+    cum = np.cumsum(cum, axis=0)
+    d = np.zeros(np.shape(data))
+    d[1:] = cum[:-1]
+    return d
+
+
 def single_exp_iter(exp_dir, exp_id):
     plots_dir = Path(exp_dir, "plots")
 
@@ -158,14 +171,18 @@ def single_exp_iter(exp_dir, exp_id):
 
             iter_idx += 1
 
+    # For each saved iteration, make the plot.
     for (iter_idx, iter) in iters.items():
         steps = iter["hist_stats"]["episode_lengths"][0]
 
+        # Get the data first.
         input_requests = np.empty(shape=steps, dtype=np.int64)
         queue_capacity = np.empty(shape=steps, dtype=np.int64)
         forwarding_capacity = np.empty(shape=steps, dtype=np.int64)
         congested = np.empty(shape=steps, dtype=np.int64)
         actions = np.empty(shape=(steps, 3), dtype=np.int64)
+        reward = np.empty(shape=steps)
+        reward_components = np.empty(shape=(steps, 4))
 
         for step in range(steps):
             input_requests[step] = iter["hist_stats"]["input_requests"][step]
@@ -173,20 +190,29 @@ def single_exp_iter(exp_dir, exp_id):
             forwarding_capacity[step] = iter["hist_stats"]["forwarding_capacity"][step]
             congested[step] = iter["hist_stats"]["congested"][step]
             actions[step] = iter["hist_stats"]["actions"][step]
+            reward[step] = iter["hist_stats"]["reward"][step]
+            reward_components[step] = iter["hist_stats"]["reward_components"][step]
 
         assert step == steps-1, f"step is {step}, expected {steps-1}"
 
-        # Make the plot.
-        fig = plt.figure(figsize=(28.79, 21.45), dpi=600, layout="constrained")
+        # Then make the plot.
+        fig = plt.figure(figsize=(38.38, 21.45), dpi=600, layout="constrained")
         fig.suptitle(f"{exp_id} on iteration {iter_idx}")
-        axs = fig.subplots(ncols=1, nrows=3)
 
-        # We need to shift the lines and bars one to the right. Why? Because the
-        # actions of a step refer to the previously observed environment.
-        #
-        # So we start from step=1 in the X axis.
+        # The plot has four sub-plots. Only the first should have smaller
+        # dimensions because it is a plot about boolean values.
+        axs = fig.subplots(ncols=1,
+                           nrows=4,
+                           sharex="col",  # Align x-axis for all plots.
+                           gridspec_kw={"height_ratios": [1, 2, 2, 2]})
+
+        # For the first three plots, the x-axis must be moved one to the right.
+        # This is because the observed data refers to the previously observed
+        # state.
         steps_x = np.arange(start=1, stop=steps)
 
+        # First plot: whether a state is in a congested state or not.
+        #
         # Make the inverse array of congested_state.
         not_congested = np.asarray(congested, dtype=bool)
         not_congested = np.invert(not_congested)
@@ -198,12 +224,15 @@ def single_exp_iter(exp_dir, exp_id):
         axs[0].bar(x=steps_x, height=not_congested[:-1], color="g", label="Not congested")
         axs[0].set_title("Congested state")
 
+        # Second plot: the forwarding and queue capacities as lines.
         axs[1].plot(steps_x, forwarding_capacity[:-1], label="Forwarding capacity")
         axs[1].plot(steps_x, queue_capacity[:-1], label="Queue capacity")
         axs[1].set_title("Forwarding and Queue capacities")
-        axs[1].legend()
 
-        # Get the action by column and skip the first item.
+        # Third plot: the action chosen by the agent with the input requests.
+        #
+        # The actions taken from the data are organized as an array for each
+        # step. We need to extract each action component as a column.
         local = actions[1:, 0]
         forwarded = actions[1:, 1]
         rejected = actions[1:, 2]
@@ -213,10 +242,60 @@ def single_exp_iter(exp_dir, exp_id):
         axs[2].bar(x=steps_x, height=rejected, label="Rejected", bottom=local+forwarded)
         axs[2].plot(steps_x, input_requests[:-1], linewidth=3, color="r", label="Input requests")
         axs[2].set_title("Actions")
-        axs[2].legend()
 
+        # Fourth plot: the reward and its components.
+        #
+        # Same as the previous plot, we need to extract the columns.
+        reward_local = reward_components[:, 0]
+        reward_forwarded = reward_components[:, 1]
+        reward_rejected = reward_components[:, 2]
+        reward_malus = reward_components[:, 3]
+
+        # We rebuild the array because we need to process it.
+        reward_components = np.array([reward_local,
+                                      reward_forwarded,
+                                      reward_rejected,
+                                      reward_malus])
+
+        # The stacked bar is not easy to make because some values are negative
+        # and some are positive. We have to calculate the offset for each value
+        # in the bar to get a correct positioning in the "bottom" keyword.
+        #
+        # Thanks to: https://stackoverflow.com/a/38900035
+        cumulated_data = get_cumulated_array(reward_components, min=0)
+        cumulated_data_neg = get_cumulated_array(reward_components, max=0)
+
+        # Re-merge negative and positive data.
+        row_mask = (reward_components < 0)
+        cumulated_data[row_mask] = cumulated_data_neg[row_mask]
+        offset_stack = cumulated_data
+
+        steps_x = np.arange(1, steps+1)
+        labels = ["Local", "Forwarded", "Rejected", "Malus"]
+        for i in np.arange(0, len(labels)):
+            axs[3].bar(steps_x, reward_components[i], bottom=offset_stack[i], label=labels[i])
+        axs[3].plot(steps_x, reward, linewidth=3, color="r", label="Reward")
+        axs[3].set_title("Reward")
+
+        # Common settings for all plots.
         for ax in axs.flat:
             ax.set_xlabel("Step")
+            # Because the plots shares the x-axis, only the fourth plots will
+            # show the ticks, but I want to write the ticks also for the first
+            # three plots.
+            ax.tick_params(axis="x", labelbottom=True)
+            # Show x-axis ticks every 10 steps from 0 to 100.
+            ax.set_xticks(np.arange(0, steps+1, 10))
+
+            ax.grid(which="both")
+            ax.set_axisbelow(True)  # Place the grid behind the lines and bars.
+
+            ax.legend()
+
+        # The first plots is special, it needs to overwrite some common settings.
+        axs[0].tick_params(reset=True)
+        axs[0].set_yticks([0, 1])
+        axs[0].grid(visible=False)
 
         # Save the plot.
         path = Path(plots_dir, f"training_iter_{iter_idx}.pdf")
@@ -235,12 +314,12 @@ def make_plots_single_experiment(exp_dir, exp_id):
 
     try:
         make_training_plot(exp_dir, exp_id)
-    except Exception as error:
+    except Exception:
         logger.err(f"Failed to make plots for summary of training of experiment {exp_id!r}: {traceback.format_exc()}")
 
     try:
         single_exp_iter(exp_dir, exp_id)
-    except Exception as error:
+    except Exception:
         logger.err(f"Failed to make plots for single iterations during training of experiment {exp_id!r}: {traceback.format_exc()}")
 
     # TODO: useless plots?
@@ -294,8 +373,8 @@ def get_metrics_training_exp(exp_dir):
     return result
 
 
-def make_aggregate_plots(exp_dirs, exp_id, res_dir):
-    logger.log(f"Making aggregate plots for {exp_id!r}")
+def aggregate_train_summary(exp_dirs, exp_id, res_dir):
+    logger.log(f"Making summary training aggregate plots for {exp_id!r}")
 
     # Each value is a ndarray for each experiment.
     reward_mean = []
@@ -350,8 +429,31 @@ def make_aggregate_plots(exp_dirs, exp_id, res_dir):
     for ax in axs.flat:
         ax.set_xlabel("Iteration")
 
-    fig.savefig(Path(res_dir, "plots", "training", f"{exp_id}.pdf"))
+    path = Path(res_dir, "plots", "training", f"{exp_id}.pdf")
+    fig.savefig(path)
     plt.close(fig)
+    logger.log(f"{exp_id}: {path.as_posix()!r}")
+
+
+def aggregate_eval_summary(exp_dirs, exp_id, res_dir):
+    pass
+
+
+def aggregate(exp_dirs, exp_id, res_dir):
+    logger.log(f"Making aggregate plots for {exp_id!r}")
+
+    # Make sure the directory is created.
+    Path(res_dir, "plots").mkdir(parents=True, exist_ok=True)
+
+    try:
+        aggregate_train_summary(exp_dirs, exp_id, res_dir)
+    except Exception:
+        logger.err(f"Failed to make plots for training summary for aggregate experiment {exp_id!r}: {traceback.format_exc()}")
+
+    try:
+        aggregate_eval_summary(exp_dirs, exp_id, res_dir)
+    except Exception:
+        logger.err(f"Failed to make plots for evaluation summary for aggregate experiment {exp_id!r}: {traceback.format_exc()}")
 
 
 def make_experiments_plots(exp_dir, exp_prefix):
@@ -404,7 +506,7 @@ def make_experiments_plots(exp_dir, exp_prefix):
                 if not all_done:
                     logger.warn(f"Skipping making plot for aggregate experiment {exp_id!r} because not all experiments are done")
                     continue
-                task = executor.submit(make_aggregate_plots, exp_dirs, exp_id, exp_dir)
+                task = executor.submit(aggregate, exp_dirs, exp_id, exp_dir)
                 tasks.append(task)
 
     executor.shutdown()
