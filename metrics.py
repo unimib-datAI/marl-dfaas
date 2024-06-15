@@ -204,11 +204,13 @@ def main(experiments_directory):
                 exp_id = f"{algo}:{params}:{scenario}"
                 logger.log(f"Calculating aggregate metrics for {exp_id!r}")
 
+                aggr_metrics[algo][params][scenario]["id"] = exp_id
+                aggr_metrics[algo][params][scenario]["trained_on"] = scenario
+
                 # Calculate aggregate metrics for all the same experiments but
                 # with different seeds.
                 metrics = calculate_aggregate_metrics(exp_dirs)
-                aggr_metrics[algo][params][exp_id] = metrics
-                aggr_metrics[algo][params][exp_id]["id"] = exp_id
+                aggr_metrics[algo][params][scenario]["scenarios"] = metrics
 
     # Save the metrics data to disk.
     aggr_metrics_path = Path(experiments_directory, "metrics.json")
