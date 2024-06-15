@@ -160,7 +160,6 @@ def calculate_aggregate_metrics(exp_dirs):
 
     return aggr_metrics
 
-
 def main(experiments_directory):
     experiments_path = Path(experiments_directory, "experiments.json")
     experiments = utils.json_to_dict(experiments_path)
@@ -170,8 +169,13 @@ def main(experiments_directory):
     aggr_metrics = {}
 
     for (algo, algo_value) in experiments.items():
+        aggr_metrics[algo] = {}
+
         for (params, params_value) in algo_value.items():
+            aggr_metrics[algo][params] = {}
+
             for (scenario, scenario_value) in params_value.items():
+                aggr_metrics[algo][params][scenario] = {}
                 all_done = True
                 exp_dirs = []
 
@@ -200,12 +204,12 @@ def main(experiments_directory):
                 # Calculate aggregate metrics for all the same experiments but
                 # with different seeds.
                 metrics = calculate_aggregate_metrics(exp_dirs)
-                aggr_metrics[exp_id] = metrics
-                aggr_metrics[exp_id]["id"] = exp_id
+                aggr_metrics[algo][params][exp_id] = metrics
+                aggr_metrics[algo][params][exp_id]["id"] = exp_id
 
-                # Save the updated metrics data to disk.
-                aggr_metrics_path = Path(experiments_directory, "metrics.json")
-                utils.dict_to_json(aggr_metrics, aggr_metrics_path)
+    # Save the metrics data to disk.
+    aggr_metrics_path = Path(experiments_directory, "metrics.json")
+    utils.dict_to_json(aggr_metrics, aggr_metrics_path)
 
 
 if __name__ == "__main__":
