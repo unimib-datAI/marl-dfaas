@@ -154,12 +154,15 @@ def prepare_experiments(dfaas_config_path):
     experiments = {}
 
     # Generate all experiments ID.
-    algorithms = ["PPO", "SAC"]
-    scenarios = ["scenario1", "scenario2", "scenario3"]
-    parameters = ["standard", "tuned"]
+    # Get the used algorithms ("PPO", "SAC"...).
+    algorithms = dfaas_config["parameters"].keys()
+    # Get scenarios.
+    scenarios = TrafficManagementEnv.get_scenarios()
     for algo in algorithms:
         experiments[algo] = {}
 
+        # Support multiple parameters ("standard", "standardPR", "tuned"...).
+        parameters = dfaas_config["parameters"][algo].keys()
         for params in parameters:
             experiments[algo][params] = {}
 
