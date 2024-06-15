@@ -11,50 +11,65 @@ from RL4CC.utilities.logger import Logger
 logger = Logger(name="DFAAS-METRICS", verbose=2)
 
 
-def aggregate_data(data):
-    """Returns the following aggregated data given the evaluations for a single
-    scenario as data:
+def eval_single_exp_single_scenario(eval_data, scenario):
+    """Returns metrics calculated for the given evaluation data (the contents of
+    "evaluations_scenarios.json") for the given scenario for a single experiment
+    with a single seed.
 
-    - Mean of the rewards,
-    - Standard deviation of the rewards,
-    - Mean of steps in congested state,
-    - Mean of rejected requests.
+    Since each evaluation consists of a set of episodes, the returned metrics is
+    a dict with the following contents:
 
-    All values are calculated for episode, not for steps in all episodes (e.g.
-    mean of rejected requests for episode).
-    """
-    # Prepare the empty arrays to store the metrics for each episode.
-    num_episodes = len(data)
-    steps_cong = np.empty(shape=num_episodes, dtype=np.int64)
-    rejected_reqs = np.empty(shape=num_episodes, dtype=np.int64)
-    rewards = np.empty(shape=num_episodes)
+        - reward_total_mean: the average of the total reward for all steps for
+          each episode,
+        - reward_total_std: the standard deviation of the total reward for each
+          episode,
+        - congested_total_mean: the mean of the number of congested steps for
+          each episode,
+        - congested_total_std: the standard deviation of the number of congested
+          steps for each episode.
+        - rejected_req_total_mean: the mean of the total number of rejected
+          requests for each episode,
+        - rejected_req_total_std: the standard deviation of the total number of
+          rejected requests for each episode.
+        """
+    episodes = eval_data["scenarios"][scenario]
+    num_episodes = len(episodes)
+
+    # Initialize arrays.
+    reward_total = np.empty(shape=num_episodes)
+    steps_cong_total = np.empty(shape=num_episodes, dtype=np.int64)
+    rejected_reqs_total = np.empty(shape=num_episodes, dtype=np.int64)
+
+    # Fill the arrays with data.
     idx = 0
-
-    # Iterate over all episodes.
-    for episode in data:
-        tmp_steps_cong = 0
-        tmp_rejected_reqs = 0
-        tmp_rewards = 0
+    for episode in episodes:
+        tmp_rewards_total = 0
+        tmp_steps_cong_total = 0
+        tmp_rejected_reqs_total = 0
 
         for step in episode["evaluation_steps"]:
-            tmp_steps_cong += step["obs_info"]["congested"]
-            tmp_rejected_reqs += step["obs_info"]["actions"]["rejected"]
-            tmp_rewards += step["reward"]
+            tmp_rewards_total += step["reward"]
+            tmp_steps_cong_total += step["obs_info"]["congested"]
+            tmp_rejected_reqs_total += step["obs_info"]["actions"]["rejected"]
 
-        steps_cong[idx] = tmp_steps_cong
-        rejected_reqs[idx] = tmp_rejected_reqs
-        rewards[idx] = tmp_rewards
+        reward_total[idx] = tmp_rewards_total
+        steps_cong_total[idx] = tmp_steps_cong_total
+        rejected_reqs_total[idx] = tmp_rejected_reqs_total
         idx += 1
 
     assert idx == num_episodes, "The ndarrays have some elements not accessed"
 
     # Calculate the means and standard deviation.
-    rewards_mean = np.mean(rewards)
-    rewards_std = np.std(rewards)
-    steps_cong_mean = np.mean(steps_cong)
-    rejected_reqs_mean = np.mean(rejected_reqs)
+    result = {
+            "reward_total_mean": np.mean(reward_total),
+            "reward_total_std": np.std(reward_total),
+            "congested_total_mean": np.mean(steps_cong_total),
+            "congested_total_std": np.std(steps_cong_total),
+            "rejected_reqs_total_mean": np.mean(rejected_reqs_total),
+            "rejected_reqs_total_std": np.std(rejected_reqs_total),
+            }
 
-    return rewards_mean, rewards_std, steps_cong_mean, rejected_reqs_mean
+    return result
 
 
 def calculate_metrics(exp_dir):
@@ -77,14 +92,10 @@ def calculate_metrics(exp_dir):
                }
 
     # Each scenario has its own metrics, we cannot mix them.
-    for (scenario, scenario_data) in data["scenarios"].items():
-        mean, std, steps_cong, rejected_reqs = aggregate_data(scenario_data)
+    for scenario in data["scenarios"]:
+        result = eval_single_exp_single_scenario(data, scenario)
 
-        metrics["scenarios"][scenario] = {"rewards_mean": mean,
-                                          "rewards_std": std,
-                                          "steps_cong_mean": steps_cong,
-                                          "rejected_reqs_mean": rejected_reqs
-                                          }
+        metrics["scenarios"][scenario] = result
 
     return metrics
 
@@ -104,29 +115,27 @@ def calculate_aggregate_metrics(exp_dirs):
         # This array contains the individual metrics for each experiment and
         # scenario (each scenario has its own metrics).
         raw_data[scenario] = {}
-        raw_data[scenario]["rewards_mean"] = np.empty(shape=num_exp)
-        raw_data[scenario]["rewards_std"] = np.empty(shape=num_exp)
-        raw_data[scenario]["steps_cong_mean"] = np.empty(shape=num_exp)
-        raw_data[scenario]["rejected_reqs_mean"] = np.empty(shape=num_exp)
-
-        # Start filling the arrays.
-        raw_data[scenario]["rewards_mean"][0] = scenario_data["rewards_mean"]
-        raw_data[scenario]["rewards_std"][0] = scenario_data["rewards_std"]
-        raw_data[scenario]["steps_cong_mean"][0] = scenario_data["steps_cong_mean"]
-        raw_data[scenario]["rejected_reqs_mean"][0] = scenario_data["rejected_reqs_mean"]
+        raw_data[scenario]["reward_total_mean"] = np.empty(shape=num_exp)
+        raw_data[scenario]["reward_total_std"] = np.empty(shape=num_exp)
+        raw_data[scenario]["congested_total_mean"] = np.empty(shape=num_exp)
+        raw_data[scenario]["congested_total_std"] = np.empty(shape=num_exp)
+        raw_data[scenario]["rejected_reqs_total_mean"] = np.empty(shape=num_exp)
+        raw_data[scenario]["rejected_reqs_total_std"] = np.empty(shape=num_exp)
 
     # Iterate over all experiment metrics and finish to fill the raw_data
     # arrays.
-    idx = 1
-    for exp_dir in exp_dirs[1:]:
+    idx = 0
+    for exp_dir in exp_dirs:
         metrics_path = Path(exp_dir, "metrics.json")
         metrics = utils.json_to_dict(metrics_path)
 
         for (scenario, scenario_data) in metrics["scenarios"].items():
-            raw_data[scenario]["rewards_mean"][idx] = scenario_data["rewards_mean"]
-            raw_data[scenario]["rewards_std"][idx] = scenario_data["rewards_std"]
-            raw_data[scenario]["steps_cong_mean"][idx] = scenario_data["steps_cong_mean"]
-            raw_data[scenario]["rejected_reqs_mean"][idx] = scenario_data["rejected_reqs_mean"]
+            raw_data[scenario]["reward_total_mean"][idx] = scenario_data["reward_total_mean"]
+            raw_data[scenario]["reward_total_std"][idx] = scenario_data["reward_total_std"]
+            raw_data[scenario]["congested_total_mean"][idx] = scenario_data["congested_total_mean"]
+            raw_data[scenario]["congested_total_std"][idx] = scenario_data["congested_total_std"]
+            raw_data[scenario]["rejected_reqs_total_mean"][idx] = scenario_data["rejected_reqs_total_mean"]
+            raw_data[scenario]["rejected_reqs_total_std"][idx] = scenario_data["rejected_reqs_total_std"]
 
         idx += 1
 
@@ -136,26 +145,20 @@ def calculate_aggregate_metrics(exp_dirs):
     aggr_metrics = {}
     for (scenario, scenario_data) in raw_data.items():
         # Coefficient of variation percentual.
-        rewards_cv_percent = scenario_data["rewards_std"].mean() / scenario_data["rewards_mean"].mean() * 100
+        cv_percent = lambda mean, std: std.mean() / mean.mean() * 100  # noqa: E731
 
         aggr_metrics[scenario] = {
-                "rewards_mean": scenario_data["rewards_mean"].mean(),
-                "rewards_min": scenario_data["rewards_mean"].min(),
-                "rewards_max": scenario_data["rewards_mean"].max(),
+                "reward_total_mean": scenario_data["reward_total_mean"].mean(),
+                "reward_total_std": scenario_data["reward_total_std"].mean(),
+                "reward_total_cv_percent": cv_percent(scenario_data["reward_total_mean"], scenario_data["reward_total_std"]),
 
-                "rewards_std_mean": scenario_data["rewards_std"].mean(),
-                "rewards_std_min": scenario_data["rewards_std"].min(),
-                "rewards_std_max": scenario_data["rewards_std"].max(),
+                "congested_total_mean": scenario_data["congested_total_mean"].mean(),
+                "congested_total_std": scenario_data["congested_total_std"].mean(),
+                "congested_total_cv_percent": cv_percent(scenario_data["congested_total_mean"], scenario_data["congested_total_std"]),
 
-                "rewards_cv_percent": rewards_cv_percent,
-
-                "steps_cong_mean": scenario_data["steps_cong_mean"].mean(),
-                "steps_cong_min": scenario_data["steps_cong_mean"].min(),
-                "stesp_cong_max": scenario_data["steps_cong_mean"].max(),
-
-                "rejected_reqs_mean": scenario_data["rejected_reqs_mean"].mean(),
-                "rejected_reqs_min": scenario_data["rejected_reqs_mean"].min(),
-                "rejected_reqs_max": scenario_data["rejected_reqs_mean"].max(),
+                "rejected_reqs_total_mean": scenario_data["rejected_reqs_total_mean"].mean(),
+                "rejected_reqs_total_std": scenario_data["rejected_reqs_total_std"].mean(),
+                "rejected_reqs_total_cv_percent": cv_percent(scenario_data["rejected_reqs_total_mean"], scenario_data["rejected_reqs_total_std"])
                 }
 
     return aggr_metrics
