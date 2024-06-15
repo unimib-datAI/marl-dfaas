@@ -304,6 +304,77 @@ def single_exp_iter(exp_dir, exp_id):
         logger.log(f"{exp_id}: {path.as_posix()!r}")
 
 
+def single_eval(exp_dir, exp_id):
+    """Creates a single plot for the given experiment for evaluation across
+    multiple scenarios.
+
+    Reads data from the metrics.json file."""
+    metrics = utils.json_to_dict(Path(exp_dir, "metrics.json"))
+
+    # A figure with six sub-plots. Each row is for a metric (Total Reward, Total
+    # Congested Steps, and Total Rejected Requests), with two columns: one for
+    # the average total (across multiple evaluation episodes) and one for the
+    # standard deviation.
+    fig = plt.figure(figsize=(10, 15), dpi=600, layout="constrained")
+    fig.suptitle(f"Evaluation of {exp_id} (averages across eval. episodes)")
+    axs = fig.subplots(ncols=2, nrows=3)
+
+    # Fixed scenarios to be placed on the x-axis.
+    scenarios = ["Scenario 1", "Scenario 2", "Scenario 3"]
+
+    # Data retrieved from the metrics.json file. Each list has a length of three
+    # (the number of scenarios).
+    reward_total_mean = []
+    reward_total_std = []
+    congested_total_mean = []
+    congested_total_std = []
+    rejected_reqs_total_mean = []
+    rejected_reqs_total_std = []
+    for scenario in TrafficManagementEnv.get_scenarios():
+        reward_total_mean.append(metrics["scenarios"][scenario]["reward_total_mean"])
+        reward_total_std.append(metrics["scenarios"][scenario]["reward_total_std"])
+        congested_total_mean.append(metrics["scenarios"][scenario]["congested_total_mean"])
+        congested_total_std.append(metrics["scenarios"][scenario]["congested_total_std"])
+        rejected_reqs_total_mean.append(metrics["scenarios"][scenario]["rejected_reqs_total_mean"])
+        rejected_reqs_total_std.append(metrics["scenarios"][scenario]["rejected_reqs_total_std"])
+
+    axs[0, 0].bar(scenarios, reward_total_mean)
+    axs[0, 0].set_ylabel("Reward")
+    axs[0, 0].set_title("Average total reward")
+
+    axs[0, 1].bar(scenarios, reward_total_std)
+    axs[0, 1].set_ylabel("Reward")
+    axs[0, 1].set_title("SD total reward")
+
+    axs[1, 0].bar(scenarios, congested_total_mean, color="g")
+    axs[1, 0].set_ylabel("Steps")
+    axs[1, 0].set_title("Average total congested steps")
+
+    axs[1, 1].bar(scenarios, congested_total_std, color="g")
+    axs[1, 1].set_ylabel("Steps")
+    axs[1, 1].set_title("SD total congested steps")
+
+    axs[2, 0].bar(scenarios, rejected_reqs_total_mean, color="r")
+    axs[2, 0].set_ylabel("Requests")
+    axs[2, 0].set_title("Average total rejected requests")
+
+    axs[2, 1].bar(scenarios, rejected_reqs_total_std, color="r")
+    axs[2, 1].set_ylabel("Requests")
+    axs[2, 1].set_title("SD total rejected requests")
+
+    # Common settings for all plots.
+    for ax in axs.flat:
+        ax.set_xlabel("Scenarios evaluated")
+
+        ax.grid(which="both")
+        ax.set_axisbelow(True)  # Place the grid behind the lines and bars.
+
+    path = Path(exp_dir, "plots", "evaluation.pdf")
+    fig.savefig(path)
+    plt.close(fig)
+    logger.log(f"{exp_id}: {path.as_posix()!r}")
+
+
 def make_plots_single_experiment(exp_dir, exp_id):
     """Makes plots related to a single experiment. The plots are stored in the
     'plots' directory within the experiment directory."""
@@ -321,6 +392,11 @@ def make_plots_single_experiment(exp_dir, exp_id):
         single_exp_iter(exp_dir, exp_id)
     except Exception:
         logger.err(f"Failed to make plots for single iterations during training of experiment {exp_id!r}: {traceback.format_exc()}")
+
+    try:
+        single_eval(exp_dir, exp_id)
+    except Exception:
+        logger.err(f"Failed to make plots for evaluation of experiment {exp_id!r}: {traceback.format_exc()}")
 
     # TODO: useless plots?
     # make_evaluation_plot(exp_dir, exp_id)
@@ -439,7 +515,7 @@ def aggregate_eval_summary(exp_dirs, exp_id, res_dir):
     pass
 
 
-def aggregate(exp_dirs, exp_id, res_dir):
+def aggregate_scenario(exp_dirs, exp_id, res_dir):
     logger.log(f"Making aggregate plots for {exp_id!r}")
 
     # Make sure the directory is created.
@@ -503,7 +579,7 @@ def make_experiments_plots(exp_dir, exp_prefix):
                 exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
                     continue
-                task = executor.submit(aggregate, exp_dirs, exp_id, exp_dir)
+                task = executor.submit(aggregate_scenario, exp_dirs, exp_id, exp_dir)
                 tasks.append(task)
 
     executor.shutdown()
