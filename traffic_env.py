@@ -197,13 +197,14 @@ class TrafficManagementEnv(BaseEnvironment):
         self.total_rejected_requests += rejected
 
         # Calculate reward for the agent.
-        reward = self._calculate_reward(local, forwarded, rejected)
+        reward, components = self._calculate_reward(local, forwarded, rejected)
 
         # Update the observation_space. Note that cpu_workload is not used.
         terminated = self._update_observation_space()
 
         obs = self._observation()
         info = self._additional_info(actions=(local, forwarded, rejected), reward=reward)
+        info["reward_components"] = components
         truncated = False
 
         if self.debug:
@@ -254,9 +255,11 @@ class TrafficManagementEnv(BaseEnvironment):
         return tuple(actions)
 
     def _calculate_reward(self, local, forwarded, rejected):
-        '''It returns the agent's reward for the current state of the
-        environment, using the given number of local, forwarded and rejected
-        requests.'''
+        """Returns the agent's reward for the current state of the environment,
+        using the given number of local, forwarded, and rejected requests.
+
+        It also returns a tuple of length 3 containing each component of the
+        reward (the sum is the reward), useful for debugging purposes."""
         # The queue factor represents how much queue capacity is available for
         # local processing. The range is 0 to 1. A low value means the queue is
         # almost full, while a high value means the queue is almost empty. The
@@ -276,8 +279,7 @@ class TrafficManagementEnv(BaseEnvironment):
             reward_local = 3 * local * queue_factor
             reward_forwarded = 1 * forwarded * (1 - queue_factor) * forward_factor
             reward_rejected = -10 * rejected * forward_factor * queue_factor
-
-            reward = reward_local + reward_forwarded + reward_rejected - 2 * self.forward_exceed
+            malus = - 2 * self.forward_exceed
         else:
             # If congested, local processing is discouraged, while forwarding is
             # slightly encouraged only if available, then rejection is
@@ -286,10 +288,13 @@ class TrafficManagementEnv(BaseEnvironment):
             reward_local = -10 * local
             reward_forwarded = -2 * forwarded * forward_factor
             reward_rejected = 2 * rejected * (1 - forward_factor)
+            malus = - 500 - 2 * self.forward_exceed
 
-            reward = reward_local + reward_forwarded + reward_rejected - 500 - 2 * self.forward_exceed
+        reward = reward_local + reward_forwarded + reward_rejected + malus
 
-        return reward
+        components = (reward_local, reward_forwarded, reward_rejected, malus)
+
+        return reward, components
 
     def sample_workload(self, requests):
         '''sample_workload returns a sample of the workload for the given number
