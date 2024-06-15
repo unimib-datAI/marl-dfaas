@@ -42,6 +42,12 @@
     "parameters": {
         "PPO": {
             "standard": {},
+            "standardPR": {
+                "lambda": 0.95,
+                "clip_param": 0.2,
+                "entropy_coeff": 0.01,
+                "lr": 0.0003
+            },
             "tuned": {
                 "gamma": 0.91,
                 "lambda": 0.95,
@@ -52,6 +58,11 @@
                     "fcnet_hiddens": [167, 167]
                 }
             }
+        },
+        "SAC": {
+            "standard": {},
+            "standardPR": {},
+            "tuned": {}
         }
     }
 }
