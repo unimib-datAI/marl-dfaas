@@ -160,6 +160,7 @@ def calculate_aggregate_metrics(exp_dirs):
 
     return aggr_metrics
 
+
 def main(experiments_directory):
     experiments_path = Path(experiments_directory, "experiments.json")
     experiments = utils.json_to_dict(experiments_path)
@@ -176,13 +177,12 @@ def main(experiments_directory):
 
             for (scenario, scenario_value) in params_value.items():
                 aggr_metrics[algo][params][scenario] = {}
-                all_done = True
+                all_done = False
                 exp_dirs = []
 
                 # Calculate metrics for a single experiment.
                 for exp in scenario_value.values():
                     if not exp["done"]:
-                        all_done = False
                         continue
                     logger.log(f"Calculating metrics for {exp['id']!r}")
 
@@ -194,11 +194,14 @@ def main(experiments_directory):
                     metrics_path = Path(exp_directory, "metrics.json")
                     utils.dict_to_json(metrics, metrics_path)
 
+                    all_done = True
+
                 # When calculating aggregate metrics, all sub-experiments must
                 # be run.
-                exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
                     continue
+
+                exp_id = f"{algo}:{params}:{scenario}"
                 logger.log(f"Calculating aggregate metrics for {exp_id!r}")
 
                 # Calculate aggregate metrics for all the same experiments but
