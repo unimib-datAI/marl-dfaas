@@ -482,12 +482,10 @@ def make_experiments_plots(exp_dir, exp_prefix):
                     # consider all experiments).
                     if (exp_prefix is not None and len(exp_prefix) >= 1
                        and not exp["id"].startswith(tuple(exp_prefix))):
-                        logger.warn(f"Skipping experiment ID {exp['id']}")
                         continue
 
                     # Make plots only for finished experiments.
                     if not exp["done"]:
-                        logger.warn(f"Skipping experiment {exp['id']!r} because it is not done")
                         continue
 
                     # Make plots for a single experiment. We only give the
@@ -504,7 +502,6 @@ def make_experiments_plots(exp_dir, exp_prefix):
                 # run.
                 exp_id = f"{algo}:{params}:{scenario}"
                 if not all_done:
-                    logger.warn(f"Skipping making plot for aggregate experiment {exp_id!r} because not all experiments are done")
                     continue
                 task = executor.submit(aggregate, exp_dirs, exp_id, exp_dir)
                 tasks.append(task)
