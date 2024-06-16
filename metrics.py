@@ -47,6 +47,7 @@ def eval_single_exp_single_scenario(eval_data, scenario):
         tmp_steps_cong_total = 0
         tmp_rejected_reqs_total = 0
 
+
         for step in episode["evaluation_steps"]:
             tmp_rewards_total += step["reward"]
             tmp_steps_cong_total += step["obs_info"]["congested"]
@@ -63,10 +64,13 @@ def eval_single_exp_single_scenario(eval_data, scenario):
     result = {
             "reward_total_mean": np.mean(reward_total),
             "reward_total_std": np.std(reward_total),
+            "reward_total": reward_total,
             "congested_total_mean": np.mean(steps_cong_total),
             "congested_total_std": np.std(steps_cong_total),
+            "congested_total": steps_cong_total,
             "rejected_reqs_total_mean": np.mean(rejected_reqs_total),
             "rejected_reqs_total_std": np.std(rejected_reqs_total),
+            "rejected_reqs_total": rejected_reqs_total,
             }
 
     return result
