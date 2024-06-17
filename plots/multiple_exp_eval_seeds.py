@@ -151,7 +151,7 @@ def make(exp_dirs, exp_id, res_dir):
         ax.set_axisbelow(True)  # Place the grid behind the lines and bars.
 
     # Save the plot.
-    plot_path = Path(res_dir, "plots", "evaluation", f"{exp_id}.pdf")
+    plot_path = Path(res_dir, "plots", "evaluation", "seeds", f"{exp_id}.pdf")
     plot_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(plot_path)
     plt.close(fig)
@@ -161,7 +161,7 @@ def make(exp_dirs, exp_id, res_dir):
 if __name__ == "__main__":
     matplotlib.use("pdf", force=True)
 
-    parser = argparse.ArgumentParser(prog="multiple_exp_eval")
+    parser = argparse.ArgumentParser(prog="multiple_exp_eval_seeds")
 
     parser.add_argument("experiment_directory",
                         help="DFaaS Experiment directory")

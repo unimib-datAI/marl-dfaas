@@ -16,7 +16,7 @@ if __name__ == "__main__":
 
     import multiple_exp_train
 else:
-    from . import multiple_exp_train, multiple_exp_eval
+    from . import multiple_exp_train, multiple_exp_eval_seeds
 
 import utils
 
@@ -37,9 +37,9 @@ def make(exp_dirs, exp_id, res_dir):
         logger.err(f"Failed to make plots for training summary for aggregate experiment {exp_id!r}: {traceback.format_exc()}")
 
     try:
-        multiple_exp_eval.make(exp_dirs, exp_id, res_dir)
+        multiple_exp_eval_seeds.make(exp_dirs, exp_id, res_dir)
     except Exception:
-        logger.err(f"Failed to make plots for evaluation summary for aggregate experiment {exp_id!r}: {traceback.format_exc()}")
+        logger.err(f"Failed to make plots for evaluation summary seeds for aggregate experiment {exp_id!r}: {traceback.format_exc()}")
 
 
 if __name__ == "__main__":
