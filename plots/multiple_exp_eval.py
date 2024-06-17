@@ -165,9 +165,9 @@ if __name__ == "__main__":
 
     parser.add_argument("experiment_directory",
                         help="DFaaS Experiment directory")
-    parser.add_argument("experiment_id",
-                        help="Which main experiment make plots (example 'PPO:standard:scenario1')")
-
+    parser.add_argument("--experiment_id", "-e",
+                        help="Which main experiment make plots (example 'PPO:standard:scenario1')",
+                        default=None)
     args = parser.parse_args()
 
     # Read and parse the experiments.json file.
