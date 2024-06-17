@@ -10,6 +10,7 @@ from traffic_env import TrafficManagementEnv
 import plots.single_exp
 import plots.multiple_exp
 import plots.scenario_env
+import plots.algo_eval_params
 
 from RL4CC.utilities.logger import Logger
 
@@ -91,6 +92,27 @@ def make_environment_plots(exp_dir):
 
     for task in tasks:
         task.result()
+
+
+def make_algo_plots(exp_dir):
+    """Makes summary plots for each algorithm in terms of scenarios and
+    parameters."""
+    # Read and parse the experiments.json file.
+    experiments_path = Path(exp_dir, "experiments.json")
+    experiments = utils.json_to_dict(experiments_path)
+
+    for (algo, algo_values) in experiments.items():
+        # All sub-experiments must be done, otherwise can't make the general
+        # plot for the algorithm.
+        all_done = True
+        for (params, params_values) in algo_values.items():
+            for (scenario, scenario_value) in params_values.items():
+                for exp in scenario_value.values():
+                    if not exp["done"]:
+                        all_done = False
+
+        if all_done:
+            plots.algo_eval_params.make(exp_dir, algo)
 
 
 def main(exp_dir, exp_prefix):
