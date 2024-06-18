@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 
 if __name__ == "__main__":
     import sys
@@ -24,16 +25,20 @@ from RL4CC.utilities.logger import Logger
 logger = Logger(name="DFAAS-PLOTS", verbose=2)
 
 
-def _make_plot(subplot, metrics, scenarios):
+def _make_plot(subplot, metrics, scenarios, percent=False):
     x = np.arange(len(scenarios))  # Label locations on X axis.
-    width = 0.15  # Width of the bars
+    width = 0.20  # Width of the bars
     multiplier = 0
 
     # For each seed, plot the bar at different locations on the X axis.
     for attribute, measurement in metrics.items():
         offset = width * multiplier
         bars = subplot.bar(x + offset, measurement, width, label=attribute)
-        subplot.bar_label(bars, padding=1)
+        if percent:
+            subplot.bar_label(bars, fmt="{:.2f} %", padding=1)
+        else:
+            subplot.bar_label(bars, padding=1)
+
         multiplier += 1
 
     # Set labels for the X axis (the scenarios). The labels must be centers
@@ -54,9 +59,8 @@ def _make_plot(subplot, metrics, scenarios):
 def _make_boxplot(subplot, metrics, scenarios):
     seeds = len(metrics)
 
-    # subplot.set_xlim(0, 30)
     x = np.arange(len(scenarios))
-    width = 0.15  # the width of the bars
+    width = 0.20  # the width of the bars
     multiplier = 0
 
     for seed in range(seeds):
@@ -82,10 +86,10 @@ def make(exp_dirs, exp_id, res_dir):
     # Get the data.
     reward_total_mean = {f"Seed nr. {seed}": [] for seed in range(seeds)}
     congested_total_mean = {f"Seed nr. {seed}": [] for seed in range(seeds)}
-    rejected_reqs_total_mean = {f"Seed nr. {seed}": [] for seed in range(seeds)}
+    rejected_reqs_total_percent_mean = {f"Seed nr. {seed}": [] for seed in range(seeds)}
     reward_total = [[] for _ in range(seeds)]
     congested_total = [[] for _ in range(seeds)]
-    rejected_reqs_total = [[] for _ in range(seeds)]
+    rejected_reqs_total_percent = [[] for _ in range(seeds)]
     idx = 0
     for seed in reward_total_mean:
         metrics = utils.json_to_dict(Path(exp_dirs[idx], "metrics.json"))
@@ -93,18 +97,18 @@ def make(exp_dirs, exp_id, res_dir):
         # Initialize sub-lists for this seed.
         reward_total[idx] = [[] for _ in range(len(scenarios))]
         congested_total[idx] = [[] for _ in range(len(scenarios))]
-        rejected_reqs_total[idx] = [[] for _ in range(len(scenarios))]
+        rejected_reqs_total_percent[idx] = [[] for _ in range(len(scenarios))]
 
         # The total are indexed by integers, whereas the means by dictionaries.
         scen_idx = 0
         for scenario, scenario_data in metrics["scenarios"].items():
             reward_total_mean[seed].append(scenario_data["reward_total"]["mean"])
             congested_total_mean[seed].append(scenario_data["congested_total"]["mean"])
-            rejected_reqs_total_mean[seed].append(scenario_data["rejected_reqs_total"]["mean"])
+            rejected_reqs_total_percent_mean[seed].append(scenario_data["rejected_reqs_total"]["percent_mean"])
 
             reward_total[idx][scen_idx] = scenario_data["reward_total"]["values"]
             congested_total[idx][scen_idx] = scenario_data["congested_total"]["values"]
-            rejected_reqs_total[idx][scen_idx] = scenario_data["rejected_reqs_total"]["values"]
+            rejected_reqs_total_percent[idx][scen_idx] = scenario_data["rejected_reqs_total"]["percent_values"]
             scen_idx += 1
 
         idx += 1
@@ -136,15 +140,17 @@ def make(exp_dirs, exp_id, res_dir):
     axs[1, 1].set_ylabel('Steps')
     axs[1, 1].set_title('Distribution of Total Congsted Steps')
 
-    # Mean of total rejected requests plot.
-    _make_plot(axs[0, 2], rejected_reqs_total_mean, scenarios)
+    # Percent average of total rejected requests plot.
+    _make_plot(axs[0, 2], rejected_reqs_total_percent_mean, scenarios, percent=True)
     axs[0, 2].set_ylabel('Requests')
-    axs[0, 2].set_title('Mean Total Rejected Requests')
+    axs[0, 2].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[0, 2].set_ylim(top=100)  # Percent.
+    axs[0, 2].set_title('Percent Average Total Rejected Requests')
 
-    # Distribution of the total rejected requests plot.
-    _make_boxplot(axs[1, 2], rejected_reqs_total, scenarios)
+    # Distribution of the percent total rejected requests plot.
+    _make_boxplot(axs[1, 2], rejected_reqs_total_percent, scenarios)
     axs[1, 2].set_ylabel('Requests')
-    axs[1, 2].set_title('Distribution of Total Rejected Requests')
+    axs[1, 2].set_title('Distribution of Percent Total Rejected Requests')
 
     # Common settings for all plots.
     for ax in axs.flat:

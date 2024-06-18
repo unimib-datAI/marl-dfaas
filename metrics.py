@@ -81,6 +81,7 @@ def eval_single_exp_single_scenario(eval_data, scenario):
                 "values": rejected_reqs_total,
                 "percent_mean": rejected_reqs_total_percent.mean(),
                 "percent_std": rejected_reqs_total_percent.std(),
+                "percent_values": rejected_reqs_total_percent,
                 },
             }
 
