@@ -39,6 +39,7 @@ def eval_single_exp_single_scenario(eval_data, scenario):
     reward_total = np.empty(shape=num_episodes)
     steps_cong_total = np.empty(shape=num_episodes, dtype=np.int64)
     rejected_reqs_total = np.empty(shape=num_episodes, dtype=np.int64)
+    rejected_reqs_total_percent = np.empty(shape=num_episodes)
 
     # Fill the arrays with data.
     idx = 0
@@ -46,31 +47,39 @@ def eval_single_exp_single_scenario(eval_data, scenario):
         tmp_rewards_total = 0
         tmp_steps_cong_total = 0
         tmp_rejected_reqs_total = 0
-
+        tmp_requests_total = 0
 
         for step in episode["evaluation_steps"]:
             tmp_rewards_total += step["reward"]
             tmp_steps_cong_total += step["obs_info"]["congested"]
             tmp_rejected_reqs_total += step["obs_info"]["actions"]["rejected"]
+            tmp_requests_total += sum(step["obs_info"]["actions"].values())
 
         reward_total[idx] = tmp_rewards_total
         steps_cong_total[idx] = tmp_steps_cong_total
         rejected_reqs_total[idx] = tmp_rejected_reqs_total
+        rejected_reqs_total_percent[idx] = tmp_rejected_reqs_total / tmp_requests_total * 100
         idx += 1
 
     assert idx == num_episodes, "The ndarrays have some elements not accessed"
 
     # Calculate the means and standard deviation.
     result = {
-            "reward_total_mean": np.mean(reward_total),
-            "reward_total_std": np.std(reward_total),
-            "reward_total": reward_total,
-            "congested_total_mean": np.mean(steps_cong_total),
-            "congested_total_std": np.std(steps_cong_total),
-            "congested_total": steps_cong_total,
-            "rejected_reqs_total_mean": np.mean(rejected_reqs_total),
-            "rejected_reqs_total_std": np.std(rejected_reqs_total),
-            "rejected_reqs_total": rejected_reqs_total,
+            "reward_total": {
+                "mean": reward_total.mean(),
+                "std": reward_total.std(),
+                "values": reward_total,
+                },
+            "congested_total": {
+                "mean": steps_cong_total.mean(),
+                "std": steps_cong_total.std(),
+                },
+            "rejected_reqs_total": {
+                "mean": rejected_reqs_total.mean(),
+                "std": rejected_reqs_total.std(),
+                "percent_mean": rejected_reqs_total_percent.mean(),
+                "percent_std": rejected_reqs_total_percent.std(),
+                },
             }
 
     return result
@@ -118,13 +127,22 @@ def calculate_aggregate_metrics(exp_dirs):
     for (scenario, scenario_data) in metrics["scenarios"].items():
         # This array contains the individual metrics for each experiment and
         # scenario (each scenario has its own metrics).
-        raw_data[scenario] = {}
-        raw_data[scenario]["reward_total_mean"] = np.empty(shape=num_exp)
-        raw_data[scenario]["reward_total_std"] = np.empty(shape=num_exp)
-        raw_data[scenario]["congested_total_mean"] = np.empty(shape=num_exp)
-        raw_data[scenario]["congested_total_std"] = np.empty(shape=num_exp)
-        raw_data[scenario]["rejected_reqs_total_mean"] = np.empty(shape=num_exp)
-        raw_data[scenario]["rejected_reqs_total_std"] = np.empty(shape=num_exp)
+        raw_data[scenario] = {
+                "reward_total": {
+                    "mean": np.empty(shape=num_exp),
+                    "std": np.empty(shape=num_exp),
+                    },
+                "congested_total": {
+                    "mean": np.empty(shape=num_exp),
+                    "std": np.empty(shape=num_exp),
+                    },
+                "rejected_reqs_total": {
+                    "mean": np.empty(shape=num_exp),
+                    "std": np.empty(shape=num_exp),
+                    "percent_mean": np.empty(shape=num_exp),
+                    "percent_std": np.empty(shape=num_exp),
+                    }
+                }
 
     # Iterate over all experiment metrics and finish to fill the raw_data
     # arrays.
@@ -134,12 +152,14 @@ def calculate_aggregate_metrics(exp_dirs):
         metrics = utils.json_to_dict(metrics_path)
 
         for (scenario, scenario_data) in metrics["scenarios"].items():
-            raw_data[scenario]["reward_total_mean"][idx] = scenario_data["reward_total_mean"]
-            raw_data[scenario]["reward_total_std"][idx] = scenario_data["reward_total_std"]
-            raw_data[scenario]["congested_total_mean"][idx] = scenario_data["congested_total_mean"]
-            raw_data[scenario]["congested_total_std"][idx] = scenario_data["congested_total_std"]
-            raw_data[scenario]["rejected_reqs_total_mean"][idx] = scenario_data["rejected_reqs_total_mean"]
-            raw_data[scenario]["rejected_reqs_total_std"][idx] = scenario_data["rejected_reqs_total_std"]
+            raw_data[scenario]["reward_total"]["mean"][idx] = scenario_data["reward_total"]["mean"]
+            raw_data[scenario]["reward_total"]["std"][idx] = scenario_data["reward_total"]["std"]
+            raw_data[scenario]["congested_total"]["mean"][idx] = scenario_data["congested_total"]["mean"]
+            raw_data[scenario]["congested_total"]["std"][idx] = scenario_data["congested_total"]["std"]
+            raw_data[scenario]["rejected_reqs_total"]["mean"][idx] = scenario_data["rejected_reqs_total"]["mean"]
+            raw_data[scenario]["rejected_reqs_total"]["std"][idx] = scenario_data["rejected_reqs_total"]["std"]
+            raw_data[scenario]["rejected_reqs_total"]["percent_mean"][idx] = scenario_data["rejected_reqs_total"]["percent_mean"]
+            raw_data[scenario]["rejected_reqs_total"]["percent_std"][idx] = scenario_data["rejected_reqs_total"]["percent_std"]
 
         idx += 1
 
@@ -152,17 +172,23 @@ def calculate_aggregate_metrics(exp_dirs):
         cv_percent = lambda mean, std: std.mean() / mean.mean() * 100  # noqa: E731
 
         aggr_metrics[scenario] = {
-                "reward_total_mean": scenario_data["reward_total_mean"].mean(),
-                "reward_total_std": scenario_data["reward_total_std"].mean(),
-                "reward_total_cv_percent": cv_percent(scenario_data["reward_total_mean"], scenario_data["reward_total_std"]),
-
-                "congested_total_mean": scenario_data["congested_total_mean"].mean(),
-                "congested_total_std": scenario_data["congested_total_std"].mean(),
-                "congested_total_cv_percent": cv_percent(scenario_data["congested_total_mean"], scenario_data["congested_total_std"]),
-
-                "rejected_reqs_total_mean": scenario_data["rejected_reqs_total_mean"].mean(),
-                "rejected_reqs_total_std": scenario_data["rejected_reqs_total_std"].mean(),
-                "rejected_reqs_total_cv_percent": cv_percent(scenario_data["rejected_reqs_total_mean"], scenario_data["rejected_reqs_total_std"])
+                "reward_total": {
+                    "mean": scenario_data["reward_total"]["mean"].mean(),
+                    "std": scenario_data["reward_total"]["std"].mean(),
+                    "cv_percent": cv_percent(scenario_data["reward_total"]["mean"], scenario_data["reward_total"]["std"]),
+                    },
+                "congested_total": {
+                    "mean": scenario_data["congested_total"]["mean"].mean(),
+                    "std": scenario_data["congested_total"]["std"].mean(),
+                    "cv_percent": cv_percent(scenario_data["congested_total"]["mean"], scenario_data["congested_total"]["std"]),
+                    },
+                "rejected_reqs": {
+                    "mean": scenario_data["rejected_reqs_total"]["mean"].mean(),
+                    "std": scenario_data["rejected_reqs_total"]["std"].mean(),
+                    "cv_percent": cv_percent(scenario_data["rejected_reqs_total"]["mean"], scenario_data["rejected_reqs_total"]["std"]),
+                    "percent_mean": scenario_data["rejected_reqs_total"]["percent_mean"].mean(),
+                    "percent_std": scenario_data["rejected_reqs_total"]["percent_std"].mean(),
+                    },
                 }
 
     return aggr_metrics
