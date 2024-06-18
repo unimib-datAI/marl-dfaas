@@ -73,10 +73,12 @@ def eval_single_exp_single_scenario(eval_data, scenario):
             "congested_total": {
                 "mean": steps_cong_total.mean(),
                 "std": steps_cong_total.std(),
+                "values": steps_cong_total,
                 },
             "rejected_reqs_total": {
                 "mean": rejected_reqs_total.mean(),
                 "std": rejected_reqs_total.std(),
+                "values": rejected_reqs_total,
                 "percent_mean": rejected_reqs_total_percent.mean(),
                 "percent_std": rejected_reqs_total_percent.std(),
                 },

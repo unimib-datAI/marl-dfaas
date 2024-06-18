@@ -98,13 +98,13 @@ def make(exp_dirs, exp_id, res_dir):
         # The total are indexed by integers, whereas the means by dictionaries.
         scen_idx = 0
         for scenario, scenario_data in metrics["scenarios"].items():
-            reward_total_mean[seed].append(scenario_data["reward_total_mean"])
-            congested_total_mean[seed].append(scenario_data["congested_total_mean"])
-            rejected_reqs_total_mean[seed].append(scenario_data["rejected_reqs_total_mean"])
+            reward_total_mean[seed].append(scenario_data["reward_total"]["mean"])
+            congested_total_mean[seed].append(scenario_data["congested_total"]["mean"])
+            rejected_reqs_total_mean[seed].append(scenario_data["rejected_reqs_total"]["mean"])
 
-            reward_total[idx][scen_idx] = scenario_data["reward_total"]
-            congested_total[idx][scen_idx] = scenario_data["congested_total"]
-            rejected_reqs_total[idx][scen_idx] = scenario_data["rejected_reqs_total"]
+            reward_total[idx][scen_idx] = scenario_data["reward_total"]["values"]
+            congested_total[idx][scen_idx] = scenario_data["congested_total"]["values"]
+            rejected_reqs_total[idx][scen_idx] = scenario_data["rejected_reqs_total"]["values"]
             scen_idx += 1
 
         idx += 1

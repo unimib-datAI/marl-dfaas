@@ -29,7 +29,7 @@ def make(exp_dir, exp_id):
     multiple scenarios.
 
     Reads data from the metrics.json file."""
-    metrics = utils.json_to_dict(Path(exp_dir, exp_id, "metrics.json"))
+    metrics = utils.json_to_dict(Path(exp_dir, "metrics.json"))
 
     # A figure with six sub-plots. Each row is for a metric (Total Reward, Total
     # Congested Steps, and Total Rejected Requests), with two columns: one for
@@ -99,7 +99,7 @@ def make(exp_dir, exp_id):
         ax.grid(which="both")
         ax.set_axisbelow(True)  # Place the grid behind the lines and bars.
 
-    path = Path(exp_dir, exp_id, "plots", "evaluation.pdf")
+    path = Path(exp_dir, "plots", "evaluation.pdf")
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
@@ -118,4 +118,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    make(args.experiment_directory, args.experiment_id)
+    make(Path(args.experiment_directory, args.experiment_id), args.experiment_id)
