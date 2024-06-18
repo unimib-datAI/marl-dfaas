@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 
 if __name__ == "__main__":
     import sys
@@ -28,7 +29,7 @@ def make(exp_dir, exp_id):
     multiple scenarios.
 
     Reads data from the metrics.json file."""
-    metrics = utils.json_to_dict(Path(exp_dir, "metrics.json"))
+    metrics = utils.json_to_dict(Path(exp_dir, exp_id, "metrics.json"))
 
     # A figure with six sub-plots. Each row is for a metric (Total Reward, Total
     # Congested Steps, and Total Rejected Requests), with two columns: one for
@@ -47,39 +48,49 @@ def make(exp_dir, exp_id):
     reward_total_std = []
     congested_total_mean = []
     congested_total_std = []
-    rejected_reqs_total_mean = []
-    rejected_reqs_total_std = []
+    rejected_reqs_total_percent_mean = []
+    rejected_reqs_total_percent_std = []
     for scenario in TrafficManagementEnv.get_scenarios():
-        reward_total_mean.append(metrics["scenarios"][scenario]["reward_total_mean"])
-        reward_total_std.append(metrics["scenarios"][scenario]["reward_total_std"])
-        congested_total_mean.append(metrics["scenarios"][scenario]["congested_total_mean"])
-        congested_total_std.append(metrics["scenarios"][scenario]["congested_total_std"])
-        rejected_reqs_total_mean.append(metrics["scenarios"][scenario]["rejected_reqs_total_mean"])
-        rejected_reqs_total_std.append(metrics["scenarios"][scenario]["rejected_reqs_total_std"])
+        reward_total_mean.append(metrics["scenarios"][scenario]["reward_total"]["mean"])
+        reward_total_std.append(metrics["scenarios"][scenario]["reward_total"]["std"])
+        congested_total_mean.append(metrics["scenarios"][scenario]["congested_total"]["mean"])
+        congested_total_std.append(metrics["scenarios"][scenario]["congested_total"]["std"])
+        rejected_reqs_total_percent_mean.append(metrics["scenarios"][scenario]["rejected_reqs_total"]["percent_mean"])
+        rejected_reqs_total_percent_std.append(metrics["scenarios"][scenario]["rejected_reqs_total"]["percent_std"])
 
-    axs[0, 0].bar(scenarios, reward_total_mean)
+    bars = axs[0, 0].bar(scenarios, reward_total_mean)
+    axs[0, 0].bar_label(bars, fmt="{:.2f}", padding=1)
     axs[0, 0].set_ylabel("Reward")
     axs[0, 0].set_title("Average total reward")
 
-    axs[0, 1].bar(scenarios, reward_total_std)
+    bars = axs[0, 1].bar(scenarios, reward_total_std)
+    axs[0, 1].bar_label(bars, fmt="{:.2f}", padding=1)
     axs[0, 1].set_ylabel("Reward")
     axs[0, 1].set_title("SD total reward")
 
-    axs[1, 0].bar(scenarios, congested_total_mean, color="g")
+    bars = axs[1, 0].bar(scenarios, congested_total_mean, color="g")
+    axs[1, 0].bar_label(bars, fmt="{:.2f}", padding=1)
     axs[1, 0].set_ylabel("Steps")
     axs[1, 0].set_title("Average total congested steps")
 
-    axs[1, 1].bar(scenarios, congested_total_std, color="g")
+    bars = axs[1, 1].bar(scenarios, congested_total_std, color="g")
+    axs[1, 1].bar_label(bars, fmt="{:.2f}", padding=1)
     axs[1, 1].set_ylabel("Steps")
     axs[1, 1].set_title("SD total congested steps")
 
-    axs[2, 0].bar(scenarios, rejected_reqs_total_mean, color="r")
-    axs[2, 0].set_ylabel("Requests")
-    axs[2, 0].set_title("Average total rejected requests")
+    bars = axs[2, 0].bar(scenarios, rejected_reqs_total_percent_mean, color="r")
+    axs[2, 0].bar_label(bars, fmt="{:.2f} %", padding=1)
+    axs[2, 0].set_ylim(top=100)  # Set Y axis range from 0 to 100 (percent).
+    # Set the Y axis formatter.
+    axs[2, 0].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(decimals=0))
+    axs[2, 0].set_ylabel("Percent Requests")
+    axs[2, 0].set_title("Average percent of total rejected requests")
 
-    axs[2, 1].bar(scenarios, rejected_reqs_total_std, color="r")
-    axs[2, 1].set_ylabel("Requests")
-    axs[2, 1].set_title("SD total rejected requests")
+    bars = axs[2, 1].bar(scenarios, rejected_reqs_total_percent_std, color="r")
+    axs[2, 1].bar_label(bars, fmt="{:.2f} %", padding=1)
+    axs[2, 1].set_ylabel("Percent Requests")
+    axs[2, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[2, 1].set_title("SD average percent of total rejected requests")
 
     # Common settings for all plots.
     for ax in axs.flat:
@@ -88,7 +99,8 @@ def make(exp_dir, exp_id):
         ax.grid(which="both")
         ax.set_axisbelow(True)  # Place the grid behind the lines and bars.
 
-    path = Path(exp_dir, "plots", "evaluation.pdf")
+    path = Path(exp_dir, exp_id, "plots", "evaluation.pdf")
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
     logger.log(f"{exp_id}: {path.as_posix()!r}")
