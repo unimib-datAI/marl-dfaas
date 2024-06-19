@@ -148,6 +148,9 @@ class TrafficManagementEnv(BaseEnvironment):
         info["actions"]["forwarded"] = actions[1] if len(actions) == 3 else 0
         info["actions"]["rejected"] = actions[2] if len(actions) == 3 else 0
 
+        # The caller, usually the step() function, will set the exact values.
+        info["reward_components"] = (0, 0, 0, 0)
+
         info["master_seed"] = self.master_seed
         info["seed"] = self.seed
 
