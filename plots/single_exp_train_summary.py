@@ -3,6 +3,7 @@ import json
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 
 if __name__ == "__main__":
     import sys
@@ -39,7 +40,7 @@ def _get_metrics_training_exp(exp_dir):
     reward_mean = np.empty(shape=len(iters), dtype=np.float64)
     reward_total = np.empty(shape=len(iters), dtype=np.float64)
     congested_steps = np.empty(shape=len(iters), dtype=np.int64)
-    rejected_reqs_total = np.empty(shape=len(iters), dtype=np.int64)
+    rejected_reqs_total_percent = np.empty(shape=len(iters))
     idx = 0
     for iter in iters:
         # Ray post-processes the custo metrics calculatin for each value the
@@ -49,7 +50,7 @@ def _get_metrics_training_exp(exp_dir):
         # Same applies for congested_steps and rejected_reqs_total.
         reward_mean[idx] = iter["custom_metrics"]["reward_mean_mean"]
         congested_steps[idx] = iter["custom_metrics"]["congested_steps_mean"]
-        rejected_reqs_total[idx] = iter["custom_metrics"]["rejected_reqs_total_mean"]
+        rejected_reqs_total_percent[idx] = iter["custom_metrics"]["rejected_reqs_total_percent_mean"]
 
         # Each iteration is one episode, so there is only one episode total
         # reward.
@@ -63,7 +64,7 @@ def _get_metrics_training_exp(exp_dir):
             "reward_mean": reward_mean,
             "reward_total": reward_total,
             "congested_steps": congested_steps,
-            "rejected_reqs_total": rejected_reqs_total,
+            "rejected_reqs_total_percent": rejected_reqs_total_percent,
             }
 
     return result
@@ -78,7 +79,7 @@ def make(exp_dir, exp_id):
     reward_mean = result["reward_mean"]
     reward_total = result["reward_total"]
     congested_steps = result["congested_steps"]
-    rejected_reqs_total = result["rejected_reqs_total"]
+    rejected_reqs_total_percent = result["rejected_reqs_total_percent"]
 
     # Generate now the plots using the arrays for the x axis.
     fig = plt.figure(figsize=(19.2, 14.3), dpi=300, layout="constrained")
@@ -94,14 +95,17 @@ def make(exp_dir, exp_id):
     axs[1, 0].plot(congested_steps)
     axs[1, 0].set_title("Congested steps")
 
-    axs[1, 1].plot(rejected_reqs_total)
-    axs[1, 1].set_title("Rejected requests total")
+    axs[1, 1].plot(rejected_reqs_total_percent)
+    axs[1, 1].set_ylim(bottom=0, top=100)  # Set Y axis range from 0 to 100 (percent).
+    axs[1, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[1, 1].set_title("Percent of total rejected requests")
 
     for ax in axs.flat:
         ax.set_xlabel("Iteration")
 
     # Save the plot.
     path = Path(exp_dir, "plots", "training_plot.pdf")
+    path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path)
     plt.close(fig)
     logger.log(f"{exp_id}: {path.as_posix()!r}")
@@ -119,4 +123,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    make(args.experiment_directory, args.experiment_id)
+    make(Path(args.experiment_directory, args.experiment_id), args.experiment_id)

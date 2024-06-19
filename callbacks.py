@@ -24,8 +24,8 @@ class TrafficManagementCallbacks(DefaultCallbacks):
     def on_episode_start(self, *, episode, base_env, **kwargs):
         """Callback run right after an Episode has started.
 
-        Only the episode keyword argument is used, other arguments will be
-        ignored."""
+        Only the episode and base_env keyword argument are used, other arguments
+        will be ignored."""
         # Make sure this episode has just been started (only initial obs logged
         # so far).
         assert episode.length <= 0, "'on_episode_start()' callback should be called right after env reset!"
@@ -82,10 +82,12 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         # for each step (starting from 1).
         episode.hist_data["rejected_reqs_percent"] = rejected_reqs_percent
 
+        rejected_reqs_total_percent = sum(rejected_reqs) / sum(input_requests) * 100
+
         episode.custom_metrics["reward_mean"] = np.mean(episode.hist_data["reward"])
         episode.custom_metrics["congested_steps"] = np.sum(episode.hist_data["congested"])
         episode.custom_metrics["rejected_reqs_total"] = np.sum(episode.hist_data["rejected_reqs"])
-        episode.custom_metrics["rejected_reqs_total_percent"] = np.mean(episode.hist_data["rejected_reqs_percent"])
+        episode.custom_metrics["rejected_reqs_total_percent"] = rejected_reqs_total_percent
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
