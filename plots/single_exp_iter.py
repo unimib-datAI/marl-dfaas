@@ -50,10 +50,10 @@ def make(exp_dir, exp_id):
     with result_path.open() as result:
         # The "result.json" file is not a valid JSON file. Each row is an
         # isolated JSON object, the result of one training iteration.
-        iter_idx = 0
+        iter_idx = 1
         while (raw_iter := result.readline()) != "":
-            # We need to subtract 1 because the steps starts from zero.
-            if iter_idx % (iter_plots_each - 1) == 0:
+            # The first iteration is always saved.
+            if iter_idx == 1 or iter_idx % iter_plots_each == 0:
                 iters[iter_idx] = json.loads(raw_iter)
 
             iter_idx += 1
@@ -203,4 +203,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    make(args.experiment_directory, args.experiment_id)
+    make(Path(args.experiment_directory, args.experiment_id), args.experiment_id)
