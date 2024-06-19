@@ -48,7 +48,6 @@ class TrafficManagementCallbacks(DefaultCallbacks):
 
         self._save_data(episode, info)
 
-
     def on_episode_step(self, *, episode, **kwargs):
         """Called on each episode step (after the action has been logged).
 
