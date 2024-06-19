@@ -68,7 +68,8 @@ def make(exp_dir, exp_id):
         input_requests = np.empty(shape=steps, dtype=np.int64)
         queue_capacity = np.empty(shape=steps, dtype=np.int64)
         forwarding_capacity = np.empty(shape=steps, dtype=np.int64)
-        congested = np.empty(shape=steps, dtype=np.int64)
+        congested_queue_full = np.empty(shape=steps, dtype=np.int64)
+        congested_forwarding_exceed = np.empty(shape=steps, dtype=np.int64)
         actions = np.empty(shape=(steps, 3), dtype=np.int64)
         reward = np.empty(shape=steps)
         reward_components = np.empty(shape=(steps, 4))
@@ -76,7 +77,8 @@ def make(exp_dir, exp_id):
             input_requests[step] = iter["hist_stats"]["input_requests"][step]
             queue_capacity[step] = iter["hist_stats"]["queue_capacity"][step]
             forwarding_capacity[step] = iter["hist_stats"]["forwarding_capacity"][step]
-            congested[step] = iter["hist_stats"]["congested"][step]
+            congested_queue_full[step] = iter["hist_stats"]["congested_queue_full"][step]
+            congested_forwarding_exceed[step] = iter["hist_stats"]["congested_forwarding_exceed"][step]
             actions[step] = iter["hist_stats"]["actions"][step]
             reward[step] = iter["hist_stats"]["reward"][step]
             reward_components[step] = iter["hist_stats"]["reward_components"][step]
@@ -94,16 +96,18 @@ def make(exp_dir, exp_id):
 
         steps_x = np.arange(stop=steps-1)
 
-        # First plot: whether a state is in a congested state or not.
-        #
+        # First plot: whether a state is in a congested state or not. We
+        # distinguish the two types of congestion.
+        congested = np.bitwise_or(congested_queue_full, congested_forwarding_exceed)
+
         # Make the inverse array of congested_state.
-        not_congested = np.asarray(congested, dtype=bool)
-        not_congested = np.invert(not_congested)
+        not_congested = np.invert(congested, dtype=bool, casting="unsafe")
         not_congested = np.asarray(not_congested, dtype=np.int64)
 
-        # Do not stack the bars, because the two input array is one inverse of
-        # the other, so they don't stack or overlap.
-        axs[0].bar(x=steps_x, height=congested[:-1], color="r", label="Congested")
+        # The bars does not need to be stacked because they do not overlap.
+        axs[0].bar(x=steps_x, height=congested[:-1], color="r", label="Full Congested")
+        axs[0].bar(x=steps_x, height=congested_queue_full[:-1], color="orange", label="Queue Full")
+        axs[0].bar(x=steps_x, height=congested_forwarding_exceed[:-1], color="purple", label="Forwarding Exceeded")
         axs[0].bar(x=steps_x, height=not_congested[:-1], color="g", label="Not congested")
         axs[0].set_title("Congested state")
 

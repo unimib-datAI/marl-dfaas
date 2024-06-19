@@ -14,6 +14,8 @@ class TrafficManagementCallbacks(DefaultCallbacks):
                      "reward",
                      "reward_components",
                      "congested",
+                     "congested_queue_full",
+                     "congested_forwarding_exceed",
                      "rejected_reqs",
                      "input_requests",
                      "queue_capacity",
@@ -104,12 +106,16 @@ class TrafficManagementCallbacks(DefaultCallbacks):
         input_requests = obs[0]
         queue_capacity = obs[1]
         forwarding_capacity = obs[2]
+        congested_queue_full = obs[3]
+        congested_forwarding_exceed = obs[4]
         action = tuple(info["actions"].values())
 
         episode.user_data["current_time"].append(current_time)
         episode.user_data["reward"].append(reward)
         episode.user_data["reward_components"].append(reward_components)
         episode.user_data["congested"].append(congested)
+        episode.user_data["congested_queue_full"].append(congested_queue_full)
+        episode.user_data["congested_forwarding_exceed"].append(congested_forwarding_exceed)
         episode.user_data["rejected_reqs"].append(rejected_reqs)
         episode.user_data["input_requests"].append(input_requests)
         episode.user_data["queue_capacity"].append(queue_capacity)

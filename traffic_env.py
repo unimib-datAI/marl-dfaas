@@ -58,9 +58,6 @@ class TrafficManagementEnv(BaseEnvironment):
         # Max steps for the environment.
         self.max_steps = config.get("max_steps", 100)
 
-        # Call 'print' function on each step.
-        self.debug = config.get("debug", False)
-
         # The master seed for the RNG. This is used in each episode (each
         # "reset()") to create a new RNG that will be used for generating input
         # requests and forward capacity.
@@ -166,17 +163,6 @@ class TrafficManagementEnv(BaseEnvironment):
         # requests and obtain the distribution of requests (number of requests
         # to process locally, forward or reject).
         local, forwarded, rejected = self.process_actions(action)
-        self.total_managed_requests += local + forwarded + rejected
-
-        if self.debug:
-            print(f'State of the system at time step {self.current_step} of {self.max_steps}')
-            print('Current status (before applying action):')
-            print(f'  Step: {self.current_step}')
-            print(f'  Congested? {self.congested_queue_full or self.congested_forward_exceed}')
-            print(f'  Queue capacity: {self.queue_capacity}')
-            print(f'  Input requests: {self.input_requests}')
-            print(f'  Forward capacity: {self.forward_capacity}')
-            print(f'  Steps in congestion / not in congestion: {self.congested_steps} / {self.current_step - self.congested_steps}')
 
         # In some cases, the agent will try to forward more requests than are
         # available. We need to track this so that it can be transformed into a
@@ -197,7 +183,7 @@ class TrafficManagementEnv(BaseEnvironment):
         rejected += new_rejected
         local -= new_rejected
 
-        self.total_rejected_requests += rejected
+        self.total_managed_requests += local + forwarded + rejected
 
         # Calculate reward for the agent.
         reward, components = self._calculate_reward(local, forwarded, rejected)
@@ -209,17 +195,6 @@ class TrafficManagementEnv(BaseEnvironment):
         info = self._additional_info(actions=(local, forwarded, rejected), reward=reward)
         info["reward_components"] = components
         truncated = False
-
-        if self.debug:
-            print('Action chosen:')
-            print('  Local requests processed:', local)
-            print('  Forwarded requests:', forwarded)
-            print('  Rejected requests:', rejected)
-            print(f'Reward: {reward}')
-            print('Current status (after applying action):')
-            print(f'  Congested? {self.congested_queue_full or self.congested_forward_exceed}')
-            print(f'  Queue capacity: {self.queue_capacity}')
-            print(f'  Forward exceed: {self.forward_exceed}')
 
         return obs, reward, terminated, truncated, info
 
@@ -263,6 +238,16 @@ class TrafficManagementEnv(BaseEnvironment):
 
         It also returns a tuple of length 3 containing each component of the
         reward (the sum is the reward), useful for debugging purposes."""
+        # Converts the action from absolute values to normalized values between
+        # 0 and 1.
+        total = local + forwarded + rejected
+        local = local / total
+        forwarded = forwarded / total
+        rejected = rejected / total
+
+        # If 0 this term removes the malus (only if not congested).
+        forward_exceed = 1 if self.forward_exceed > 0 else 0
+
         # The queue factor represents how much queue capacity is available for
         # local processing. The range is 0 to 1. A low value means the queue is
         # almost full, while a high value means the queue is almost empty. The
@@ -282,16 +267,16 @@ class TrafficManagementEnv(BaseEnvironment):
             reward_local = 3 * local * queue_factor
             reward_forwarded = 1 * forwarded * (1 - queue_factor) * forward_factor
             reward_rejected = -10 * rejected * forward_factor * queue_factor
-            malus = - 2 * self.forward_exceed
+            malus = - 2 * forward_exceed
         else:
             # If congested, local processing is discouraged, while forwarding is
             # slightly encouraged only if available, then rejection is
             # encouraged (if forwarding is not possible). Note that
             # over-forwarding is dangerous in this case.
-            reward_local = -10 * local
+            reward_local = -2 * local
             reward_forwarded = -2 * forwarded * forward_factor
             reward_rejected = 2 * rejected * (1 - forward_factor)
-            malus = - 500 - 2 * self.forward_exceed
+            malus = - 10 - 2 * forward_exceed
 
         reward = reward_local + reward_forwarded + reward_rejected + malus
 
