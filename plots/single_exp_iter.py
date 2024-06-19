@@ -60,7 +60,9 @@ def make(exp_dir, exp_id):
 
     # For each saved iteration, make the plot.
     for (iter_idx, iter) in iters.items():
-        steps = iter["hist_stats"]["episode_lengths"][0]
+        # Steps for each episode. We need to add 1 because there is an initial
+        # step that only contains the initial observation (step 0).
+        steps = iter["hist_stats"]["episode_lengths"][0] + 1
 
         # Get the data first.
         input_requests = np.empty(shape=steps, dtype=np.int64)
@@ -70,7 +72,6 @@ def make(exp_dir, exp_id):
         actions = np.empty(shape=(steps, 3), dtype=np.int64)
         reward = np.empty(shape=steps)
         reward_components = np.empty(shape=(steps, 4))
-
         for step in range(steps):
             input_requests[step] = iter["hist_stats"]["input_requests"][step]
             queue_capacity[step] = iter["hist_stats"]["queue_capacity"][step]
@@ -79,8 +80,6 @@ def make(exp_dir, exp_id):
             actions[step] = iter["hist_stats"]["actions"][step]
             reward[step] = iter["hist_stats"]["reward"][step]
             reward_components[step] = iter["hist_stats"]["reward_components"][step]
-
-        assert step == steps-1, f"step is {step}, expected {steps-1}"
 
         # Then make the plot.
         fig = plt.figure(figsize=(38.38, 21.45), dpi=600, layout="constrained")
@@ -93,10 +92,7 @@ def make(exp_dir, exp_id):
                            sharex="col",  # Align x-axis for all plots.
                            gridspec_kw={"height_ratios": [1, 2, 2, 2]})
 
-        # For the first three plots, the x-axis must be moved one to the right.
-        # This is because the observed data refers to the previously observed
-        # state.
-        steps_x = np.arange(start=1, stop=steps)
+        steps_x = np.arange(stop=steps-1)
 
         # First plot: whether a state is in a congested state or not.
         #
@@ -116,6 +112,18 @@ def make(exp_dir, exp_id):
         axs[1].plot(steps_x, queue_capacity[:-1], label="Queue capacity")
         axs[1].set_title("Forwarding and Queue capacities")
 
+        # Important note: the contents of the third and fourth plots must be
+        # shifted one to the left (drop the first reward/action) because the
+        # recorded steps include the first observation.
+        #
+        # Therefore, the contents of the first and second plots are shifted one
+        # to the right (drop the last observation) because the last step doesn't
+        # have the corresponding actions.
+        #
+        # This means that for the Y-axis, the reward and the action are
+        # vertically aligned with the observation, even though the action is
+        # performed on the subsequent step.
+
         # Third plot: the action chosen by the agent with the input requests.
         #
         # The actions taken from the data are organized as an array for each
@@ -133,10 +141,10 @@ def make(exp_dir, exp_id):
         # Fourth plot: the reward and its components.
         #
         # Same as the previous plot, we need to extract the columns.
-        reward_local = reward_components[:, 0]
-        reward_forwarded = reward_components[:, 1]
-        reward_rejected = reward_components[:, 2]
-        reward_malus = reward_components[:, 3]
+        reward_local = reward_components[1:, 0]
+        reward_forwarded = reward_components[1:, 1]
+        reward_rejected = reward_components[1:, 2]
+        reward_malus = reward_components[1:, 3]
 
         # We rebuild the array because we need to process it.
         reward_components = np.array([reward_local,
@@ -157,11 +165,10 @@ def make(exp_dir, exp_id):
         cumulated_data[row_mask] = cumulated_data_neg[row_mask]
         offset_stack = cumulated_data
 
-        steps_x = np.arange(1, steps+1)
         labels = ["Local", "Forwarded", "Rejected", "Malus"]
         for i in np.arange(0, len(labels)):
             axs[3].bar(steps_x, reward_components[i], bottom=offset_stack[i], label=labels[i])
-        axs[3].plot(steps_x, reward, linewidth=3, color="r", label="Reward")
+        axs[3].plot(steps_x, reward[1:], linewidth=3, color="r", label="Reward")
         axs[3].set_title("Reward")
 
         # Common settings for all plots.
