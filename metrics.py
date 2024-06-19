@@ -171,24 +171,19 @@ def calculate_aggregate_metrics(exp_dirs):
     # Now it is possible to calculate the aggregated metrics.
     aggr_metrics = {}
     for (scenario, scenario_data) in raw_data.items():
-        # Coefficient of variation percentual.
-        cv_percent = lambda mean, std: std.mean() / mean.mean() * 100  # noqa: E731
 
         aggr_metrics[scenario] = {
                 "reward_total": {
                     "mean": scenario_data["reward_total"]["mean"].mean(),
                     "std": scenario_data["reward_total"]["std"].mean(),
-                    "cv_percent": cv_percent(scenario_data["reward_total"]["mean"], scenario_data["reward_total"]["std"]),
                     },
                 "congested_total": {
                     "mean": scenario_data["congested_total"]["mean"].mean(),
                     "std": scenario_data["congested_total"]["std"].mean(),
-                    "cv_percent": cv_percent(scenario_data["congested_total"]["mean"], scenario_data["congested_total"]["std"]),
                     },
                 "rejected_reqs": {
                     "mean": scenario_data["rejected_reqs_total"]["mean"].mean(),
                     "std": scenario_data["rejected_reqs_total"]["std"].mean(),
-                    "cv_percent": cv_percent(scenario_data["rejected_reqs_total"]["mean"], scenario_data["rejected_reqs_total"]["std"]),
                     "percent_mean": scenario_data["rejected_reqs_total"]["percent_mean"].mean(),
                     "percent_std": scenario_data["rejected_reqs_total"]["percent_std"].mean(),
                     },
