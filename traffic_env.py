@@ -97,9 +97,9 @@ class TrafficManagementEnv(BaseEnvironment):
         # Current step (from 0 to self.max_steps).
         self.current_step = 0
 
-        # Seed.
+        # Seed (integers returns an array).
         iinfo = np.iinfo(np.uint32)
-        self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)
+        self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)[0]
 
         # Create the RNG used to generate input requests and forward capacity.
         self.rng = np.random.default_rng(seed=self.seed)
