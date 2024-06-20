@@ -93,5 +93,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Create the correct folders.
+    plots_dir = Path(args.experiment_directory, "plots", "environment")
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
     for scenario in TrafficManagementEnv.get_scenarios():
-        make(args.experiment_directory, scenario)
+        make(plots_dir, scenario)
