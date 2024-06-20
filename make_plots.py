@@ -126,6 +126,8 @@ def main(exp_dir, exp_prefix):
 
     make_environment_plots(exp_dir)
 
+    make_algo_plots(exp_dir)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="make_plots",

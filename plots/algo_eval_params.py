@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 
 if __name__ == "__main__":
     import sys
@@ -53,7 +54,7 @@ def _get_metrics(exp_dir, algo):
     params = list(metrics[algo])
     reward_total_mean = {param: [] for param in params}
     congested_total_mean = {param: [] for param in params}
-    rejected_reqs_total_mean = {param: [] for param in params}
+    rejected_reqs_total_percent_mean = {param: [] for param in params}
 
     # We assume every experiment is done, the caller must check it.
     for param in metrics[algo]:
@@ -61,14 +62,14 @@ def _get_metrics(exp_dir, algo):
             eval_scenarios = metrics[algo][param][train_scenario]["scenarios"]
 
             for eval_scenario, data in eval_scenarios.items():
-                reward_total_mean[param].append(data["reward_total_mean"])
-                congested_total_mean[param].append(data["congested_total_mean"])
-                rejected_reqs_total_mean[param].append(data["rejected_reqs_total_mean"])
+                reward_total_mean[param].append(data["reward_total"]["mean"])
+                congested_total_mean[param].append(data["congested_total"]["mean"])
+                rejected_reqs_total_percent_mean[param].append(data["rejected_reqs"]["percent_mean"])
 
     result = {
             "reward_total_mean": reward_total_mean,
             "congested_total_mean": congested_total_mean,
-            "rejected_reqs_total_mean": rejected_reqs_total_mean
+            "rejected_reqs_total_percent_mean": rejected_reqs_total_percent_mean
             }
 
     return result
@@ -110,20 +111,22 @@ def make(exp_dir, algo):
     fig.suptitle(f"Evaluation of {algo!r} across experiments")
     axs = fig.subplots(ncols=3, nrows=1)
 
-    # Mean of total reward plot.
+    # Average of total reward plot.
     _make_plot(axs[0], metrics["reward_total_mean"], group_labels)
     axs[0].set_ylabel('Reward')
-    axs[0].set_title('Mean Total Reward')
+    axs[0].set_title('Average of Total Reward')
 
-    # Mean of total congested steps plot.
+    # Average of total congested steps plot.
     _make_plot(axs[1], metrics["congested_total_mean"], group_labels)
     axs[1].set_ylabel('Steps')
-    axs[1].set_title('Mean Total Congested Steps')
+    axs[1].set_title('Average of Total Congested Steps')
 
-    # Mean of total rejected requests plot.
-    _make_plot(axs[2], metrics["rejected_reqs_total_mean"], group_labels)
-    axs[2].set_ylabel('Requests')
-    axs[2].set_title('Mean Total Rejected Requests')
+    # Average percent of total rejected requests plot.
+    _make_plot(axs[2], metrics["rejected_reqs_total_percent_mean"], group_labels)
+    axs[2].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[2].set_ylim(top=100)  # Percent.
+    axs[2].set_ylabel('Percent Requests')
+    axs[2].set_title('Average Percent of Total Rejected Requests')
 
     # Common settings for all plots.
     for ax in axs:
