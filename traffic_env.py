@@ -265,7 +265,7 @@ class TrafficManagementEnv(BaseEnvironment):
             # factor). So if the queue is close to full, local processing is
             # discouraged.
             reward_local = 3 * local * queue_factor
-            reward_forwarded = 1 * forwarded * (1 - queue_factor) * forward_factor
+            reward_forwarded = 3 * forwarded * (1 - queue_factor) * forward_factor
             reward_rejected = -10 * rejected * forward_factor * queue_factor
             malus = - 2 * forward_exceed
         else:
