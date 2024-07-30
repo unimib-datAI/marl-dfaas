@@ -28,7 +28,7 @@
             }
         },
         "stopping_criteria": {
-            "max_iterations": 1000
+            "max_iterations": 1
         },
         "logger": {
             "verbosity": 2
