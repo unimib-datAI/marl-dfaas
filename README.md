@@ -7,6 +7,7 @@ This repository is in a working in progress state.
 Minimal `requirements.txt` file:
 
 ```
+numpy==1.26.4
 ray[rrlib]==2.10.0
 torch
 gymnasium
