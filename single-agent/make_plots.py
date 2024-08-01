@@ -5,6 +5,17 @@ import concurrent.futures
 import matplotlib
 
 import utils
+
+# Run this script from the project root directory, not inside this directory!
+# Otherwise the RL4CC module won't be loaded.
+import sys
+import os
+
+# Add the current directory (where Python is called) to sys.path. This assumes
+# this script is called in the project root directory, not inside the directory
+# where the script is.
+sys.path.append(os.getcwd())
+
 from traffic_env import TrafficManagementEnv
 
 import plots.single_exp

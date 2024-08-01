@@ -8,6 +8,17 @@ import utils
 
 import numpy as np
 
+# Run this script from the project root directory, not inside this directory!
+# Otherwise the RL4CC module won't be loaded.
+import sys
+import os
+
+# Add the current directory (where Python is called) to sys.path. This assumes
+# this script is called in the project root directory, not inside the directory
+# where the script is.
+sys.path.append(os.getcwd())
+
+
 from RL4CC.experiments.train import TrainingExperiment
 from RL4CC.algorithms.algorithm import Algorithm
 from RL4CC.utilities.postprocessing import evaluate_policy
