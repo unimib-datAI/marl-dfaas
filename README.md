@@ -47,3 +47,7 @@ Giacomo Pracucci's thesis and code.
 
 Run `make clean` to clean the `results` directory, which stores the experiment
 logs, metrics, results, and plots for each experiment run.
+
+## Patching Ray and RL4CC
+
+`patch` binary is required. WIP
