@@ -115,24 +115,30 @@ class DFaaS(MultiAgentEnv):
         self.current_step[f"node_{self.turn}"] += 1
 
     def _calculate_reward(self, reqs_local, reqs_reject):
-        # If there are fewer input requests than the node's capacity to handle
-        # requests for a single step, all requests can be handled locally. This
-        # means that rejected requests should be discouraged. Therefore, the
-        # reward decreases from 1 to 0 as the number of rejected requests
-        # increases.
-        if self.input_requests <= self.max_requests_step:
-            return 1 - reqs_reject / self.input_requests
+        '''Returns the reward for the given action (the number of locally
+        processed requests and rejected requests). The reward is a number in the
+        range 0 to 1.'''
+        reqs_total = reqs_local + reqs_reject
 
-        # If there are more input requests than the node can handle, the node
-        # should process all the requests it can locally and reject the excess.
-        # Rejecting more requests than the excess should be discouraged.
-        reject_excess = self.input_requests - self.max_requests_step
+        # If there are more requests than the node can handle locally, the
+        # optimal strategy should be to process all possible requests locally
+        # and reject the extra ones.
+        if reqs_total > self.max_requests_step:
+            # The reward penalises the agent if the action doesn't maximise the
+            # request process locally.
+            if reqs_local < self.max_requests_step:
+                # The new value is the number of rejected requests that will be
+                # considered a penalty for the reward. Note that some rejections
+                # are inevitable and will not be penalized, only those that can
+                # be processed locally but the agent didn't.
+                reqs_reject = self.max_requests_step - reqs_local
+                reqs_total = self.max_requests_step
+            else:
+                reqs_reject = 0
 
-        # The reward decreases from 1 to 0 when there are more rejected requests
-        # than expected. Note that reqs_reject cannot be less than
-        # reject_excess, because that would mean that the node is locally
-        # handling more requests than it can handle.
-        return reject_excess / reqs_reject
+        # The reward is a range from 0 to 1. It decreases as the number of
+        # unnecessary rejected requests increases.
+        return 1 - reqs_reject / reqs_total
 
     def _convert_distribution(self, action_dist):
         # Extract the single actions probabilities from the array.
