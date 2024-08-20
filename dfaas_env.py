@@ -62,7 +62,9 @@ class DFaaS(MultiAgentEnv):
         # for node_0 because it always starts when the environment is reset.
         self.input_requests = self._get_input_requests()
 
-        obs = {"node_0": self.input_requests}
+        # Note that the observation must be a NumPy array to be compatible with
+        # the observation space, otherwise Ray will throw an error.
+        obs = {"node_0": np.array([self.input_requests], dtype=np.int32)}
         info = {}
 
         return obs, info
@@ -98,9 +100,8 @@ class DFaaS(MultiAgentEnv):
 
         next_node_id = f"node_{self.turn}"
 
-        # Observation for the next agent, the RL agent (RL algorithm) will
-        # choose the action for this agent.
-        obs = {next_node_id: self.input_requests}
+        # See 'reset()' method on why np.array is used.
+        obs = {next_node_id: np.array([self.input_requests], dtype=np.int32)}
 
         # Reward for the last agent.
         rewards = {current_node_id: reward}
