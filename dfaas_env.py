@@ -112,12 +112,13 @@ class DFaaS(MultiAgentEnv):
         for node_id in self.current_step:
             terminated[node_id] = self.current_step[node_id] == self.node_max_steps
         terminated["__all__"] = all(terminated.values())
-        truncateds = {node_id: False for node_id in self.current_step}
+        truncated = {node_id: False for node_id in self.current_step}
+        truncated["__all__"] = all(truncated.values())
 
         # No information available. TODO: add useful information.
         info = {}
 
-        return obs, rewards, terminated, truncateds, info
+        return obs, rewards, terminated, truncated, info
 
     def _update_observation_space(self):
         self.turn = (self.turn + 1) % self.nodes
