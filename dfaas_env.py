@@ -12,19 +12,19 @@ class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
         super().__init__()
 
-        # Number of nodes in DFaaS network.
+        # Number and ID of nodes (agent in Ray term) in DFaaS network.
         self.nodes = 2
+        self._agent_ids= {"node_0", "node_1"}
 
-        self.action_space = {"node_0": Simplex(shape=(2,)),
-                             "node_1": Simplex(shape=(2,))
-                             }
+        self.action_space = gym.spaces.Dict({"node_0": Simplex(shape=(2,)),
+                                             "node_1": Simplex(shape=(2,))})
 
         # For now, the observation space is just the input requests for a single
         # step.
-        self.observation_space = {
+        self.observation_space = gym.spaces.Dict({
                 "node_0": gym.spaces.Box(low=50, high=150, dtype=np.int32),
                 "node_1": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-                }
+                })
 
         # Maximum number of requests a node can handle in a single step.
         self.max_requests_step = 100
