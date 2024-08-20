@@ -81,8 +81,12 @@ class DFaaS(MultiAgentEnv):
         # The node cannot locally process more requests than it can handle, so
         # the excess local requests are automatically converted to rejected
         # requests.
+        #
+        # TODO: There is a problem with this: the agent does not know that the
+        # action has exceeded the number of locally handled requests because the
+        # reward ignores this.
         if reqs_local > self.max_requests_step:
-            local_excess = self.max_requests_step - reqs_local
+            local_excess = reqs_local - self.max_requests_step
             reqs_reject += local_excess
             reqs_local -= local_excess
 
@@ -96,13 +100,22 @@ class DFaaS(MultiAgentEnv):
 
         next_node_id = f"node_{self.turn}"
 
+        # Observation for the next agent, the RL agent (RL algorithm) will
+        # choose the action for this agent.
         obs = {next_node_id: self.input_requests}
+
+        # Reward for the last agent.
         rewards = {current_node_id: reward}
+
+        # Terminated and truncated: There is a special value '__all__' that is
+        # only enabled when all alerts are terminated.
         terminated = {}
         for node_id in self.current_step:
             terminated[node_id] = self.current_step[node_id] == self.node_max_steps
         terminated["__all__"] = all(terminated.values())
         truncateds = {node_id: False for node_id in self.current_step}
+
+        # No information available. TODO: add useful information.
         info = {}
 
         return obs, rewards, terminated, truncateds, info
