@@ -7,8 +7,6 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.tune.registry import register_env
 
-register_env("DFaaS", lambda env_config: DFaaS(config=env_config))
-
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
@@ -198,3 +196,8 @@ class DFaaS(MultiAgentEnv):
         input_requests = np.clip(input_requests, 50, 150)
 
         return input_requests
+
+
+# Register the environment with Ray so that it can be used automatically when
+# creating experiments.
+register_env("DFaaS", lambda env_config: DFaaS(config=env_config))
