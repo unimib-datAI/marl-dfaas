@@ -203,8 +203,13 @@ class DFaaS(MultiAgentEnv):
 
         current_step = self.current_step[f"node_{self.turn}"]
 
+        if self.turn == 0:
+            fn = math.sin
+        else:
+            fn = math.cos
+
         noise_ratio = .1
-        base_input = average_requests + amplitude_requests * math.sin(2 * math.pi * current_step / period)
+        base_input = average_requests + amplitude_requests * fn(2 * math.pi * current_step / period)
         noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests)
         input_requests = int(noisy_input)
 
