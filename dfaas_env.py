@@ -10,17 +10,20 @@ from ray.tune.registry import register_env
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
-        super().__init__()
-
         # Number and ID of nodes (agent in Ray term) in DFaaS network.
         self.nodes = 2
         self._agent_ids= {"node_0", "node_1"}
 
+        # Provide full (preferred format) observation- and action-spaces as
+        # Dicts mapping agent IDs to the individual agents' spaces.
+
+        # Distribution of how many requests are processed locally and rejected.
+        self._action_space_in_preferred_format = True
         self.action_space = gym.spaces.Dict({"node_0": Simplex(shape=(2,)),
                                              "node_1": Simplex(shape=(2,))})
 
-        # For now, the observation space is just the input requests for a single
-        # step.
+        # Number of input requests to process for a single step.
+        self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
                 "node_0": gym.spaces.Box(low=50, high=150, dtype=np.int32),
                 "node_1": gym.spaces.Box(low=50, high=150, dtype=np.int32),
@@ -40,6 +43,8 @@ class DFaaS(MultiAgentEnv):
         # seeds.
         self.master_seed = config.get("seed", 0)
         self.master_rng = np.random.default_rng(seed=self.master_seed)
+
+        super().__init__()
 
     def reset(self, *, seed=None, options=None):
         # Current step for each node (from 0 to self.node_max_steps). The
@@ -72,7 +77,7 @@ class DFaaS(MultiAgentEnv):
     def step(self, action_dict=None):
         assert action_dict is not None, "action_dict is required"
         action_dist = action_dict.get(f"node_{self.turn}")
-        assert action_dist is not None, f"It is turn {self.turn} but action_dict doesn't contain the action for node_{self.turn}"
+        assert action_dist is not None, f"Expected turn {self.turn} but {action_dict = }"
 
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
@@ -100,7 +105,7 @@ class DFaaS(MultiAgentEnv):
 
         next_node_id = f"node_{self.turn}"
 
-        # See 'reset()' method on why np.array is used.
+        # See 'reset()' method on why np.array is required.
         obs = {next_node_id: np.array([self.input_requests], dtype=np.int32)}
 
         # Reward for the last agent.
@@ -121,16 +126,21 @@ class DFaaS(MultiAgentEnv):
         return obs, rewards, terminated, truncated, info
 
     def _update_observation_space(self):
-        self.turn = (self.turn + 1) % self.nodes
-
-        self.input_requests = self._get_input_requests()
-
+        """Updates the observation space and moves to the next turn."""
+        # Advance the current step for the current agent.
         self.current_step[f"node_{self.turn}"] += 1
 
+        # Change the next expected agent action.
+        self.turn = (self.turn + 1) % self.nodes
+
+        # Get the new input requests for the next turn.
+        self.input_requests = self._get_input_requests()
+
+
     def _calculate_reward(self, reqs_local, reqs_reject):
-        '''Returns the reward for the given action (the number of locally
+        """Returns the reward for the given action (the number of locally
         processed requests and rejected requests). The reward is a number in the
-        range 0 to 1.'''
+        range 0 to 1."""
         reqs_total = reqs_local + reqs_reject
 
         # If there are more requests than the node can handle locally, the
@@ -154,6 +164,8 @@ class DFaaS(MultiAgentEnv):
         return 1 - reqs_reject / reqs_total
 
     def _convert_distribution(self, action_dist):
+        """Converts the given distribution (e.g. [.7, .3]) into the absolute
+        number of requests to reject and process locally."""
         # Extract the single actions probabilities from the array.
         prob_local, prob_reject = action_dist
 
@@ -183,6 +195,8 @@ class DFaaS(MultiAgentEnv):
         return actions
 
     def _get_input_requests(self):
+        """Get the number of input requests for the agent. Each agent has its
+        own curve of requests."""
         average_requests = 100
         period = 50
         amplitude_requests = 50
