@@ -1,4 +1,4 @@
-.env
+.env*
 RL4CC
 __pycache__
 results
