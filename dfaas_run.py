@@ -68,7 +68,7 @@ ppo_config = (PPOConfig()
 ppo_algo = ppo_config.build()
 
 # Run the training phase for n iterations.
-for iteration in range(1):
+for iteration in range(1000):
     print(f"Iteration {iteration}")
     result = ppo_algo.train()
 
