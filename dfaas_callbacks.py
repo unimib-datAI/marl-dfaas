@@ -32,6 +32,9 @@ class DFaaSCallbacks(DefaultCallbacks):
         episode.user_data["action"] = {"local": {"node_0": [], "node_1": []},
                                        "reject": {"node_0": [], "node_1": []}}
 
+        # Track the reward for each step.
+        episode.user_data["reward"] = {"node_0": [], "node_1": []}
+
         # Save the seed of this episode.
         episode.hist_data["seed"] = [env.seed]
 
@@ -48,11 +51,12 @@ class DFaaSCallbacks(DefaultCallbacks):
         episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
 
         # "prev_turn" contains the agent ID of the previous agent that performed
-        # the action within step().
+        # the action (and reward) within step().
         prev_turn = info["__common__"]["prev_turn"]
         action = info["__common__"][prev_turn]["action"]
         episode.user_data["action"]["local"][prev_turn].append(action["local"])
         episode.user_data["action"]["reject"][prev_turn].append(action["reject"])
+        episode.user_data["reward"][prev_turn].append(info["__common__"][prev_turn]["reward"])
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
@@ -78,8 +82,8 @@ class DFaaSCallbacks(DefaultCallbacks):
         # episodes in a single iteration, so at the end Ray will append the list
         # to a general list for the iteration.
         episode.hist_data["input_requests"] = [episode.user_data["input_requests"]]
-
         episode.hist_data["action"] = [episode.user_data["action"]]
+        episode.hist_data["reward"] = [episode.user_data["reward"]]
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""

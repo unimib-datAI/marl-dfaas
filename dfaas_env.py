@@ -67,10 +67,11 @@ class DFaaS(MultiAgentEnv):
         # for node_0 because it always starts when the environment is reset.
         self.input_requests = self._get_input_requests()
 
-        # Last action performed by the previous agent for a single step(). It is
-        # None because no action was performed after reset(). Used by
-        # _additional_info().
+        # These values refer to the last action/reward performed by an agent in
+        # a single step(). They are set to None because no action/reward was
+        # logged in reset(). Used by the _additional_info method.
         self.last_action = None
+        self.last_reward = None
 
         # Note that the observation must be a NumPy array to be compatible with
         # the observation space, otherwise Ray will throw an error.
@@ -100,11 +101,12 @@ class DFaaS(MultiAgentEnv):
             reqs_reject += local_excess
             reqs_local -= local_excess
 
-        # Set last action to be used by _additional_info().
-        self.last_action = {"local": reqs_local, "reject": reqs_reject}
-
         # Calculate reward for the current node.
         reward = self._calculate_reward(reqs_local, reqs_reject)
+
+        # Set current action/reward for this step.
+        self.last_action = {"local": reqs_local, "reject": reqs_reject}
+        self.last_reward = reward
 
         current_node_id = f"node_{self.turn}"
 
@@ -247,8 +249,11 @@ class DFaaS(MultiAgentEnv):
         # expects the "__common__" key or the agent IDs within the observation
         # (the current agent ID).
         if self.last_action is not None:
+            assert self.last_reward is not None
+
             info["__common__"]["prev_turn"] = prev_node
-            info["__common__"][prev_node] = {"action": self.last_action}
+            info["__common__"][prev_node] = {"action": self.last_action,
+                                             "reward": self.last_reward}
 
         return info
 
