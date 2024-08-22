@@ -52,7 +52,7 @@ class DFaaS(MultiAgentEnv):
         self.current_step = {"node_0": 0, "node_1": 0}
 
         # The environment is turn-based: each turn, only one node can take an
-        # action. This flag indicates which node should take the action.
+        # action. This variable indicates which node should take the action.
         self.turn = 0
 
         # Seed used for this episode.
@@ -70,7 +70,7 @@ class DFaaS(MultiAgentEnv):
         # Note that the observation must be a NumPy array to be compatible with
         # the observation space, otherwise Ray will throw an error.
         obs = {"node_0": np.array([self.input_requests], dtype=np.int32)}
-        info = {}
+        info = self._additional_info()
 
         return obs, info
 
@@ -120,8 +120,7 @@ class DFaaS(MultiAgentEnv):
         truncated = {node_id: False for node_id in self.current_step}
         truncated["__all__"] = all(truncated.values())
 
-        # No information available. TODO: add useful information.
-        info = {}
+        info = self._additional_info()
 
         return obs, rewards, terminated, truncated, info
 
@@ -217,6 +216,27 @@ class DFaaS(MultiAgentEnv):
         input_requests = np.clip(input_requests, 50, 150)
 
         return input_requests
+
+    def _additional_info(self):
+        """Builds and returns the info dictionary for the current step."""
+        info = {}
+
+        node = f"node_{self.turn}"
+
+        # Since DFaaS is a multi-agent environment, the keys of the returned
+        # info dictionary must be the agent IDs or the special "__common__" key,
+        # otherwise Ray will complain.
+        #
+        # The "__common__" key is for common info, while individual agents can
+        # have specific info.
+        info["__common__"] = {"turn": node}
+        info[node] = {
+                "input_requests": self.input_requests,
+                "current_step": self.current_step[node]
+                }
+
+        return info
+
 
 
 # Register the environment with Ray so that it can be used automatically when
