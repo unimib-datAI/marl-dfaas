@@ -80,3 +80,5 @@ exit(0)
 evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
 eval_file.write_text(json.dumps(evaluation), encoding="utf8")
+
+print("Data saved to:", ppo_algo.logdir)
