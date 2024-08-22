@@ -7,6 +7,7 @@ from ray.rllib.policy.policy import PolicySpec
 from ray.tune.logger import UnifiedLogger
 
 from dfaas_env import DFaaS  # noqa: F401
+from dfaas_callbacks import DFaaSCallbacks
 
 tmp_env = DFaaS()
 
@@ -60,6 +61,7 @@ ppo_config = (PPOConfig()
               .evaluation(evaluation_interval=None)
               .debugging(logger_creator=logger_creator, seed=seed)
               .resources(num_gpus=1)
+              .callbacks(DFaaSCallbacks)
               .multi_agent(policies=policies,
                            policy_mapping_fn=policy_mapping_fn)
               )
@@ -68,12 +70,13 @@ ppo_config = (PPOConfig()
 ppo_algo = ppo_config.build()
 
 # Run the training phase for n iterations.
-for iteration in range(1000):
+for iteration in range(2):
     print(f"Iteration {iteration}")
     result = ppo_algo.train()
 
 # Do a final evaluation.
 print("Final evaluation")
+exit(0)
 evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
 eval_file.write_text(json.dumps(evaluation), encoding="utf8")
