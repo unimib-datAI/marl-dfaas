@@ -12,7 +12,7 @@ class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
         # Number and ID of nodes (agent in Ray term) in DFaaS network.
         self.nodes = 2
-        self._agent_ids= {"node_0", "node_1"}
+        self._agent_ids = {"node_0", "node_1"}
 
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
@@ -67,6 +67,11 @@ class DFaaS(MultiAgentEnv):
         # for node_0 because it always starts when the environment is reset.
         self.input_requests = self._get_input_requests()
 
+        # Last action performed by the previous agent for a single step(). It is
+        # None because no action was performed after reset(). Used by
+        # _additional_info().
+        self.last_action = None
+
         # Note that the observation must be a NumPy array to be compatible with
         # the observation space, otherwise Ray will throw an error.
         obs = {"node_0": np.array([self.input_requests], dtype=np.int32)}
@@ -95,6 +100,9 @@ class DFaaS(MultiAgentEnv):
             reqs_reject += local_excess
             reqs_local -= local_excess
 
+        # Set last action to be used by _additional_info().
+        self.last_action = {"local": reqs_local, "reject": reqs_reject}
+
         # Calculate reward for the current node.
         reward = self._calculate_reward(reqs_local, reqs_reject)
 
@@ -119,7 +127,6 @@ class DFaaS(MultiAgentEnv):
         terminated["__all__"] = all(terminated.values())
         truncated = {node_id: False for node_id in self.current_step}
         truncated["__all__"] = all(truncated.values())
-
         info = self._additional_info()
 
         return obs, rewards, terminated, truncated, info
@@ -134,7 +141,6 @@ class DFaaS(MultiAgentEnv):
 
         # Get the new input requests for the next turn.
         self.input_requests = self._get_input_requests()
-
 
     def _calculate_reward(self, reqs_local, reqs_reject):
         """Returns the reward for the given action (the number of locally
@@ -222,6 +228,7 @@ class DFaaS(MultiAgentEnv):
         info = {}
 
         node = f"node_{self.turn}"
+        prev_node = f"node_{(self.turn - 1) % self.nodes}"
 
         # Since DFaaS is a multi-agent environment, the keys of the returned
         # info dictionary must be the agent IDs or the special "__common__" key,
@@ -235,8 +242,15 @@ class DFaaS(MultiAgentEnv):
                 "current_step": self.current_step[node]
                 }
 
-        return info
+        # Note that the last action refers to the previous agent, not the
+        # current one! I can't use the agent ID as a key because Ray only
+        # expects the "__common__" key or the agent IDs within the observation
+        # (the current agent ID).
+        if self.last_action is not None:
+            info["__common__"]["prev_turn"] = prev_node
+            info["__common__"][prev_node] = {"action": self.last_action}
 
+        return info
 
 
 # Register the environment with Ray so that it can be used automatically when

@@ -28,6 +28,10 @@ class DFaaSCallbacks(DefaultCallbacks):
         episode.user_data["input_requests"] = {"node_0": [], "node_1": []}
         episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
 
+        # Track the action as number of request (not probabilities).
+        episode.user_data["action"] = {"local": {"node_0": [], "node_1": []},
+                                       "reject": {"node_0": [], "node_1": []}}
+
         # Save the seed of this episode.
         episode.hist_data["seed"] = [env.seed]
 
@@ -42,6 +46,13 @@ class DFaaSCallbacks(DefaultCallbacks):
         info = base_env.envs[0]._additional_info()
         turn = info["__common__"]["turn"]
         episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
+
+        # "prev_turn" contains the agent ID of the previous agent that performed
+        # the action within step().
+        prev_turn = info["__common__"]["prev_turn"]
+        action = info["__common__"][prev_turn]["action"]
+        episode.user_data["action"]["local"][prev_turn].append(action["local"])
+        episode.user_data["action"]["reject"][prev_turn].append(action["reject"])
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
@@ -68,6 +79,8 @@ class DFaaSCallbacks(DefaultCallbacks):
         # to a general list for the iteration.
         episode.hist_data["input_requests"] = [episode.user_data["input_requests"]]
 
+        episode.hist_data["action"] = [episode.user_data["action"]]
+
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
         # Final checker to verify the callbacks are executed.
@@ -83,4 +96,3 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         # Because they are repeated by Ray within the result dictionary.
         del result["sampler_results"]
-
