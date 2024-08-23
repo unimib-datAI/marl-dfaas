@@ -41,16 +41,22 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
-# Fixed seed.
-seed = 42
-
-env_config = {'seed': 42}
-
 # Create the results directory to override Ray's default.
 logdir = Path.cwd() / "results"
 logdir = logdir / Path(f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
 logdir.mkdir(parents=True, exist_ok=True)
 logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
+
+# Experiment configuration.
+# TODO: make this configurable!
+exp_config = {"seed": 42,  # Seed of the experiment.
+              "max_iterations": 100  # Number of iterations.
+              }
+exp_file = logdir / "exp_config.json"
+exp_file.write_text(json.dumps(exp_config), encoding="utf8")
+
+# Env configuration.
+env_config = {'seed': exp_config["seed"]}
 
 
 # This function is called by Ray when creating the logger for the experiment.
@@ -58,13 +64,13 @@ def logger_creator(config):
     return UnifiedLogger(config, logdir.as_posix())
 
 
-# Experiment config.
+# Algorithm config.
 ppo_config = (PPOConfig()
               .environment(env="DFaaS", env_config=env_config)
               .framework("torch")
               .rollouts(num_rollout_workers=0)  # Only a local worker.
               .evaluation(evaluation_interval=None)
-              .debugging(logger_creator=logger_creator, seed=seed)
+              .debugging(logger_creator=logger_creator, seed=exp_config["seed"])
               .resources(num_gpus=1)
               .callbacks(DFaaSCallbacks)
               .multi_agent(policies=policies,
@@ -75,7 +81,7 @@ ppo_config = (PPOConfig()
 ppo_algo = ppo_config.build()
 
 # Run the training phase for n iterations.
-for iteration in range(100):
+for iteration in range(exp_config["max_iterations"]):
     logger.info(f"Iteration {iteration}")
     result = ppo_algo.train()
 logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
