@@ -1,6 +1,5 @@
 from pathlib import Path
 from datetime import datetime
-import json
 import logging
 
 from ray.rllib.algorithms.ppo import PPOConfig
@@ -9,6 +8,7 @@ from ray.tune.logger import UnifiedLogger
 
 from dfaas_env import DFaaS  # noqa: F401
 from dfaas_callbacks import DFaaSCallbacks
+import dfaas_utils
 
 # Initialize logger for this module.
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
@@ -53,7 +53,7 @@ exp_config = {"seed": 42,  # Seed of the experiment.
               "max_iterations": 100  # Number of iterations.
               }
 exp_file = logdir / "exp_config.json"
-exp_file.write_text(json.dumps(exp_config), encoding="utf8")
+dfaas_utils.dict_to_json(exp_config, exp_file)
 
 # Env configuration.
 env_config = {'seed': exp_config["seed"]}
@@ -90,5 +90,5 @@ logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
 logger.info("Final evaluation")
 evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
-eval_file.write_text(json.dumps(evaluation), encoding="utf8")
+dfaas_utils.dict_to_json(evaluation, eval_file)
 logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json")
