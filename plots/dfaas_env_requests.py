@@ -1,3 +1,5 @@
+# This Python script generates a plot of each agent's input request curve in a
+# random DFaaS environment.
 from pathlib import Path
 
 import numpy as np
