@@ -46,3 +46,19 @@ def to_pathlib(file_path):
     if isinstance(file_path, str):
         file_path = Path(file_path)
     return file_path.absolute()
+
+
+def parse_result_file(result_path):
+    result_path = to_pathlib(result_path)
+
+    # Fill the iters list with the "result.json" file.
+    iters = []
+    with result_path.open() as result:
+        # The "result.json" file is not a valid JSON file. Each row is an
+        # isolated JSON object, the result of one training iteration.
+        while (raw_iter := result.readline()) != "":
+            iters.append(json.loads(raw_iter))
+
+    return iters
+
+

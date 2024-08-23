@@ -51,16 +51,7 @@ def main(exp_dir):
     exp_dir = dfaas_utils.to_pathlib(exp_dir)
 
     # Each element is one iteration.
-    iters = []
-
-    # Fill the iters list with the "result.json" file.
-    idx = 0
-    result_path = exp_dir / "result.json"
-    with result_path.open() as result:
-        # The "result.json" file is not a valid JSON file. Each row is an
-        # isolated JSON object, the result of one training iteration.
-        while (raw_iter := result.readline()) != "":
-            iters.append(json.loads(raw_iter))
+    iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
 
     # The metrics dictionary: it contains all calculated metrics for each
     # iteration and episode.
