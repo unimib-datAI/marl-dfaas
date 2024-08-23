@@ -48,10 +48,7 @@ def average_reward_per_step(iters, metrics):
 
 
 def main(exp_dir):
-    # Make sure to have a Path object, because we want the absolute path.
-    if isinstance(exp_dir, str):
-        exp_dir = Path(exp_dir)
-    exp_dir = exp_dir.absolute()
+    exp_dir = dfaas_utils.to_pathlib(exp_dir)
 
     # Each element is one iteration.
     iters = []
@@ -89,4 +86,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(Path(args.exp_directory).absolute())
+    main(args.exp_directory)

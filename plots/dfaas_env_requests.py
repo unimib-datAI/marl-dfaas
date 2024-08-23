@@ -17,9 +17,12 @@ if __name__ == "__main__":
     sys.path.append(os.getcwd())
 
 from dfaas_env import DFaaS
+import dfaas_utils
 
 
 def make(plots_dir):
+    plots_dir = dfaas_utils.to_pathlib(plots_dir)
+
     env = DFaaS()
 
     # Create the arrays to store the input requests for each agent.
@@ -70,6 +73,7 @@ def make(plots_dir):
 
     ax.grid(axis="both")
     ax.set_axisbelow(True)  # By default the axis is over the content.
+    ax.legend()
 
     # Save the plot.
     path = Path(plots_dir, "dfaas_env_requests.pdf")
