@@ -14,6 +14,10 @@ class DFaaS(MultiAgentEnv):
         self.nodes = 2
         self._agent_ids = {"node_0", "node_1"}
 
+        # Minimum and maximum possible reward value an agent can get from a
+        # step() call.
+        self.reward_range = (.0, 1.)
+
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
