@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime
 import json
+import logging
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
@@ -8,6 +9,10 @@ from ray.tune.logger import UnifiedLogger
 
 from dfaas_env import DFaaS  # noqa: F401
 from dfaas_callbacks import DFaaSCallbacks
+
+# Initialize logger for this module.
+logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logger = logging.getLogger(Path(__file__).name)
 
 tmp_env = DFaaS()
 
@@ -45,7 +50,7 @@ env_config = {'seed': 42}
 logdir = Path.cwd() / "results"
 logdir = logdir / Path(f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
 logdir.mkdir(parents=True, exist_ok=True)
-print(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
+logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 
 
 # This function is called by Ray when creating the logger for the experiment.
@@ -70,15 +75,14 @@ ppo_config = (PPOConfig()
 ppo_algo = ppo_config.build()
 
 # Run the training phase for n iterations.
-for iteration in range(3):
-    print(f"Iteration {iteration}")
+for iteration in range(100):
+    logger.info(f"Iteration {iteration}")
     result = ppo_algo.train()
+logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
 
 # Do a final evaluation.
-print("Final evaluation")
-exit(0)
+logger.info("Final evaluation")
 evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
 eval_file.write_text(json.dumps(evaluation), encoding="utf8")
-
-print("Data saved to:", ppo_algo.logdir)
+logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json")
