@@ -50,7 +50,7 @@ logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 100  # Number of iterations.
+              "max_iterations": 200  # Number of iterations.
               }
 exp_file = logdir / "exp_config.json"
 dfaas_utils.dict_to_json(exp_config, exp_file)
