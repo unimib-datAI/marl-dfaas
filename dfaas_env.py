@@ -14,7 +14,7 @@ class DFaaS(MultiAgentEnv):
         self.nodes = 2
         self._agent_ids = {"node_0", "node_1"}
 
-        # Minimum and maximum possible reward value an agent can get from a
+        # It is the possible max and min value for the reward returned by the
         # step() call.
         self.reward_range = (.0, 1.)
 
@@ -92,24 +92,10 @@ class DFaaS(MultiAgentEnv):
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
         reqs_local, reqs_reject = self._convert_distribution(action_dist)
-
-        # The node cannot locally process more requests than it can handle, so
-        # the excess local requests are automatically converted to rejected
-        # requests.
-        #
-        # TODO: There is a problem with this: the agent does not know that the
-        # action has exceeded the number of locally handled requests because the
-        # reward ignores this.
-        if reqs_local > self.max_requests_step:
-            local_excess = reqs_local - self.max_requests_step
-            reqs_reject += local_excess
-            reqs_local -= local_excess
+        self.last_action = {"local": reqs_local, "reject": reqs_reject}
 
         # Calculate reward for the current node.
         reward = self._calculate_reward(reqs_local, reqs_reject)
-
-        # Set current action/reward for this step.
-        self.last_action = {"local": reqs_local, "reject": reqs_reject}
         self.last_reward = reward
 
         current_node_id = f"node_{self.turn}"
@@ -153,6 +139,14 @@ class DFaaS(MultiAgentEnv):
         processed requests and rejected requests). The reward is a number in the
         range 0 to 1."""
         reqs_total = reqs_local + reqs_reject
+
+        # The agent (policy) tried to be sneaky, but it is not possible to
+        # locally process more requests than the internal limit for each step.
+        # This behavior must be discouraged by penalizing the reward, but not as
+        # much as by rejecting too many requests (the .5 factor).
+        if reqs_local > self.max_requests_step:
+            reqs_local_exceed = reqs_local - self.max_requests_step
+            return 1 - (reqs_local_exceed / 100) * .5
 
         # If there are more requests than the node can handle locally, the
         # optimal strategy should be to process all possible requests locally
