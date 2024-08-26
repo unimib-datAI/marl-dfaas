@@ -34,6 +34,7 @@ def _get_data(exp_dir, iteration_idx, episode_idx):
 
     # Read data from experiment directory.
     iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
+    metrics = dfaas_utils.json_to_dict(exp_dir / "metrics.json")
     agents = _get_agents(iters)
 
     # Get only a specific iteration.
@@ -46,6 +47,9 @@ def _get_data(exp_dir, iteration_idx, episode_idx):
     reward = iter["hist_stats"]["reward"][episode_idx]
     steps = len(input_requests[agents[0]])
 
+    exceed = {"local": metrics["iterations"][iteration_idx]["local_reqs_exceed_per_step"][episode_idx],
+              "reject": metrics["iterations"][iteration_idx]["reject_reqs_exceed_per_step"][episode_idx]}
+
     # Get the reward range from the environment.
     reward_range = DFaaS().reward_range
 
@@ -56,6 +60,7 @@ def _get_data(exp_dir, iteration_idx, episode_idx):
     data["action"] = action
     data["reward"] = reward
     data["reward_range"] = reward_range
+    data["exceed"] = exceed
 
     return data
 
@@ -71,13 +76,25 @@ def make(exp_dir, iteration_idx, episode_idx):
     # from the number of steps for each agent.
     steps_x = np.arange(stop=data["steps"])
 
-    fig = plt.figure(figsize=(20, 10), dpi=600, layout="constrained")
+    fig = plt.figure(figsize=(20, 15), dpi=600, layout="constrained")
     fig.suptitle(f"Episode {episode_idx} of iteration {iteration_idx}")
-    axs = fig.subplots(nrows=2, ncols=2)
+    axs = fig.subplots(nrows=3, ncols=2)
 
     assert len(data["agents"]) == 2, "This plot supports only two-agent environment"
 
-    # Make the same two plots for each agents.
+    # Calculate the lower and upper limits for the exceed requests for both the
+    # local exceed and the reject exceed. These limits will later be used for
+    # the third subplot for each agent for the y-axis.
+    exceed_bottom, exceed_top = np.nan, np.nan
+    for agent in data["agents"]:
+        for action in data["exceed"]:
+            agent_bottom = np.min(data["exceed"][action][agent])
+            agent_top = np.max(data["exceed"][action][agent])
+
+            exceed_bottom = np.fmin(agent_bottom, exceed_bottom)
+            exceed_top = np.fmax(agent_top, exceed_top)
+
+    # Make the same three plots for each agents.
     idx = 0
     for agent in data["agents"]:
         local = data["action"]["local"][agent]
@@ -99,6 +116,12 @@ def make(exp_dir, iteration_idx, episode_idx):
         bottom, top = data["reward_range"]
         axs[1, idx].set_ylim(bottom=bottom-0.1, top=top+.1)
         axs[1, idx].set_yticks(np.arange(start=bottom, stop=top+.1, step=.1))
+
+        axs[2, idx].bar(x=steps_x, height=data["exceed"]["local"][agent], label="Local exceed")
+        axs[2, idx].bar(x=steps_x, height=data["exceed"]["reject"][agent], label="Reject exceed")
+        axs[2, idx].set_title(f"Exceeded requests ({agent})")
+        axs[2, idx].set_ylabel("Requests")
+        axs[2, idx].set_ylim(bottom=exceed_bottom, top=exceed_top)
 
         idx += 1
 
