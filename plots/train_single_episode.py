@@ -77,7 +77,7 @@ def make(exp_dir, iteration_idx, episode_idx):
     steps_x = np.arange(stop=data["steps"])
 
     fig = plt.figure(figsize=(20, 15), dpi=600, layout="constrained")
-    fig.suptitle(f"Episode {episode_idx} of iteration {iteration_idx}")
+    fig.suptitle(f"Episode {episode_idx} of iteration {iteration_idx} (env seed {data['seed']})")
     axs = fig.subplots(nrows=3, ncols=2)
 
     assert len(data["agents"]) == 2, "This plot supports only two-agent environment"
