@@ -22,16 +22,20 @@ class DFaaS(MultiAgentEnv):
         # Dicts mapping agent IDs to the individual agents' spaces.
 
         # Distribution of how many requests are processed locally and rejected.
+        action_space = Simplex(shape=(2,))
         self._action_space_in_preferred_format = True
-        self.action_space = gym.spaces.Dict({"node_0": Simplex(shape=(2,)),
-                                             "node_1": Simplex(shape=(2,))})
+        self.action_space = gym.spaces.Dict({
+            # Each agent has the same action space.
+            agent: action_space for agent in self._agent_ids
+            })
 
         # Number of input requests to process for a single step.
+        obs_space = gym.spaces.Box(low=50, high=150, dtype=np.int32)
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
-                "node_0": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-                "node_1": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-                })
+            # Each agent has the same observation space.
+            agent: obs_space for agent in self._agent_ids
+            })
 
         # Maximum number of requests a node can handle in a single step.
         self.max_requests_step = 100
