@@ -159,6 +159,62 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
         metrics["iterations"][iter]["local_reqs_percent_exceed_per_iteration"] = local_avg
 
 
+def abs_reqs_exceed_per_step(iters, metrics):
+    """For each step, for each episode, for each iteration, calculates the
+    absolute number of rejected requests that could have been handled locally
+    but were rejected by the agent, and the same percentage but for local
+    requests that exceed the local buffer."""
+    agents = get_agents(iters)
+
+    for iter in range(len(metrics["iterations"])):
+        reject_iter_data = []
+        local_iter_data = []
+        for episode in range(len(iters[iter]["hist_stats"]["seed"])):
+            reject_episode_data = {}
+            local_episode_data = {}
+            for agent in agents:
+                steps = len(iters[iter]["hist_stats"]["input_requests"][episode][agent])
+
+                input_reqs = np.asarray(iters[iter]["hist_stats"]["input_requests"][episode][agent],
+                                        dtype=np.int32)
+                reject_reqs = np.asarray(iters[iter]["hist_stats"]["action"][episode]["reject"][agent],
+                                         dtype=np.int32)
+
+                reject_reqs_exc = np.empty(steps, dtype=np.int32)
+                local_reqs_exc = np.empty(steps, dtype=np.int32)
+
+                for step in range(steps):
+                    local_reqs_step = input_reqs[step] - reject_reqs[step]
+                    # TODO: get the max requests to process locally dinamically
+                    # from the environment or some config.
+                    if local_reqs_step > 100:
+                        local_reqs_exc[step] = local_reqs_step - 100
+                        reject_reqs_exc[step] = 0
+                        continue
+
+                    if input_reqs[step] > 100:
+                        # The result may be negative if the policy attempts to
+                        # process more requests locally than possible. This is
+                        # why there is an np.clip() call at the end of the
+                        # cycle.
+                        reject_reqs_exc[step] = reject_reqs[step] - (input_reqs[step] - 100)
+                        local_reqs_exc[step] = 0
+                        continue
+
+                    # All rejected requests are excessive.
+                    reject_reqs_exc[step] = reject_reqs[step]
+                    local_reqs_exc[step] = 0
+
+                reject_episode_data[agent] = reject_reqs_exc
+                local_episode_data[agent] = local_reqs_exc
+
+            reject_iter_data.append(reject_episode_data)
+            local_iter_data.append(local_episode_data)
+
+        metrics["iterations"][iter]["local_reqs_exceed_per_step"] = local_iter_data
+        metrics["iterations"][iter]["reject_reqs_exceed_per_step"] = reject_iter_data
+
+
 def main(exp_dir):
     exp_dir = dfaas_utils.to_pathlib(exp_dir)
 
@@ -180,6 +236,8 @@ def main(exp_dir):
     average_reqs_percent_exceed_per_episode(iters, metrics)
 
     average_reqs_percent_exceed_per_iteration(iters, metrics)
+
+    abs_reqs_exceed_per_step(iters, metrics)
 
     # Save the metrics dictionary to disk as a JSON file.
     metrics_path = exp_dir / "metrics.json"
