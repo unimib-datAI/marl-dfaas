@@ -1,12 +1,14 @@
 # This Python script generates a graph showing the summary of the training
 # phase.
 #
-# The plot consists of three sub-plots:
+# The plot consists of four sub-plots:
 #   1. The average total reward per episode for each iteration (in each
 #   iteration more than one episode is played).
 #   2. The average reward for each step (for each episode, averaged).
 #   3. The average percentage of rejected requests for each step (for each
 #   episode, all averaged).
+#   4. The average percentage of local requests that exceed the agent buffer for
+#   each step (for each episode, all averaged).
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker
@@ -52,11 +54,16 @@ def _get_data(exp_dir):
     # Average percent of rejected requests per iteration.
     percent_reject_reqs_exceed = {}
 
+    # Percentage of local requests exceeding local buffer per step (average
+    # across steps for each episode and episodes for each iteration)
+    percent_local_reqs_exceed = {}
+
     # The data is grouped in agents.
     for agent in agents:
         reward_total_avg[agent] = np.empty(len(iters), dtype=np.float32)
         reward_step_avg[agent] = np.empty(len(iters), dtype=np.float32)
         percent_reject_reqs_exceed[agent] = np.empty(len(iters), dtype=np.float32)
+        percent_local_reqs_exceed[agent] = np.empty(len(iters), dtype=np.float32)
 
     for iter in range(len(iters)):
         for agent in agents:
@@ -69,12 +76,14 @@ def _get_data(exp_dir):
             reward_step_avg[agent][iter] = np.average(tmp)
 
             percent_reject_reqs_exceed[agent][iter] = metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_iteration"][agent]
+            percent_local_reqs_exceed[agent][iter] = metrics["iterations"][iter]["local_reqs_percent_exceed_per_iteration"][agent]
 
     data["agents"] = agents
     data["iterations"] = len(iters)
     data["reward_total_avg"] = reward_total_avg
     data["reward_step_avg"] = reward_step_avg
     data["percent_reject_reqs_exceed"] = percent_reject_reqs_exceed
+    data["percent_local_reqs_exceed"] = percent_local_reqs_exceed
 
     return data
 
@@ -86,8 +95,8 @@ def make(exp_dir):
 
     data = _get_data(exp_dir)
 
-    fig = plt.figure(figsize=(10, 15), dpi=600, layout="constrained")
-    axs = fig.subplots(nrows=3)
+    fig = plt.figure(figsize=(17, 10), dpi=600, layout="constrained")
+    axs = fig.subplots(nrows=2, ncols=2)
 
     # For the ylim, the total reward for one episode cannot exceed the possible
     # max and min of one episode. The limits ensure a bit of space for both
@@ -98,35 +107,45 @@ def make(exp_dir):
     top = 100.0 + 1
 
     for agent in data["agents"]:
-        axs[0].plot(data["reward_total_avg"][agent], label=agent)
-    axs[0].set_ylim(bottom=bottom, top=top)
-    axs[0].set_title("Average total reward for episodes in a iteration")
-    axs[0].set_ylabel("Total reward")
+        axs[0, 0].plot(data["reward_total_avg"][agent], label=agent)
+    axs[0, 0].set_ylim(bottom=bottom, top=top)
+    axs[0, 0].set_title("Average total reward for episodes in a iteration")
+    axs[0, 0].set_ylabel("Total reward")
     # Show y-axis ticks every 10 reward points.
     # TODO: make dynamic.
-    axs[0].set_yticks(np.arange(0, 100+1, 10))
-    axs[0].legend()
+    axs[0, 0].set_yticks(np.arange(0, 100+1, 10))
+    axs[0, 0].legend()
 
     for agent in data["agents"]:
-        axs[1].plot(data["reward_step_avg"][agent], label=agent)
+        axs[1, 0].plot(data["reward_step_avg"][agent], label=agent)
     # Reward range.
     # TODO: make dynamic.
-    axs[1].set_ylim(bottom=.0-.1, top=1.0+.1)
-    axs[1].set_title("Average reward per step in an episode")
-    axs[1].set_ylabel("Average reward")
+    axs[1, 0].set_ylim(bottom=.0-.1, top=1.0+.1)
+    axs[1, 0].set_title("Average reward per step in an episode")
+    axs[1, 0].set_ylabel("Average reward")
     # Show y-axis ticks every .1 reward point.
     # TODO: make dynamic.
-    axs[1].set_yticks(np.arange(start=.0, stop=1.+.1, step=.1))
-    axs[1].legend()
+    axs[1, 0].set_yticks(np.arange(start=.0, stop=1.+.1, step=.1))
+    axs[1, 0].legend()
 
     for agent in data["agents"]:
-        axs[2].plot(data["percent_reject_reqs_exceed"][agent], label=agent)
-    axs[2].set_ylim(bottom=bottom, top=top)
-    axs[2].set_title("Average percent of exceed rejected requests per iteration")
-    axs[2].set_ylabel("Percentage")
-    axs[2].set_ylim(bottom=0, top=100)  # Set Y axis range from 0 to 100 (percent).
-    axs[2].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
-    axs[2].legend()
+        axs[0, 1].plot(data["percent_reject_reqs_exceed"][agent], label=agent)
+    axs[0, 1].set_ylim(bottom=bottom, top=top)
+    axs[0, 1].set_title("Average percent of exceed rejected requests per iteration")
+    axs[0, 1].set_ylabel("Percentage")
+    axs[0, 1].set_ylim(bottom=0, top=100)  # Set Y axis range from 0 to 100 (percent).
+    axs[0, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[0, 1].set_yticks(np.arange(0, 100+1, 10))
+    axs[0, 1].legend()
+
+    for agent in data["agents"]:
+        axs[1, 1].plot(data["percent_local_reqs_exceed"][agent], label=agent)
+    axs[1, 1].set_title("Percentage of local requests that exceed the local buffer per step")
+    axs[1, 1].set_ylabel("Percentage")
+    axs[1, 1].set_ylim(bottom=0, top=100)
+    axs[1, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[1, 1].set_yticks(np.arange(0, 100+1, 10))
+    axs[1, 1].legend()
 
     # Common settings for the plots.
     for ax in axs.flat:
