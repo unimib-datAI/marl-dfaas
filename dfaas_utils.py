@@ -22,7 +22,7 @@ def dict_to_json(data, file_path):
 
     try:
         with open(file_path, "w") as file:
-            json.dump(data, file, cls=NumpyEncoder)
+            json.dump(data, file, cls=NumpyEncoder, sort_keys=True)
     except IOError as e:
         print(f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}",
               file=sys.stderr)
