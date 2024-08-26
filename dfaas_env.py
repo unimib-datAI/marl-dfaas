@@ -18,6 +18,9 @@ class DFaaS(MultiAgentEnv):
         # step() call.
         self.reward_range = (.0, 1.)
 
+        # Maximum number of requests a node can handle in a single step.
+        self.max_requests_step = 100
+
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
@@ -29,16 +32,18 @@ class DFaaS(MultiAgentEnv):
             agent: action_space for agent in self._agent_ids
             })
 
-        # Number of input requests to process for a single step.
-        obs_space = gym.spaces.Box(low=50, high=150, dtype=np.int32)
+        obs_space = gym.spaces.Dict({
+            # Number of input requests to process for a single step.
+            "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
+
+            # Queue capacity (currently a constant).
+            "queue_capacity": gym.spaces.Box(low=0, high=self.max_requests_step, dtype=np.int32)
+            })
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
             # Each agent has the same observation space.
             agent: obs_space for agent in self._agent_ids
             })
-
-        # Maximum number of requests a node can handle in a single step.
-        self.max_requests_step = 100
 
         # Maximum steps for each node.
         self.node_max_steps = config.get("node_max_steps", 100)
@@ -83,7 +88,12 @@ class DFaaS(MultiAgentEnv):
 
         # Note that the observation must be a NumPy array to be compatible with
         # the observation space, otherwise Ray will throw an error.
-        obs = {"node_0": np.array([self.input_requests], dtype=np.int32)}
+        obs = {"node_0": {
+                "input_requests": np.array([self.input_requests], dtype=np.int32),
+                "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
+                }
+               }
+
         info = self._additional_info()
 
         return obs, info
@@ -109,8 +119,12 @@ class DFaaS(MultiAgentEnv):
 
         next_node_id = f"node_{self.turn}"
 
-        # See 'reset()' method on why np.array is required.
-        obs = {next_node_id: np.array([self.input_requests], dtype=np.int32)}
+        obs = {next_node_id: {
+                # See 'reset()' method on why np.array is required.
+                "input_requests": np.array([self.input_requests], dtype=np.int32),
+                "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
+                }
+               }
 
         # Reward for the last agent.
         rewards = {current_node_id: reward}
