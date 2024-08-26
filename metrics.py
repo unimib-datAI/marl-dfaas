@@ -71,13 +71,17 @@ def rejected_reqs_percent_exceed_per_step(iters, metrics):
                     # TODO: get the max requests to process locally dinamically
                     # from the environment or some config.
                     if input_reqs[step] > 100:
+                        # The result may be negative if the policy attempts to
+                        # process more requests locally than possible. This is
+                        # why there is an np.clip() call at the end of the
+                        # cycle.
                         tmp = reject_reqs[step] - (input_reqs[step] - 100)
                     else:  # input_reqs[step] < 100 -> all reject requests are too much
                         tmp = reject_reqs[step] * 100 / input_reqs[step]
 
                     reject_reqs_exc_percent[step] = tmp
 
-                episode_data[agent] = reject_reqs_exc_percent
+                episode_data[agent] = np.clip(reject_reqs_exc_percent, 0, 100)
 
             iter_data.append(episode_data)
 
