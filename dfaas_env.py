@@ -8,9 +8,13 @@ from ray.tune.registry import register_env
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
-        # Number and ID of nodes (agent in Ray term) in DFaaS network.
-        self.nodes = 2
-        self._agent_ids = {"node_0", "node_1"}
+        # Number and IDs of the agents in the  DFaaS network.
+        self.agents = 2
+        self.agent_ids = ["node_0", "node_1"]
+
+        # This attribute is required by Ray and must be a set. I use the list
+        # version instead in this environment.
+        self._agent_ids = set(self.agent_ids)
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
@@ -27,7 +31,7 @@ class DFaaS(MultiAgentEnv):
         self._action_space_in_preferred_format = True
         self.action_space = gym.spaces.Dict({
             # Each agent has the same action space.
-            agent: action_space for agent in self._agent_ids
+            agent: action_space for agent in self.agent_ids
             })
 
         obs_space = gym.spaces.Dict({
@@ -40,7 +44,7 @@ class DFaaS(MultiAgentEnv):
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
             # Each agent has the same observation space.
-            agent: obs_space for agent in self._agent_ids
+            agent: obs_space for agent in self.agent_ids
             })
 
         # Maximum steps for each node.
@@ -58,12 +62,12 @@ class DFaaS(MultiAgentEnv):
         super().__init__()
 
     def reset(self, *, seed=None, options=None):
-        # Current step for each node (from 0 to self.node_max_steps). The
-        # episode ends when all nodes end.
-        self.current_step = {"node_0": 0, "node_1": 0}
+        # Current step of the agents.
+        self.current_step = 0
 
-        # The environment is turn-based: each turn, only one node can take an
-        # action. This variable indicates which node should take the action.
+        # The environment is turn-based: on each step() call, only one agent can
+        # perform the action. So in each step of the environment, we have to
+        # cycle through the agents before moving on to the next step.
         self.turn = 0
 
         # Seed used for this episode.
@@ -99,15 +103,15 @@ class DFaaS(MultiAgentEnv):
         return obs, info
 
     def step(self, action_dict=None):
-        assert action_dict is not None, "action_dict is required"
-        action_dist = action_dict.get(f"node_{self.turn}")
-        assert action_dist is not None, f"Expected turn {self.turn} but {action_dict = }"
+        current_agent = self.agent_ids[self.turn]
 
-        current_node_id = f"node_{self.turn}"
+        assert action_dict is not None, "action_dict is required"
+        action_dist = action_dict.get(current_agent)
+        assert action_dist is not None, f"Expected agent {current_agent!r} but {action_dict = }"
 
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
-        input_requests = self.input_requests[current_node_id][self.current_step[current_node_id]]
+        input_requests = self.input_requests[current_agent][self.current_step]
         reqs_local, reqs_reject = self._convert_distribution(input_requests, action_dist)
         self.last_action = {"local": reqs_local, "reject": reqs_reject}
 
@@ -115,27 +119,42 @@ class DFaaS(MultiAgentEnv):
         reward = self._calculate_reward(reqs_local, reqs_reject)
         self.last_reward = reward
 
-        # Update the observation space for the next turn.
-        self._update_observation_space()
+        # Go to the next turn, but if all agents in the step have been cycled,
+        # go to the next environment step.
+        self.turn += 1
+        if self.turn == self.agents:
+            self.current_step += 1
+            self.turn = 0
 
-        # Terminated and truncated: There is a special value '__all__' that is
-        # only enabled when all alerts are terminated.
+        # Each key in the terminated dictionary indicates whether an individual
+        # agent has terminated. There is a special key "__all__" which is true
+        # only if all agents have terminated.
         terminated = {}
-        for node_id in self.current_step:
-            terminated[node_id] = self.current_step[node_id] == self.node_max_steps
+        if self.current_step == self.node_max_steps - 1:
+            # We are in the last step, so we need to check individual agents.
+            for agent_idx in range(self.agents):
+                terminated[self.agent_ids[agent_idx]] = self.turn > agent_idx
+        elif self.current_step == self.node_max_steps:
+            # We are past the last step: nothing more to do.
+            terminated = {agent: True for agent in self.agent_ids}
+        else:
+            # Not the last step: not terminated.
+            terminated = {agent: False for agent in self.agent_ids}
         terminated["__all__"] = all(terminated.values())
-        truncated = {node_id: False for node_id in self.current_step}
-        truncated["__all__"] = all(truncated.values())
 
-        next_node_id = f"node_{self.turn}"
+        # Truncated is always set to False because it is not used.
+        truncated = {agent: False for agent in self.agent_ids}
+        truncated["__all__"] = False
+
+        next_agent = self.agent_ids[self.turn]
 
         # Return the observation only if the next agent has not terminated,
         # because if it has, there is no next action.
         obs = {}
-        if not terminated[next_node_id]:
-            input_requests = self.input_requests[next_node_id][self.current_step[next_node_id]]
+        if not terminated[next_agent]:
+            input_requests = self.input_requests[next_agent][self.current_step]
 
-            obs = {next_node_id: {
+            obs = {next_agent: {
                     # See 'reset()' method on why np.array is required.
                     "input_requests": np.array([input_requests], dtype=np.int32),
                     "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
@@ -143,20 +162,12 @@ class DFaaS(MultiAgentEnv):
                    }
 
         # Reward for the last agent.
-        rewards = {current_node_id: reward}
+        rewards = {current_agent: reward}
 
         # Create the additional information dictionary.
         info = self._additional_info()
 
         return obs, rewards, terminated, truncated, info
-
-    def _update_observation_space(self):
-        """Updates the observation space and moves to the next turn."""
-        # Advance the current step for the current agent.
-        self.current_step[f"node_{self.turn}"] += 1
-
-        # Change the next expected agent action.
-        self.turn = (self.turn + 1) % self.nodes
 
     def _calculate_reward(self, reqs_local, reqs_reject):
         """Returns the reward for the given action (the number of locally
@@ -238,7 +249,7 @@ class DFaaS(MultiAgentEnv):
 
         input_requests = {}
         steps = np.arange(self.max_requests_step)
-        for agent in self._agent_ids:
+        for agent in self.agent_ids:
             # TODO: do not directly check the value of the agent ID.
             fn = np.sin if agent == "node_0" else np.cos
 
@@ -258,16 +269,17 @@ class DFaaS(MultiAgentEnv):
         # I do not like this constraint, so I just use the common key.
         info = {"__common__": {}}
 
-        node = f"node_{self.turn}"
-        prev_node = f"node_{(self.turn - 1) % self.nodes}"
+        agent = self.agent_ids[self.turn]
 
-        if self.current_step[node] < self.node_max_steps:
-            input_requests = self.input_requests[node][self.current_step[node]]
+        # This method may be called after one of the agents has been terminated.
+        # Therefore, we need to check the termination of the current agent.
+        if self.current_step < self.node_max_steps:
+            input_requests = self.input_requests[agent][self.current_step]
 
-            info["__common__"]["turn"] = node
-            info["__common__"][node] = {
+            info["__common__"]["turn"] = agent
+            info["__common__"][agent] = {
                     "input_requests": input_requests,
-                    "current_step": self.current_step[node]
+                    "current_step": self.current_step
                     }
 
         # Note that the last action refers to the previous agent, not the
@@ -275,9 +287,10 @@ class DFaaS(MultiAgentEnv):
         if self.last_action is not None:
             assert self.last_reward is not None
 
-            info["__common__"]["prev_turn"] = prev_node
-            info["__common__"][prev_node] = {"action": self.last_action,
-                                             "reward": self.last_reward}
+            prev_agent = self.agent_ids[(self.turn - 1) % self.agents]
+            info["__common__"]["prev_turn"] = prev_agent
+            info["__common__"][prev_agent] = {"action": self.last_action,
+                                              "reward": self.last_reward}
 
         return info
 
