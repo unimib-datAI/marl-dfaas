@@ -21,10 +21,10 @@ class DFaaSCallbacks(DefaultCallbacks):
         # The way to get the info data is complicated because of the Ray API.
         # However, we need to save the first observation because it contains the
         # initial data.
-        info = env._additional_info()
+        info = env._additional_info()["__common__"]
 
         # Track the input requests for each agent.
-        turn = info["__common__"]["turn"]
+        turn = info["turn"]
         episode.user_data["input_requests"] = {"node_0": [], "node_1": []}
         episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
 
@@ -46,37 +46,28 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Make sure this episode is ongoing.
         assert episode.length > 0, f"'on_episode_step()' callback should not be called right after env reset! {episode.length = }"
 
-        info = base_env.envs[0]._additional_info()
-        turn = info["__common__"]["turn"]
-        episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
+        info = base_env.envs[0]._additional_info()["__common__"]
+
+        # The "turn" key may not be in the dictionary because it is the last
+        # step of this agent.
+        if "turn" in info:
+            turn = info["turn"]
+            episode.user_data["input_requests"][turn].append(info[turn]["input_requests"])
 
         # "prev_turn" contains the agent ID of the previous agent that performed
         # the action (and reward) within step().
-        prev_turn = info["__common__"]["prev_turn"]
-        action = info["__common__"][prev_turn]["action"]
+        prev_turn = info["prev_turn"]
+        action = info[prev_turn]["action"]
         episode.user_data["action"]["local"][prev_turn].append(action["local"])
         episode.user_data["action"]["reject"][prev_turn].append(action["reject"])
-        episode.user_data["reward"][prev_turn].append(info["__common__"][prev_turn]["reward"])
+        episode.user_data["reward"][prev_turn].append(info[prev_turn]["reward"])
 
-    def on_episode_end(self, *, episode, base_env, **kwargs):
+    def on_episode_end(self, *, episode, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
         logged).
 
-        Only the episode and base_env keyword arguments are used, other
-        arguments are ignored"""
-        env = base_env.envs[0]
-
-        # Because of the way the environment is designed, an agent will have an
-        # extra input request that must be dropped because it's the last
-        # observation of the environment (it won't have the next action).
-        for agent_id in episode.user_data["input_requests"]:
-            input_requests = episode.user_data["input_requests"][agent_id]
-            if len(input_requests) > env.node_max_steps:
-                # Remove the last input request by moving the list one to the
-                # right.
-                input_requests = input_requests[:-1]
-                episode.user_data["input_requests"][agent_id] = input_requests
-
+        Only the episode keyword arguments is used, other arguments are
+        ignored."""
         # Save the input requests for each agent for this episode. Note that
         # this has to be a list of length 1 because there can be multiple
         # episodes in a single iteration, so at the end Ray will append the list

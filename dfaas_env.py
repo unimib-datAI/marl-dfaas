@@ -1,5 +1,3 @@
-import math
-
 import gymnasium as gym
 import numpy as np
 
@@ -76,8 +74,7 @@ class DFaaS(MultiAgentEnv):
         self.rng = np.random.default_rng(seed=self.seed)
         self.np_random = self.rng  # Required by the Gymnasium API
 
-        # Number of requests for the node whose turn it is. In this case it is
-        # for node_0 because it always starts when the environment is reset.
+        # Generate all input requests for the environment.
         self.input_requests = self._get_input_requests()
 
         # These values refer to the last action/reward performed by an agent in
@@ -86,12 +83,15 @@ class DFaaS(MultiAgentEnv):
         self.last_action = None
         self.last_reward = None
 
-        # Note that the observation must be a NumPy array to be compatible with
-        # the observation space, otherwise Ray will throw an error.
+        # Start with node_0.
+        input_requests = self.input_requests["node_0"][0]
+
         obs = {"node_0": {
-                "input_requests": np.array([self.input_requests], dtype=np.int32),
-                "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
-                }
+            # Because the observation is a Box, the returned value must be an
+            # np.ndarray even if there is a single value, otherwise Ray will
+            # throw an error.
+            "input_requests": np.array([input_requests], dtype=np.int32),
+            "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)}
                }
 
         info = self._additional_info()
@@ -103,31 +103,20 @@ class DFaaS(MultiAgentEnv):
         action_dist = action_dict.get(f"node_{self.turn}")
         assert action_dist is not None, f"Expected turn {self.turn} but {action_dict = }"
 
+        current_node_id = f"node_{self.turn}"
+
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
-        reqs_local, reqs_reject = self._convert_distribution(action_dist)
+        input_requests = self.input_requests[current_node_id][self.current_step[current_node_id]]
+        reqs_local, reqs_reject = self._convert_distribution(input_requests, action_dist)
         self.last_action = {"local": reqs_local, "reject": reqs_reject}
 
         # Calculate reward for the current node.
         reward = self._calculate_reward(reqs_local, reqs_reject)
         self.last_reward = reward
 
-        current_node_id = f"node_{self.turn}"
-
         # Update the observation space for the next turn.
         self._update_observation_space()
-
-        next_node_id = f"node_{self.turn}"
-
-        obs = {next_node_id: {
-                # See 'reset()' method on why np.array is required.
-                "input_requests": np.array([self.input_requests], dtype=np.int32),
-                "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
-                }
-               }
-
-        # Reward for the last agent.
-        rewards = {current_node_id: reward}
 
         # Terminated and truncated: There is a special value '__all__' that is
         # only enabled when all alerts are terminated.
@@ -137,6 +126,26 @@ class DFaaS(MultiAgentEnv):
         terminated["__all__"] = all(terminated.values())
         truncated = {node_id: False for node_id in self.current_step}
         truncated["__all__"] = all(truncated.values())
+
+        next_node_id = f"node_{self.turn}"
+
+        # Return the observation only if the next agent has not terminated,
+        # because if it has, there is no next action.
+        obs = {}
+        if not terminated[next_node_id]:
+            input_requests = self.input_requests[next_node_id][self.current_step[next_node_id]]
+
+            obs = {next_node_id: {
+                    # See 'reset()' method on why np.array is required.
+                    "input_requests": np.array([input_requests], dtype=np.int32),
+                    "queue_capacity": np.array([self.max_requests_step], dtype=np.int32)
+                    }
+                   }
+
+        # Reward for the last agent.
+        rewards = {current_node_id: reward}
+
+        # Create the additional information dictionary.
         info = self._additional_info()
 
         return obs, rewards, terminated, truncated, info
@@ -148,9 +157,6 @@ class DFaaS(MultiAgentEnv):
 
         # Change the next expected agent action.
         self.turn = (self.turn + 1) % self.nodes
-
-        # Get the new input requests for the next turn.
-        self.input_requests = self._get_input_requests()
 
     def _calculate_reward(self, reqs_local, reqs_reject):
         """Returns the reward for the given action (the number of locally
@@ -186,17 +192,20 @@ class DFaaS(MultiAgentEnv):
         # unnecessary rejected requests increases.
         return 1 - reqs_reject / reqs_total
 
-    def _convert_distribution(self, action_dist):
-        """Converts the given distribution (e.g. [.7, .3]) into the absolute
-        number of requests to reject and process locally."""
+    @staticmethod
+    def _convert_distribution(input_requests, action_dist):
+        """Converts the given action distribution (e.g. [.7, .3]) into the
+        absolute number of requests to process locally or reject. Returns the
+        result as a tuple."""
+
         # Extract the single actions probabilities from the array.
         prob_local, prob_reject = action_dist
 
         # Get the corresponding number of requests for each action. Note: the
         # number of requests is a discrete number, so there is a fraction of the
         # action probabilities that is left out of the calculation.
-        actions = [int(prob_local * self.input_requests),
-                   int(prob_reject * self.input_requests)]
+        actions = [int(prob_local * input_requests),
+                   int(prob_reject * input_requests)]
 
         processed_requests = sum(actions)
 
@@ -204,66 +213,65 @@ class DFaaS(MultiAgentEnv):
         # problem by assigning the remaining requests to the higher fraction for
         # the three action probabilities, because that action is the one that
         # loses the most.
-        if processed_requests < self.input_requests:
+        if processed_requests < input_requests:
             # Extract the fraction for each action probability.
-            fractions = [prob_local * self.input_requests - actions[0],
-                         prob_reject * self.input_requests - actions[1]]
+            fractions = [prob_local * input_requests - actions[0],
+                         prob_reject * input_requests - actions[1]]
 
             # Get the highest fraction index and and assign remaining requests
             # to that action.
             max_fraction_index = np.argmax(fractions)
-            actions[max_fraction_index] += self.input_requests - processed_requests
+            actions[max_fraction_index] += input_requests - processed_requests
 
-        assert sum(actions) == self.input_requests
+        assert sum(actions) == input_requests
         return actions
 
     def _get_input_requests(self):
-        """Get the number of input requests for the agent. Each agent has its
-        own curve of requests."""
+        """Calculate the input requests for all agents for all steps.
+
+        Returns a dictionary whose keys are the agent IDs and whose value is an
+        np.ndarray containing the input requests for each step."""
         average_requests = 100
         period = 50
         amplitude_requests = 50
-
-        current_step = self.current_step[f"node_{self.turn}"]
-
-        if self.turn == 0:
-            fn = math.sin
-        else:
-            fn = math.cos
-
         noise_ratio = .1
-        base_input = average_requests + amplitude_requests * fn(2 * math.pi * current_step / period)
-        noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests)
-        input_requests = int(noisy_input)
 
-        # Force values outside limits to respect observation space.
-        input_requests = np.clip(input_requests, 50, 150)
+        input_requests = {}
+        steps = np.arange(self.max_requests_step)
+        for agent in self._agent_ids:
+            # TODO: do not directly check the value of the agent ID.
+            fn = np.sin if agent == "node_0" else np.cos
+
+            base_input = average_requests + amplitude_requests * fn(2 * np.pi * steps / period)
+            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_requests_step)
+            input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
+            np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
 
         return input_requests
 
     def _additional_info(self):
         """Builds and returns the info dictionary for the current step."""
-        info = {}
+        # Since DFaaS is a multi-agent environment, the keys of the returned
+        # info dictionary must be the agent IDs of the returned observation or
+        # the special "__common__" key, otherwise Ray will complain.
+        #
+        # I do not like this constraint, so I just use the common key.
+        info = {"__common__": {}}
 
         node = f"node_{self.turn}"
         prev_node = f"node_{(self.turn - 1) % self.nodes}"
 
-        # Since DFaaS is a multi-agent environment, the keys of the returned
-        # info dictionary must be the agent IDs or the special "__common__" key,
-        # otherwise Ray will complain.
-        #
-        # The "__common__" key is for common info, while individual agents can
-        # have specific info.
-        info["__common__"] = {"turn": node}
-        info[node] = {
-                "input_requests": self.input_requests,
-                "current_step": self.current_step[node]
-                }
+        if self.current_step[node] < self.node_max_steps:
+            input_requests = self.input_requests[node][self.current_step[node]]
+
+            info["__common__"]["turn"] = node
+            info["__common__"][node] = {
+                    "input_requests": input_requests,
+                    "current_step": self.current_step[node]
+                    }
 
         # Note that the last action refers to the previous agent, not the
-        # current one! I can't use the agent ID as a key because Ray only
-        # expects the "__common__" key or the agent IDs within the observation
-        # (the current agent ID).
+        # current one!
         if self.last_action is not None:
             assert self.last_reward is not None
 

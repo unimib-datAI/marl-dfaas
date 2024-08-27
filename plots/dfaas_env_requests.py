@@ -27,31 +27,7 @@ def make(plots_dir):
 
     env = DFaaS()
 
-    # Create the arrays to store the input requests for each agent.
-    input_requests = {"node_0": np.empty(shape=env.node_max_steps, dtype=np.int32),
-                      "node_1": np.empty(shape=env.node_max_steps, dtype=np.int32)
-                      }
-
-    # The first observation is always the input requests for the node_0 agent.
-    obs, _ = env.reset()
-    input_requests["node_0"][0] = obs["node_0"][0]  # A single element.
-
-    # The other observation cycles between the two agents.
-    while True:
-        action = env.action_space_sample()
-        obs, _, terminated, _, _ = env.step(action)
-
-        if terminated["__all__"]:
-            break
-
-        # Get the current agent for the action. Is expected that there is only
-        # one agent for each step in the observation.
-        assert len(list(obs)) == 1, "Only one agent should be in obs for each step!"
-        agent = list(obs)[0]
-        step = env.current_step[agent]
-        input_requests[agent][step] = obs[agent][0]
-
-    assert env.current_step == {"node_0": env.node_max_steps, "node_1": env.node_max_steps}
+    env.reset()
 
     # Make the plot.
     fig = plt.figure(figsize=(15, 10), dpi=300, layout="constrained")
@@ -61,13 +37,15 @@ def make(plots_dir):
     # ensure a bit of space for both bottom and top.
     #
     # Is assumed that each agent has the same observation space.
-    bottom = env.observation_space["node_0"].low[0] - 10
-    top = env.observation_space["node_0"].high[0] + 10
+    bottom = env.observation_space["node_0"]["input_requests"].low[0] - 10
+    top = env.observation_space["node_0"]["input_requests"].high[0] + 10
 
     # Input requests plot.
-    ax.plot(input_requests["node_0"], label="node_0")
-    ax.plot(input_requests["node_1"], label="node_1")
+    for agent in env._agent_ids:
+        ax.plot(env.input_requests[agent], label=agent)
     ax.set_ylim(bottom=bottom, top=top)
+    ax.set_yticks(np.arange(start=bottom, stop=top+1, step=10))
+    ax.set_xticks(np.arange(stop=env.node_max_steps+1, step=10))
     ax.set_title("Input requests")
 
     ax.set_xlabel("Step")
