@@ -18,29 +18,28 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         env = base_env.envs[0]
 
+        # Initialize the dictionaries and lists.
+        episode.user_data["observation"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["original_input_requests"] = []
+        episode.user_data["action"] = {
+                "local": {agent: [] for agent in env.agent_ids},
+                "forward": {"node_0": []},
+                "reject": {agent: [] for agent in env.agent_ids},
+                }
+        episode.user_data["reward"] = {agent: [] for agent in env.agent_ids}
+        episode.hist_data["seed"] = [env.seed]
+
         # The way to get the info data is complicated because of the Ray API.
         # However, we need to save the first observation because it contains the
         # initial data.
-        info = env._additional_info()["__common__"]
+        info = env._additional_info()
 
-        # Track the observation for each step of each agent.
-        turn = info["turn"]
-        episode.user_data["observation"] = {"node_0": [], "node_1": []}
-        episode.user_data["observation"][turn].append(info[turn]["obs"])
+        # Track common info for all agents.
+        for agent in env.agent_ids:
+            episode.user_data["observation"][agent].append(info[agent]["observation"])
 
-        # Track the original input requests (only for node_1).
-        episode.user_data["original_input_requests"] = []
-
-        # Track the action as number of request (not probabilities).
-        episode.user_data["action"] = {"local": {"node_0": [], "node_1": []},
-                                       "forward": {"node_0": []},
-                                       "reject": {"node_0": [], "node_1": []}}
-
-        # Track the reward for each step.
-        episode.user_data["reward"] = {"node_0": [], "node_1": []}
-
-        # Save the seed of this episode.
-        episode.hist_data["seed"] = [env.seed]
+        # Track the original input requests only for node_1.
+        episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
 
     def on_episode_step(self, *, episode, base_env, **kwargs):
         """Called on each episode step (after the action has been logged).
@@ -50,28 +49,27 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Make sure this episode is ongoing.
         assert episode.length > 0, f"'on_episode_step()' callback should not be called right after env reset! {episode.length = }"
 
-        info = base_env.envs[0]._additional_info()["__common__"]
+        env = base_env.envs[0]
 
-        # The "turn" key may not be in the dictionary because it is the last
-        # step of this agent.
-        if "turn" in info:
-            turn = info["turn"]
-            episode.user_data["observation"][turn].append(info[turn]["obs"])
+        info = env._additional_info()
 
-            # Save also the original input requests for node_1.
-            if turn == "node_1":
-                episode.user_data["original_input_requests"].append(info[turn]["original_input_requests"])
+        # Track common info for all agents.
+        for agent in env.agent_ids:
+            episode.user_data["action"]["local"][agent].append(info[agent]["action"]["local"])
+            episode.user_data["action"]["reject"][agent].append(info[agent]["action"]["reject"])
+            episode.user_data["reward"][agent].append(info[agent]["reward"])
 
-        # "prev_turn" contains the agent ID of the previous agent that performed
-        # the action (and reward) within step().
-        prev_turn = info["prev_turn"]
-        episode.user_data["reward"][prev_turn].append(info[prev_turn]["reward"])
-        action = info[prev_turn]["action"]
-        episode.user_data["action"]["local"][prev_turn].append(action["local"])
-        episode.user_data["action"]["reject"][prev_turn].append(action["reject"])
-        # Save also forwarded requests for node_0.
-        if prev_turn == "node_0":
-            episode.user_data["action"]["forward"][prev_turn].append(action["forward"])
+        # Track forwarded requests only for node_0.
+        episode.user_data["action"]["forward"]["node_0"].append(info["node_0"]["action"]["forward"])
+
+        # If it is the last step, skip the observation because it will not be
+        # paired with the next action.
+        if env.current_step < env.max_steps:
+            for agent in env.agent_ids:
+                episode.user_data["observation"][agent].append(info[agent]["observation"])
+
+            # Track the original input requests only for node_1.
+            episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
 
     def on_episode_end(self, *, episode, **kwargs):
         """Called when an episode is done (after terminated/truncated have been

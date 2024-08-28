@@ -113,8 +113,8 @@ class DFaaS(MultiAgentEnv):
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process, to forward and to reject.
         reqs_local_0, reqs_forward_0, reqs_reject_0 = self._convert_distribution_0(input_requests_0, action_dist_0)
-        self.last_action = {}
-        self.last_action["node_0"] = {"local": reqs_local_0,
+        self.last_actions = {}
+        self.last_actions["node_0"] = {"local": reqs_local_0,
                                       "forward": reqs_forward_0,
                                       "reject": reqs_reject_0}
 
@@ -135,7 +135,7 @@ class DFaaS(MultiAgentEnv):
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
         reqs_local_1, reqs_reject_1 = self._convert_distribution(input_requests_1, action_dist_1)
-        self.last_action["node_1"] = {"local": reqs_local_1,
+        self.last_actions["node_1"] = {"local": reqs_local_1,
                                       "reject": reqs_reject_1}
 
         # Calculate the reward.
@@ -204,7 +204,7 @@ class DFaaS(MultiAgentEnv):
         #
         # TODO: this is wrong, because the requests should be split.
         if self.current_step > 0:
-            obs["node_1"]["input_requests"] += self.last_action["node_0"]["forward"]
+            obs["node_1"]["input_requests"] += self.last_actions["node_0"]["forward"]
 
         # node_0 may have forwarded more requests than the forwarding
         # capacity. The environment penalized this with the reward, but in
