@@ -19,13 +19,13 @@ class DFaaSCallbacks(DefaultCallbacks):
         env = base_env.envs[0]
 
         # Initialize the dictionaries and lists.
-        episode.user_data["observation"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["observation_queue_capacity"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["observation_input_requests"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["observation_forward_capacity"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["original_input_requests"] = []
-        episode.user_data["action"] = {
-                "local": {agent: [] for agent in env.agent_ids},
-                "forward": {"node_0": []},
-                "reject": {agent: [] for agent in env.agent_ids},
-                }
+        episode.user_data["action_local"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["action_forward"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["action_reject"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["reward"] = {agent: [] for agent in env.agent_ids}
         episode.hist_data["seed"] = [env.seed]
 
@@ -36,7 +36,13 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         # Track common info for all agents.
         for agent in env.agent_ids:
-            episode.user_data["observation"][agent].append(info[agent]["observation"])
+            # Note that each element is a np.ndarray of size 1. It must be
+            # unwrapped!
+            episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
+            episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
+
+        # Track forwarded capacity only for node_0.
+        episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
 
         # Track the original input requests only for node_1.
         episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
@@ -55,18 +61,22 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         # Track common info for all agents.
         for agent in env.agent_ids:
-            episode.user_data["action"]["local"][agent].append(info[agent]["action"]["local"])
-            episode.user_data["action"]["reject"][agent].append(info[agent]["action"]["reject"])
+            episode.user_data["action_local"][agent].append(info[agent]["action"]["local"])
+            episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
             episode.user_data["reward"][agent].append(info[agent]["reward"])
 
         # Track forwarded requests only for node_0.
-        episode.user_data["action"]["forward"]["node_0"].append(info["node_0"]["action"]["forward"])
+        episode.user_data["action_forward"]["node_0"].append(info["node_0"]["action"]["forward"])
 
         # If it is the last step, skip the observation because it will not be
         # paired with the next action.
         if env.current_step < env.max_steps:
             for agent in env.agent_ids:
-                episode.user_data["observation"][agent].append(info[agent]["observation"])
+                episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
+                episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
+
+            # Track forwarded capacity only for node_0.
+            episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
 
             # Track the original input requests only for node_1.
             episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
@@ -80,9 +90,13 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Note that this has to be a list of length 1 because there can be
         # multiple episodes in a single iteration, so at the end Ray will append
         # the list to a general list for the iteration.
-        episode.hist_data["observation"] = [episode.user_data["observation"]]
+        episode.hist_data["observation_queue_capacity"] = [episode.user_data["observation_queue_capacity"]]
+        episode.hist_data["observation_input_requests"] = [episode.user_data["observation_input_requests"]]
+        episode.hist_data["observation_forward_capacity"] = [episode.user_data["observation_forward_capacity"]]
         episode.hist_data["original_input_requests"] = [episode.user_data["original_input_requests"]]
-        episode.hist_data["action"] = [episode.user_data["action"]]
+        episode.hist_data["action_local"] = [episode.user_data["action_local"]]
+        episode.hist_data["action_forward"] = [episode.user_data["action_forward"]]
+        episode.hist_data["action_reject"] = [episode.user_data["action_reject"]]
         episode.hist_data["reward"] = [episode.user_data["reward"]]
 
     def on_train_result(self, *, algorithm, result, **kwargs):
