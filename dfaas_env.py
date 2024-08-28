@@ -8,7 +8,7 @@ from ray.tune.registry import register_env
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
-        # Number and IDs of the agents in the  DFaaS network.
+        # Number and IDs of the agents in the DFaaS network.
         self.agents = 2
         self.agent_ids = ["node_0", "node_1"]
 
@@ -59,8 +59,8 @@ class DFaaS(MultiAgentEnv):
                 })
             })
 
-        # Maximum steps for each node.
-        self.node_max_steps = config.get("node_max_steps", 100)
+        # Number of steps in the environment.
+        self.max_steps = config.get("max_steps", 100)
 
         # The master seed for the RNG. This is used in each episode (each
         # "reset()") to create a new RNG that will be used for generating input
@@ -74,13 +74,8 @@ class DFaaS(MultiAgentEnv):
         super().__init__()
 
     def reset(self, *, seed=None, options=None):
-        # Current step of the agents.
+        # Current step.
         self.current_step = 0
-
-        # The environment is turn-based: on each step() call, only one agent can
-        # perform the action. So in each step of the environment, we have to
-        # cycle through the agents before moving on to the next step.
-        self.turn = 0
 
         # Seed used for this episode.
         iinfo = np.iinfo(np.uint32)
@@ -93,12 +88,11 @@ class DFaaS(MultiAgentEnv):
         # Generate all input requests for the environment.
         self.input_requests = self._get_input_requests()
 
-        # These values refer to the last action/reward performed by an agent in
-        # a single step(). They are set to None because no action/reward was
-        # logged in reset(). Used by the _additional_info method.
-        self.last_action = None
-        self.last_reward = None
-        self.last_obs = None
+        # These values refer to the last action/reward performed in the latest
+        # step() invocation. They are set to None because no actions and rewards
+        # was logged in reset(). Used by the _additional_info method.
+        self.last_actions = None
+        self.last_rewards = None
 
         obs = self._build_observation()
         self.last_obs = obs
@@ -106,89 +100,73 @@ class DFaaS(MultiAgentEnv):
 
         return obs, info
 
-    def step(self, action_dict=None):
-        action_agent = self.agent_ids[self.turn]
-
-        assert action_dict is not None, "action_dict is required"
-        action_dist = action_dict.get(action_agent)
-        assert action_dist is not None, f"Expected agent {action_agent!r} but {action_dict = }"
-
+    def step(self, action_dict):
         # We need to process the action differently between agents because each
         # agent has a different action space.
-        if action_agent == "node_0":
-            assert len(action_dist) == 3, "Expected (local, forward, reject)"
 
-            input_requests = self.input_requests[action_agent][self.current_step]
+        # Action and reward for node_0.
+        action_dist_0 = action_dict["node_0"]
+        assert len(action_dist_0) == 3, "Expected (local, forward, reject)"
 
-            # Convert the action distribution (a distribution of probabilities)
-            # into the number of requests to locally process, to forward and to
-            # reject.
-            reqs_local, reqs_forward, reqs_reject = self._convert_distribution_0(input_requests, action_dist)
-            self.last_action = {"local": reqs_local,
-                                "forward": reqs_forward,
-                                "reject": reqs_reject}
+        input_requests_0 = self.input_requests["node_0"][self.current_step]
 
-            forward_capacity = self.last_obs[action_agent]["forward_capacity"]
+        # Convert the action distribution (a distribution of probabilities) into
+        # the number of requests to locally process, to forward and to reject.
+        reqs_local_0, reqs_forward_0, reqs_reject_0 = self._convert_distribution_0(input_requests_0, action_dist_0)
+        self.last_action = {}
+        self.last_action["node_0"] = {"local": reqs_local_0,
+                                      "forward": reqs_forward_0,
+                                      "reject": reqs_reject_0}
 
-            # Calculate the reward.
-            reward = self._calculate_reward_0(reqs_local, reqs_forward, reqs_reject, forward_capacity)
-        else:  # node_1
-            assert len(action_dist) == 2, "Expected (local, reject)"
+        forward_capacity = self.last_obs["node_0"]["forward_capacity"]
 
-            # Get the input requests from the latest observation because node_0
-            # may have forwarded some requests to it.
-            input_requests = self.last_obs[action_agent]["input_requests"]
+        # Calculate the reward.
+        rewards = {}
+        rewards["node_0"] = self._calculate_reward_0(reqs_local_0, reqs_forward_0, reqs_reject_0, forward_capacity)
 
-            # Convert the action distribution (a distribution of probabilities)
-            # into the number of requests to locally process and reject.
-            reqs_local, reqs_reject = self._convert_distribution(input_requests, action_dist)
-            self.last_action = {"local": reqs_local, "reject": reqs_reject}
+        # Action and reward for node_1.
+        action_dist_1 = action_dict["node_1"]
+        assert len(action_dist_1) == 2, "Expected (local, reject)"
 
-            # Calculate the reward.
-            reward = self._calculate_reward(reqs_local, reqs_reject)
+        # Get the input requests from the latest observation because node_0 may
+        # have forwarded some requests to it.
+        input_requests_1 = self.last_obs["node_1"]["input_requests"]
+
+        # Convert the action distribution (a distribution of probabilities) into
+        # the number of requests to locally process and reject.
+        reqs_local_1, reqs_reject_1 = self._convert_distribution(input_requests_1, action_dist_1)
+        self.last_action["node_1"] = {"local": reqs_local_1,
+                                      "reject": reqs_reject_1}
+
+        # Calculate the reward.
+        rewards["node_1"] = self._calculate_reward(reqs_local_1, reqs_reject_1)
 
         # Make sure the reward is of type float.
-        reward = float(reward)
-        self.last_reward = reward
+        for agent in self.agent_ids:
+            rewards[agent] = float(rewards[agent])
+        self.last_rewards = rewards
 
-        # Go to the next turn, but if all agents in the step have been cycled,
-        # go to the next environment step.
-        self.turn += 1
-        if self.turn == self.agents:
-            self.current_step += 1
-            self.turn = 0
+        # Go to the next step.
+        self.current_step += 1
 
         # Each key in the terminated dictionary indicates whether an individual
         # agent has terminated. There is a special key "__all__" which is true
         # only if all agents have terminated.
-        terminated = {}
-        if self.current_step == self.node_max_steps - 1:
-            # We are in the last step, so we need to check individual agents.
-            for agent_idx in range(self.agents):
-                terminated[self.agent_ids[agent_idx]] = self.turn > agent_idx
-        elif self.current_step == self.node_max_steps:
+        terminated = {agent: False for agent in self.agent_ids}
+        if self.current_step == self.max_steps:
             # We are past the last step: nothing more to do.
             terminated = {agent: True for agent in self.agent_ids}
-        else:
-            # Not the last step: not terminated.
-            terminated = {agent: False for agent in self.agent_ids}
-
         terminated["__all__"] = all(terminated.values())
 
         # Truncated is always set to False because it is not used.
         truncated = {agent: False for agent in self.agent_ids}
         truncated["__all__"] = False
 
-        next_agent = self.agent_ids[self.turn]
-
-        # Reward for the agent.
-        rewards = {action_agent: reward}
-
-        if self.current_step < self.node_max_steps:
+        if self.current_step < self.max_steps:
             obs = self._build_observation()
         else:
             # Return a dummy observation because this is the last step.
-            obs = self.observation_space_sample([next_agent])
+            obs = self.observation_space_sample()
         self.last_obs = obs
 
         # Create the additional information dictionary.
@@ -197,42 +175,44 @@ class DFaaS(MultiAgentEnv):
         return obs, rewards, terminated, truncated, info
 
     def _build_observation(self):
-        """Returns the observation dictionary for the current agent for the
-        current step."""
-        agent = self.agent_ids[self.turn]
+        """Builds and returns the observation for the current step."""
+        # Initialize the observation dictionary.
+        obs = {agent: {} for agent in self.agent_ids}
 
-        # Initialize the observation dictionary for the current agent.
-        obs = {}
-        obs[agent] = {}
+        # Set common observation values for the agents.
+        for agent in self.agent_ids:
+            # The queue capacity is always a fixed value for now.
+            obs[agent]["queue_capacity"] = np.array([self.queue_capacity_max], dtype=np.int32)
 
-        # The queue capacity is always a fixed value for now.
-        obs[agent]["queue_capacity"] = np.array([self.queue_capacity_max], dtype=np.int32)
+            input_requests = self.input_requests[agent][self.current_step]
+            obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-        # node_0 also has the forwarding capacity observation.
-        if agent == "node_0":
-            # The forwarding capacity depends on the input requests of the
-            # node_1. The value is non-negative, because if it is zero node_0
-            # can't forward any requests to node_1.
-            input_requests_1 = self.input_requests["node_1"][self.current_step]
-            forward_capacity = self.queue_capacity_max - input_requests_1
-            if forward_capacity < 0:
-                forward_capacity = 0
-            obs[agent]["forward_capacity"] = np.array([forward_capacity], dtype=np.int32)
+        # Only node_0 has the forwarding capacity. That value depends on the
+        # input requests of the node_1. The value is non-negative, because if it
+        # is zero node_0 can't forward any requests to node_1.
+        #
+        # TODO: set the value for the next step of node_1, not this current
+        # step!
+        input_requests = self.input_requests["node_1"][self.current_step]
+        forward_capacity = self.queue_capacity_max - input_requests
+        if forward_capacity < 0:
+            forward_capacity = 0
+        obs["node_0"]["forward_capacity"] = np.array([forward_capacity], dtype=np.int32)
 
-        input_requests = self.input_requests[agent][self.current_step]
-        obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
-        if agent == "node_1":
-            # node_1 has increased input requests because node_0 may have
-            # forwarded some requests to this node.
-            obs[agent]["input_requests"] += self.last_action["forward"]
+        # Since node_1 can forward requests to node_0, the latter has an
+        # increased number of input requests.
+        #
+        # TODO: this is wrong, because the requests should be split.
+        if self.current_step > 0:
+            obs["node_1"]["input_requests"] += self.last_action["node_0"]["forward"]
 
-            # node_0 may have forwarded more requests than the forwarding
-            # capacity. The environment penalized this with the reward, but in
-            # this case we also need to clip the update value to not exceed the
-            # higher limit of input requests.
-            top = self.observation_space[agent]["input_requests"].high[0]
-            if obs[agent]["input_requests"] > top:
-                obs[agent]["input_requests"] = np.array([top], dtype=np.int32)
+        # node_0 may have forwarded more requests than the forwarding
+        # capacity. The environment penalized this with the reward, but in
+        # this case we also need to clip the update value to not exceed the
+        # higher limit of input requests.
+        top = self.observation_space["node_1"]["input_requests"].high[0]
+        if obs["node_1"]["input_requests"] > top:
+            obs["node_1"]["input_requests"] = np.array([top], dtype=np.int32)
 
         return obs
 
@@ -419,40 +399,33 @@ class DFaaS(MultiAgentEnv):
 
     def _additional_info(self):
         """Builds and returns the info dictionary for the current step."""
-        # Since DFaaS is a multi-agent environment, the keys of the returned
-        # info dictionary must be the agent IDs of the returned observation or
-        # the special "__common__" key, otherwise Ray will complain.
-        #
-        # I do not like this constraint, so I just use the common key.
-        info = {"__common__": {}}
+        # Each agent has its own additional information dictionary.
+        info = {agent: {} for agent in self.agent_ids}
 
-        agent = self.agent_ids[self.turn]
+        # This special key contains information that is not specific to an
+        # individual agent.
+        info["__common__"] = {"current_step": self.current_step}
 
-        # This method may be called after one of the agents has been terminated.
-        # Therefore, we need to check the termination of the current agent.
-        if self.current_step < self.node_max_steps:
-            info["__common__"]["turn"] = agent
-            info["__common__"][agent] = {
-                    "obs": self.last_obs[agent],
-                    "current_step": self.current_step
-                    }
+        for agent in self.agent_ids:
+            info[agent]["observation"] = self.last_obs[agent]
 
+        if self.current_step < self.max_steps:
             # node_1 has input requests altered in the observation because
             # node_0 can forward requests to it. So we need to track also the
             # original input requests.
-            if agent == "node_1":
-                input_reqs = self.input_requests[agent][self.current_step]
-                info["__common__"][agent]["original_input_requests"] = input_reqs
+            input_reqs = self.input_requests["node_1"][self.current_step]
+        else:
+            # This is the last step, the value won't be used.
+            input_reqs = 0
+        info["node_1"]["original_input_requests"] = input_reqs
 
-        # Note that the last action refers to the previous agent, not the
-        # current one!
-        if self.last_action is not None:
-            assert self.last_reward is not None
+        # Also save the actions and rewards from the last step.
+        if self.last_actions is not None:
+            assert self.last_rewards is not None
 
-            prev_agent = self.agent_ids[(self.turn - 1) % self.agents]
-            info["__common__"]["prev_turn"] = prev_agent
-            info["__common__"][prev_agent] = {"action": self.last_action,
-                                              "reward": self.last_reward}
+            for agent in self.agent_ids:
+                info[agent]["action"] = self.last_actions[agent]
+                info[agent]["reward"] = self.last_rewards[agent]
 
         return info
 
