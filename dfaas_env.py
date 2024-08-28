@@ -433,7 +433,7 @@ class DFaaS(MultiAgentEnv):
         if self.current_step < self.node_max_steps:
             info["__common__"]["turn"] = agent
             info["__common__"][agent] = {
-                    "obs": self.last_obs,
+                    "obs": self.last_obs[agent],
                     "current_step": self.current_step
                     }
 
