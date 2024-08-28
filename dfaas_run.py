@@ -16,21 +16,25 @@ logger = logging.getLogger(Path(__file__).name)
 
 tmp_env = DFaaS()
 
-# Each agent in the DFaaS network has the same action and observation space, but
-# this can be changed in the future. A PolicySpec is required to specify this
-# information for each policy used in this experiment.
+# PolicySpec is required to specify the action/observation space for each
+# policy. Because each agent in the env has different action and observation
+# space, it is important to configure them.
 #
 # See this thread: https://discuss.ray.io/t/multi-agent-where-does-the-first-structure-comes-from/7010/5
-policy_spec = PolicySpec(policy_class=None,
-                         observation_space=tmp_env.observation_space["node_0"],
-                         action_space=tmp_env.action_space["node_0"],
-                         config=None)
-
+#
 # Each agent has its own policy (policy_node_X in policy -> node_X in the env).
 #
 # Note that if no option is given to PolicySpec, it will inherit the
 # configuration/algorithm from the main configuration.
-policies = {"policy_node_0": policy_spec, "policy_node_1": policy_spec}
+policies = {"policy_node_0": PolicySpec(policy_class=None,
+                                        observation_space=tmp_env.observation_space["node_0"],
+                                        action_space=tmp_env.action_space["node_0"],
+                                        config=None),
+            "policy_node_1": PolicySpec(policy_class=None,
+                                        observation_space=tmp_env.observation_space["node_1"],
+                                        action_space=tmp_env.action_space["node_1"],
+                                        config=None)
+            }
 
 
 # This function is called by Ray to determine which policy to use for an agent
