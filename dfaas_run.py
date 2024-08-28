@@ -10,6 +10,10 @@ from dfaas_env import DFaaS  # noqa: F401
 from dfaas_callbacks import DFaaSCallbacks
 import dfaas_utils
 
+# Disable Ray's warnings.
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 # Initialize logger for this module.
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(Path(__file__).name)
