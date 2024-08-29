@@ -115,8 +115,8 @@ class DFaaS(MultiAgentEnv):
         reqs_local_0, reqs_forward_0, reqs_reject_0 = self._convert_distribution_0(input_requests_0, action_dist_0)
         self.last_actions = {}
         self.last_actions["node_0"] = {"local": reqs_local_0,
-                                      "forward": reqs_forward_0,
-                                      "reject": reqs_reject_0}
+                                       "forward": reqs_forward_0,
+                                       "reject": reqs_reject_0}
 
         forward_capacity = self.last_obs["node_0"]["forward_capacity"]
 
@@ -136,7 +136,7 @@ class DFaaS(MultiAgentEnv):
         # the number of requests to locally process and reject.
         reqs_local_1, reqs_reject_1 = self._convert_distribution(input_requests_1, action_dist_1)
         self.last_actions["node_1"] = {"local": reqs_local_1,
-                                      "reject": reqs_reject_1}
+                                       "reject": reqs_reject_1}
 
         # Calculate the reward.
         rewards["node_1"] = self._calculate_reward(reqs_local_1, reqs_reject_1)
@@ -176,6 +176,8 @@ class DFaaS(MultiAgentEnv):
 
     def _build_observation(self):
         """Builds and returns the observation for the current step."""
+        assert self.current_step < self.max_steps
+
         # Initialize the observation dictionary.
         obs = {agent: {} for agent in self.agent_ids}
 
@@ -187,32 +189,18 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-        # Only node_0 has the forwarding capacity. That value depends on the
-        # input requests of the node_1. The value is non-negative, because if it
-        # is zero node_0 can't forward any requests to node_1.
+        # Only node_0 has forwarding capacity. The value depends on the input
+        # requests and the queue capacity of node_1 in the next step.
         #
-        # TODO: set the value for the next step of node_1, not this current
-        # step!
+        # The value is non-negative. If it's zero, it means that node_1 in the
+        # next step cannot accept any forwarded requests from node_0. If it's
+        # positive, node_1 can accept a maximum number of forwarded requests,
+        # but does not guarantee processing.
         input_requests = self.input_requests["node_1"][self.current_step]
         forward_capacity = self.queue_capacity_max - input_requests
         if forward_capacity < 0:
             forward_capacity = 0
         obs["node_0"]["forward_capacity"] = np.array([forward_capacity], dtype=np.int32)
-
-        # Since node_1 can forward requests to node_0, the latter has an
-        # increased number of input requests.
-        #
-        # TODO: this is wrong, because the requests should be split.
-        if self.current_step > 0:
-            obs["node_1"]["input_requests"] += self.last_actions["node_0"]["forward"]
-
-        # node_0 may have forwarded more requests than the forwarding
-        # capacity. The environment penalized this with the reward, but in
-        # this case we also need to clip the update value to not exceed the
-        # higher limit of input requests.
-        top = self.observation_space["node_1"]["input_requests"].high[0]
-        if obs["node_1"]["input_requests"] > top:
-            obs["node_1"]["input_requests"] = np.array([top], dtype=np.int32)
 
         return obs
 
