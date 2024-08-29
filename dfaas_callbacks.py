@@ -22,10 +22,12 @@ class DFaaSCallbacks(DefaultCallbacks):
         episode.user_data["observation_queue_capacity"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["observation_input_requests"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["observation_forward_capacity"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["original_input_requests"] = []
         episode.user_data["action_local"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["action_forward"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["action_reject"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_local"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_forward"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_forward_reject"] = {agent: [] for agent in env.agent_ids}
         episode.user_data["reward"] = {agent: [] for agent in env.agent_ids}
         episode.hist_data["seed"] = [env.seed]
 
@@ -44,9 +46,6 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Track forwarded capacity only for node_0.
         episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
 
-        # Track the original input requests only for node_1.
-        episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
-
     def on_episode_step(self, *, episode, base_env, **kwargs):
         """Called on each episode step (after the action has been logged).
 
@@ -63,10 +62,13 @@ class DFaaSCallbacks(DefaultCallbacks):
         for agent in env.agent_ids:
             episode.user_data["action_local"][agent].append(info[agent]["action"]["local"])
             episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
+            episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
             episode.user_data["reward"][agent].append(info[agent]["reward"])
 
         # Track forwarded requests only for node_0.
         episode.user_data["action_forward"]["node_0"].append(info["node_0"]["action"]["forward"])
+        episode.user_data["excess_forward"]["node_0"].append(info["node_0"]["excess"]["forward_excess"])
+        episode.user_data["excess_forward_reject"]["node_0"].append(info["node_0"]["excess"]["forward_reject"])
 
         # If it is the last step, skip the observation because it will not be
         # paired with the next action.
@@ -77,9 +79,6 @@ class DFaaSCallbacks(DefaultCallbacks):
 
             # Track forwarded capacity only for node_0.
             episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
-
-            # Track the original input requests only for node_1.
-            episode.user_data["original_input_requests"].append(info["node_1"]["original_input_requests"])
 
     def on_episode_end(self, *, episode, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
@@ -93,10 +92,12 @@ class DFaaSCallbacks(DefaultCallbacks):
         episode.hist_data["observation_queue_capacity"] = [episode.user_data["observation_queue_capacity"]]
         episode.hist_data["observation_input_requests"] = [episode.user_data["observation_input_requests"]]
         episode.hist_data["observation_forward_capacity"] = [episode.user_data["observation_forward_capacity"]]
-        episode.hist_data["original_input_requests"] = [episode.user_data["original_input_requests"]]
         episode.hist_data["action_local"] = [episode.user_data["action_local"]]
         episode.hist_data["action_forward"] = [episode.user_data["action_forward"]]
         episode.hist_data["action_reject"] = [episode.user_data["action_reject"]]
+        episode.hist_data["excess_local"] = [episode.user_data["excess_local"]]
+        episode.hist_data["excess_forward"] = [episode.user_data["excess_forward"]]
+        episode.hist_data["excess_forward_reject"] = [episode.user_data["excess_forward_reject"]]
         episode.hist_data["reward"] = [episode.user_data["reward"]]
 
     def on_train_result(self, *, algorithm, result, **kwargs):

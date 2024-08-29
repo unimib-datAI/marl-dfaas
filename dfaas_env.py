@@ -92,11 +92,10 @@ class DFaaS(MultiAgentEnv):
         # The queues start empty (max capacity) and can be full.
         self.queue = {agent: 0 for agent in self.agent_ids}
 
-        # These values refer to the last action/reward performed in the latest
-        # step() invocation. They are set to None because no actions and rewards
-        # was logged in reset(). Used by the _additional_info method.
-        self.last_actions = None
-        self.last_rewards = None
+        # This variable holds the action, excess, and reward for the current
+        # step. It is None because there is no action in the first step. Mainly
+        # used by the _additional_info() method.
+        self.last_action_data = None
 
         obs = self._build_observation()
         self.last_obs = obs
@@ -111,10 +110,6 @@ class DFaaS(MultiAgentEnv):
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process, to forward and to reject.
         action_0 = self._convert_distribution_0(input_requests_0, action_dict["node_0"])
-        self.last_actions = {}
-        self.last_actions["node_0"] = {"local": action_0[0],
-                                       "forward": action_0[1],
-                                       "reject": action_0[2]}
 
         # Action for node_1.
         input_requests_1 = self.input_requests["node_1"][self.current_step]
@@ -122,7 +117,6 @@ class DFaaS(MultiAgentEnv):
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
         action_1 = self._convert_distribution(input_requests_1, action_dict["node_1"])
-        self.last_actions["node_1"] = {"local": action_1[0], "reject": action_1[1]}
 
         # We have the actions, not update the environment state.
         excess = self._manage_workload(action_0, action_1)
@@ -135,7 +129,8 @@ class DFaaS(MultiAgentEnv):
         # Make sure the reward is of type float.
         for agent in self.agent_ids:
             rewards[agent] = float(rewards[agent])
-        self.last_rewards = rewards
+
+        self.last_action_data = (action_0, action_1, excess, rewards)
 
         # Go to the next step.
         self.current_step += 1
@@ -435,6 +430,9 @@ class DFaaS(MultiAgentEnv):
             # Too many requests were attempted to be forwarded.
             forward_excess = forward_0 - forward_capacity
 
+            # forward_excess is a np.ndarray, must be unwrapped.
+            forward_excess = forward_excess.item()
+
             # Limit the forwarded requests to the maximum.
             forward_0 = forward_capacity
 
@@ -484,23 +482,27 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agent_ids:
             info[agent]["observation"] = self.last_obs[agent]
 
-        if self.current_step < self.max_steps:
-            # node_1 has input requests altered in the observation because
-            # node_0 can forward requests to it. So we need to track also the
-            # original input requests.
-            input_reqs = self.input_requests["node_1"][self.current_step]
-        else:
-            # This is the last step, the value won't be used.
-            input_reqs = 0
-        info["node_1"]["original_input_requests"] = input_reqs
+        # Also save the actions, excess and rewards from the last step.
+        if self.last_action_data is not None:
+            info["node_0"]["action"] = {
+                    "local": self.last_action_data[0][0],
+                    "forward": self.last_action_data[0][1],
+                    "reject": self.last_action_data[0][2]}
+            info["node_1"]["action"] = {
+                    "local": self.last_action_data[1][0],
+                    "reject": self.last_action_data[1][1]}
 
-        # Also save the actions and rewards from the last step.
-        if self.last_actions is not None:
-            assert self.last_rewards is not None
+            info["node_0"]["excess"] = {
+                    "local_excess": self.last_action_data[2]["node_0"][0],
+                    "forward_excess": self.last_action_data[2]["node_0"][1],
+                    "forward_reject": self.last_action_data[2]["node_0"][2],
+                    }
+            info["node_1"]["excess"] = {
+                    "local_excess": self.last_action_data[2]["node_1"][0]
+                    }
 
-            for agent in self.agent_ids:
-                info[agent]["action"] = self.last_actions[agent]
-                info[agent]["reward"] = self.last_rewards[agent]
+            info["node_0"]["reward"] = self.last_action_data[3]["node_0"]
+            info["node_1"]["reward"] = self.last_action_data[3]["node_1"]
 
         return info
 
