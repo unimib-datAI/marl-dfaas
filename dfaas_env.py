@@ -115,10 +115,7 @@ class DFaaS(MultiAgentEnv):
         forward_capacity = self.last_obs["node_0"]["forward_capacity"]
 
         # Action for node_1.
-
-        # Get the input requests from the latest observation because node_0 may
-        # have forwarded some requests to it.
-        input_requests_1 = self.last_obs["node_1"]["input_requests"]
+        input_requests_1 = self.input_requests["node_1"][self.current_step]
 
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
