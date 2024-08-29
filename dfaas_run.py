@@ -100,3 +100,7 @@ evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
 dfaas_utils.dict_to_json(evaluation, eval_file)
 logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json")
+
+# Remove this file as it is redundant, "result.json" already contains the same
+# data.
+Path(logdir / "progress.csv").unlink()
