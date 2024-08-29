@@ -408,7 +408,7 @@ class DFaaS(MultiAgentEnv):
             if free_slots >= requests:
                 # There are enough slots in the queue to handle the number of
                 # requests specified by the action.
-                self.queue[agent] -= requests
+                self.queue[agent] += requests
             else:
                 # The requests specified by the action do not have enough slots
                 # in the queue to be processed locally. So we have a number of
@@ -416,7 +416,7 @@ class DFaaS(MultiAgentEnv):
                 excess = requests - free_slots
 
                 # However, use the available slots.
-                self.queue[agent] -= requests - excess
+                self.queue[agent] += requests - excess
 
             return excess
 
