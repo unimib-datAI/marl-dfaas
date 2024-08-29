@@ -20,8 +20,8 @@ class DFaaS(MultiAgentEnv):
         # step() call.
         self.reward_range = (.0, 1.)
 
-        # Maximum number of requests a node can handle in a single step.
-        self.queue_capacity_max = 100
+        # The size of the queue of requests to be processed locally on an agent.
+        self.queue_capacity_max = config.get("queue_capacity_max", 100)
 
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
@@ -88,6 +88,10 @@ class DFaaS(MultiAgentEnv):
         # Generate all input requests for the environment.
         self.input_requests = self._get_input_requests()
 
+        # Queue state for each agent (number of requests to process locally).
+        # The queues start empty (max capacity) and can be full.
+        self.queue = {agent: 0 for agent in self.agent_ids}
+
         # These values refer to the last action/reward performed in the latest
         # step() invocation. They are set to None because no actions and rewards
         # was logged in reset(). Used by the _additional_info method.
@@ -112,8 +116,6 @@ class DFaaS(MultiAgentEnv):
                                        "forward": action_0[1],
                                        "reject": action_0[2]}
 
-        forward_capacity = self.last_obs["node_0"]["forward_capacity"]
-
         # Action for node_1.
         input_requests_1 = self.input_requests["node_1"][self.current_step]
 
@@ -123,12 +125,12 @@ class DFaaS(MultiAgentEnv):
         self.last_actions["node_1"] = {"local": action_1[0], "reject": action_1[1]}
 
         # We have the actions, not update the environment state.
-        # TODO
+        excess = self._manage_workload(action_0, action_1)
 
         # Calculate the reward for both agents.
         rewards = {}
-        rewards["node_1"] = self._calculate_reward(action_1)
-        rewards["node_0"] = self._calculate_reward_0(action_0, forward_capacity)
+        rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"])
+        rewards["node_1"] = self._calculate_reward(action_1, excess["node_1"])
 
         # Make sure the reward is of type float.
         for agent in self.agent_ids:
@@ -137,6 +139,9 @@ class DFaaS(MultiAgentEnv):
 
         # Go to the next step.
         self.current_step += 1
+
+        # Free the queues (for now...).
+        self.queue = {agent: 0 for agent in self.agent_ids}
 
         # Each key in the terminated dictionary indicates whether an individual
         # agent has terminated. There is a special key "__all__" which is true
@@ -193,28 +198,36 @@ class DFaaS(MultiAgentEnv):
 
         return obs
 
-    def _calculate_reward(self, action):
-        """Returns the reward for the given action (a tuple containing the
-        number of requests to locally process and reject) in a range between 0
-        and 1.
+    def _calculate_reward(self, action, excess):
+        """Returns the reward for the agent "node_1" for the current step.
 
-        This function is only for node_1 agent."""
+        The reward is based on:
+
+            - The action, a 2-length tuple containing the number of requests to
+              process locally  and to reject.
+
+            - The excess, a 1-length tuple containing the local requests that
+              exceed the queue capacity.
+
+        This reward function assumes that the queue starts empty at each
+        step."""
         assert len(action) == 2, "Expected (local, reject)"
+        assert len(excess) == 1, "Expected (local_excess)"
 
         reqs_total = sum(action)
         reqs_local, reqs_reject = action
+        local_excess = excess[0]
 
         # The agent (policy) tried to be sneaky, but it is not possible to
         # locally process more requests than the internal limit for each step.
         # This behavior must be discouraged by penalizing the reward, but not as
         # much as by rejecting too many requests (the .5 factor).
-        if reqs_local > self.queue_capacity_max:
-            reqs_local_exceed = reqs_local - self.queue_capacity_max
-            return 1 - (reqs_local_exceed / 100) * .5
+        if local_excess > 0:
+            return 1 - (local_excess / 100) * .5
 
-        # If there are more requests than the node can handle locally, the
-        # optimal strategy should be to process all possible requests locally
-        # and reject the extra ones.
+        # If there are more input requests than available slots in the agent
+        # queue, the optimal strategy should be to fill the queue and then
+        # reject the other requests.
         if reqs_total > self.queue_capacity_max:
             # The reward penalises the agent if the action doesn't maximise the
             # request process locally.
@@ -232,29 +245,40 @@ class DFaaS(MultiAgentEnv):
         # unnecessary rejected requests increases.
         return 1 - reqs_reject / reqs_total
 
-    def _calculate_reward_0(self, action, forwarding_capacity):
-        """Returns the reward for the given action (a tuple containing the
-        number of requests to process locally, to forward and to reject) in a
-        range between 0 and 1.
+    def _calculate_reward_0(self, action, excess):
+        """Returns the reward for the agent "node_0" for the current step.
 
-        This function is only for node_0 agent."""
+        The reward is based on:
+
+            - The action, a 3-length tuple containing the number of requests to
+              process locally, to forward and to reject.
+
+            - The excess, a 3-length tuple containing the local requests that
+              exceed the queue capacity, the forwarded requests that exceed the
+              forwarding capacity, and the forwarded requests that were rejected
+              by the other agent.
+
+        This reward function assumes that the queue starts empty at each step.
+        """
         assert len(action) == 3, "Expected (local, forward, reject)"
+        assert len(excess) == 3, "Expected (local_excess, forward_excess, forward_reject)"
 
         reqs_total = sum(action)
         reqs_local, reqs_forward, reqs_reject = action
+        local_excess, forward_excess, forward_reject = excess
+
+        forward_capacity = reqs_forward - forward_excess
 
         # The agent (policy) tried to be sneaky, but it is not possible to
         # locally process more requests than the internal limit for each step.
         # This behavior must be discouraged by penalizing the reward, but not as
         # much as by rejecting too many requests (the .5 factor).
-        if reqs_local > self.queue_capacity_max:
-            reqs_local_exceed = reqs_local - self.queue_capacity_max
-            return 1 - (reqs_local_exceed / 100) * .5
+        if local_excess > 0:
+            return 1 - (local_excess / 100) * .5
 
         # The same also for forwarding.
-        if reqs_forward > forwarding_capacity:
-            reqs_forward_exceed = reqs_forward - forwarding_capacity
-            return 1 - (reqs_forward_exceed / 100) * .5
+        if forward_excess > 0:
+            return 1 - (forward_excess / 100) * .5
 
         # If there are more requests than the node can handle locally, the
         # optimal strategy should be to process all possible requests locally
@@ -270,8 +294,8 @@ class DFaaS(MultiAgentEnv):
                 reqs_reject = self.queue_capacity_max - reqs_local - reqs_forward
                 reqs_reject = np.clip(reqs_reject, a_min=0, a_max=None)
                 reqs_total = self.queue_capacity_max + reqs_forward
-            elif reqs_forward < forwarding_capacity:
-                reqs_reject = reqs_reject - (forwarding_capacity - reqs_forward)
+            elif reqs_forward < forward_capacity:
+                reqs_reject = reqs_reject - (forward_capacity - reqs_forward)
                 reqs_reject = np.clip(reqs_reject, a_min=0, a_max=None)
                 reqs_total = self.queue_capacity_max + reqs_forward
             else:
@@ -280,8 +304,17 @@ class DFaaS(MultiAgentEnv):
         # The reward is a range from 0 to 1. It decreases as the number of
         # unnecessary rejected requests increases.
         reward = 1 - reqs_reject / reqs_total
-        assert 0.0 <= reward <= 1.0
 
+        # Some forwarded requests have been rejected by agent "node_1". Penalize
+        # the reward because these requests could have been rejected immediately
+        # by node_0.
+        if forward_reject > 0:
+            assert forward_excess == 0
+
+            # Decrease the reward by a maximum of 0.5 points.
+            reward -= forward_reject / reqs_forward * .5
+
+        reward = np.clip(reward, .0, 1.)
         return reward
 
     @staticmethod
@@ -360,6 +393,61 @@ class DFaaS(MultiAgentEnv):
 
         assert sum(actions) == input_requests
         return tuple(actions)
+
+    def _manage_workload(self, action_0, action_1):
+        """Fills the agent queues with the requests provided by the actions and
+        returns a dictionary containing the surplus of local requests for node_0
+        and node_1, the forwarded surplus, and the forwarded requests that were
+        rejected for node_0."""
+        local_0, forward_0, _ = action_0
+        local_1, _ = action_1
+
+        # Helper function.
+        def fill_queue(agent, requests):
+            """Fill the queue of the specified agent with the specified number
+            of requests. Returns the number of excess requests (requests that
+            cannot be added to the queue)."""
+            excess = 0
+
+            free_slots = self.queue_capacity_max - self.queue[agent]
+            if free_slots >= requests:
+                # There are enough slots in the queue to handle the number of
+                # requests specified by the action.
+                self.queue[agent] -= requests
+            else:
+                # The requests specified by the action do not have enough slots
+                # in the queue to be processed locally. So we have a number of
+                # requests that are overflowing.
+                excess = requests - free_slots
+
+                # However, use the available slots.
+                self.queue[agent] -= requests - excess
+
+            return excess
+
+        # Local processing for node_0.
+        local_excess_0 = fill_queue("node_0", local_0)
+
+        # Forwarding for node_0.
+        forward_excess = 0
+        forward_capacity = self.last_obs["node_0"]["forward_capacity"]
+        if forward_0 > forward_capacity:
+            # Too many requests were attempted to be forwarded.
+            forward_excess = forward_0 - forward_capacity
+
+            # Limit the forwarded requests to the maximum.
+            forward_0 = forward_capacity
+
+        # Local processing for node_1. Input requests for node_1 have the
+        # priority over the forwarded requests from node_0.
+        local_excess_1 = fill_queue("node_1", local_1)
+
+        # Handle now forwarded requests.
+        forward_reject = fill_queue("node_1", forward_0)
+
+        retval = {"node_0": (local_excess_0, forward_excess, forward_reject),
+                  "node_1": (local_excess_1,)}
+        return retval
 
     def _get_input_requests(self):
         """Calculate the input requests for all agents for all steps.
