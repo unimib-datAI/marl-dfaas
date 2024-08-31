@@ -1,6 +1,6 @@
 # This Python script calculates additional metrics from the 'result.json' file
-# in the experiment output directory and saves the data to the 'metrics.json'
-# file in the same directory.
+# in the experiment output directory and saves the data to the
+# 'metrics-result.json' file in the same directory.
 #
 # Some scripts related to plotting require this script to be run before
 # plotting.
@@ -17,89 +17,140 @@ logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d --
 logger = logging.getLogger(Path(__file__).name)
 
 
-def get_agents(iters):
-    """Returns the agent IDs from the given list of iterations. Assumes at least
-    one iteration and one episode for iteration."""
-    return list(iters[0]["hist_stats"]["input_requests"][0].keys())
+def get_agents():
+    """Returns the agent IDs."""
+    # TODO: Make dynamic.
+    return ["node_0", "node_1"]
+
+
+def num_episodes(iters):
+    """Returns the number of episodes in each iteration.
+
+    The value is extracted from the given iter data. It is assumed that each
+    iteration has the same number of episodes and that there is at least one
+    iteration in the given data."""
+    return iters[0]["episodes_this_iter"]
 
 
 def average_reward_per_step(iters, metrics):
     """Calculates average reward per step per episode."""
-    agents = get_agents(iters)
+    agents = get_agents()
 
-    iter = 0
-    while iter < len(metrics["iterations"]):
-        # Temporally accumulate the average reward of each episode for that
-        # iteration.
-        avg_reward_iter = []
-        for episode in iters[iter]["hist_stats"]["reward"]:
-            # The average reward for each step in a single episode, for each
-            # agent.
-            avg_reward = {}
+    # Each item is an iteration.
+    metrics["reward_average_per_step"] = []
+    for iter in iters:
+        # Each item is an episode.
+        reward_iter = []
+        for episode in iter["hist_stats"]["reward"]:
+            reward_episode = {}
             for agent in agents:
-                avg_reward[agent] = np.average(episode[agent])
+                reward_episode[agent] = np.average(episode[agent])
 
-            avg_reward_iter.append(avg_reward)
+            reward_iter.append(reward_episode)
 
-        metrics["iterations"][iter]["reward_average"] = avg_reward_iter
+        metrics["reward_average_per_step"].append(reward_iter)
 
-        iter += 1
+
+def calc_excess_reject(episode_data, agent, epi_idx):
+    """Returns the number of rejected requests in excess of the allowed rejected
+    requests expected for each step in the episode.
+
+    TODO: This function should not exist, the environment should provide this
+    value."""
+    input_reqs = episode_data["observation_input_requests"][epi_idx][agent]
+    local_reqs = episode_data["action_local"][epi_idx][agent]
+    reject_reqs = episode_data["action_reject"][epi_idx][agent]
+
+    if agent == "node_0":
+        forward_reqs = episode_data["action_forward"][epi_idx][agent]
+        forward_capacity = episode_data["observation_forward_capacity"][epi_idx][agent]
+    else:
+        steps = len(input_reqs)
+        forward_reqs = np.zeros(steps)
+        forward_capacity = np.zeros(steps)
+
+    excess_reject = np.empty(len(input_reqs), dtype=np.int32)
+    for step in range(len(input_reqs)):
+        # All rejected requests are excessive.
+        if input_reqs[step] <= 100:  # Size of the queue.
+            excess_reject[step] = reject_reqs[step]
+            continue
+
+        # We calculate the slots that are not used to process a request locally
+        # or to route it. Note that the value may be negative if there is
+        # over-forwarding or over-local processing: in this case it must be set
+        # to zero.
+        free_local = np.clip(100 - local_reqs[step], 0, 100)
+        free_forward = np.clip(forward_capacity[step] - forward_reqs[step], 0, forward_capacity[step])
+
+        # If the result is positive, it means that some requests were rejected
+        # but should be processed.
+        excess_reject_step = free_local + free_forward - reject_reqs[step]
+
+        excess_reject[step] = np.clip(excess_reject_step, 0, reject_reqs[step])
+
+    return excess_reject
 
 
 def reqs_exceed_per_step(iters, metrics):
-    """For each step, for each episode, for each iteration, calculates the
-    percentage of rejected requests that could have been handled locally but
-    were rejected by the agent, and the same percentage but for local requests
-    that exceed the local buffer."""
-    agents = get_agents(iters)
+    """Calculates the following metrics:
 
-    for iter in range(len(metrics["iterations"])):
-        reject_iter_data = []
-        local_iter_data = []
-        for episode in range(len(iters[iter]["hist_stats"]["seed"])):
-            reject_episode_data = {}
-            local_episode_data = {}
+    1. Percentage of local requests that exceed queue capacity.
+    2. Percentage of forwarded requests that exceed forwarding capacity.
+    3. Percentage of rejected requests that could have been forwarded or handled
+    locally, but were rejected.
+
+    Percentages are calculated for each step."""
+    agents = get_agents()
+    steps = 100  # TODO: Extract this value from data, not as fixed constant!
+
+    metrics["local_reqs_percent_excess_per_step"] = []
+    metrics["reject_reqs_percent_excess_per_step"] = []
+    metrics["forward_reqs_percent_excess_per_step"] = []
+
+    for iter in iters:
+        local_iter, reject_iter, forward_iter = [], [], []
+        for epi_idx in range(num_episodes(iters)):
+            local_epi, reject_epi, forward_epi = {}, {}, {}
             for agent in agents:
-                steps = len(iters[iter]["hist_stats"]["input_requests"][episode][agent])
-                input_reqs = np.empty(steps, dtype=np.int32)
-                reject_reqs = np.empty(steps, dtype=np.int32)
-                reject_reqs_exc_percent = np.empty(steps, dtype=np.float32)
-                local_reqs_exc_percent = np.empty(steps, dtype=np.float32)
+                # Calculation of local excess percent.
+                excess_local = np.array(iter["hist_stats"]["excess_local"][epi_idx][agent], dtype=np.int32)
 
-                input_reqs = np.asarray(iters[iter]["hist_stats"]["input_requests"][episode][agent],
-                                        dtype=np.int32)
-                reject_reqs = np.asarray(iters[iter]["hist_stats"]["action"][episode]["reject"][agent],
-                                         dtype=np.int32)
+                # TODO: Extract this value from data, not as fixed constant!
+                queue_capacity_max = 100
 
-                for step in range(steps):
-                    # TODO: get the max requests to process locally dinamically
-                    # from the environment or some config.
-                    if input_reqs[step] > 100:
-                        # The result may be negative if the policy attempts to
-                        # process more requests locally than possible. This is
-                        # why there is an np.clip() call at the end of the
-                        # cycle.
-                        tmp = reject_reqs[step] - (input_reqs[step] - 100)
-                    else:  # input_reqs[step] < 100 -> all reject requests are too much
-                        tmp = reject_reqs[step] * 100 / input_reqs[step]
+                excess_local_perc = excess_local * 100 / queue_capacity_max
+                local_epi[agent] = excess_local_perc
 
-                    local_reqs_step = input_reqs[step] - reject_reqs[step]
-                    if local_reqs_step > 100:
-                        local_reqs_exc = (local_reqs_step - 100) * 100 / input_reqs[step]
-                    else:
-                        local_reqs_exc = 0
+                # Calculation of reject excess percent.
+                excess_reject = calc_excess_reject(iter["hist_stats"], agent, epi_idx)
+                action_reject = np.array(iter["hist_stats"]["action_reject"][epi_idx][agent], dtype=np.int32)
 
-                    reject_reqs_exc_percent[step] = tmp
-                    local_reqs_exc_percent[step] = local_reqs_exc
+                # If the action is zero, we get a NaN or other invalid values,
+                # but can safely convert to zero percent because the excess
+                # reject is also zero.
+                old = np.seterr(invalid="ignore")
+                excess_reject_perc = excess_reject * 100 / action_reject
+                np.seterr(invalid=old["invalid"])
+                reject_epi[agent] = np.nan_to_num(excess_reject_perc, posinf=0.0, neginf=0.0)
 
-                reject_episode_data[agent] = np.clip(reject_reqs_exc_percent, 0, 100)
-                local_episode_data[agent] = local_reqs_exc_percent
+            # Forwarded requests only for "node_0".
+            excess_forward = np.array(iter["hist_stats"]["excess_forward"][epi_idx]["node_0"], dtype=np.int32)
+            action_forward = np.array(iter["hist_stats"]["action_forward"][epi_idx]["node_0"], dtype=np.int32)
 
-            reject_iter_data.append(reject_episode_data)
-            local_iter_data.append(local_episode_data)
+            old = np.seterr(invalid="ignore")
+            excess_forward_perc = excess_forward * 100 / action_forward
+            np.seterr(invalid=old["invalid"])
+            forward_epi = {"node_0": np.nan_to_num(excess_forward_perc, posinf=0.0, neginf=0.0),
+                           "node_1": np.zeros(steps, dtype=np.float32)}
 
-        metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_step"] = reject_iter_data
-        metrics["iterations"][iter]["local_reqs_percent_exceed_per_step"] = local_iter_data
+            local_iter.append(local_epi)
+            reject_iter.append(reject_epi)
+            forward_iter.append(forward_epi)
+
+        metrics["local_reqs_percent_excess_per_step"].append(local_iter)
+        metrics["reject_reqs_percent_excess_per_step"].append(reject_iter)
+        metrics["forward_reqs_percent_excess_per_step"].append(forward_iter)
 
 
 def average_reqs_percent_exceed_per_episode(iters, metrics):
@@ -107,26 +158,35 @@ def average_reqs_percent_exceed_per_episode(iters, metrics):
     of rejected requests that could have been handled locally but were rejected
     by the agent, and the same percentage but for local requests that exceed the
     local buffer."""
-    agents = get_agents(iters)
+    agents = get_agents()
 
-    for iter in range(len(metrics["iterations"])):
-        reject_iter_data = []
-        local_iter_data = []
-        for episode in range(len(metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_step"])):
-            reject_episode_data = {}
-            local_episode_data = {}
+    metrics["local_reqs_percent_excess_per_episode"] = []
+    metrics["reject_reqs_percent_excess_per_episode"] = []
+    metrics["forward_reqs_percent_excess_per_episode"] = []
+
+    for iter_idx in range(len(iters)):
+        local_iter, reject_iter, forward_iter = [], [], []
+
+        for epi_idx in range(num_episodes(iters)):
+            local_epi, reject_epi, forward_epi = {}, {}, {}
+
             for agent in agents:
-                tmp = np.average(metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_step"][episode][agent])
-                reject_episode_data[agent] = tmp
+                tmp = metrics["local_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
+                local_epi[agent] = np.average(tmp)
 
-                tmp = np.average(metrics["iterations"][iter]["local_reqs_percent_exceed_per_step"][episode][agent])
-                local_episode_data[agent] = tmp
+                tmp = metrics["reject_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
+                reject_epi[agent] = np.average(tmp)
 
-            reject_iter_data.append(reject_episode_data)
-            local_iter_data.append(local_episode_data)
+                tmp = metrics["forward_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
+                forward_epi[agent] = np.average(tmp)
 
-        metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_episode"] = reject_iter_data
-        metrics["iterations"][iter]["local_reqs_percent_exceed_per_episode"] = local_iter_data
+            local_iter.append(local_epi)
+            reject_iter.append(reject_epi)
+            forward_iter.append(forward_epi)
+
+        metrics["local_reqs_percent_excess_per_episode"].append(local_iter)
+        metrics["reject_reqs_percent_excess_per_episode"].append(reject_iter)
+        metrics["forward_reqs_percent_excess_per_episode"].append(forward_iter)
 
 
 def average_reqs_percent_exceed_per_iteration(iters, metrics):
@@ -134,29 +194,40 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
     requests that could have been handled locally but were rejected by the
     agent, and the same percentage but for local requests that exceed the local
     buffer."""
-    agents = get_agents(iters)
+    agents = get_agents()
+    episodes = num_episodes(iters)
 
-    for iter in range(len(metrics["iterations"])):
-        episodes = len(metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_episode"])
+    metrics["local_reqs_percent_excess_per_iteration"] = []
+    metrics["reject_reqs_percent_excess_per_iteration"] = []
+    metrics["forward_reqs_percent_excess_per_iteration"] = []
 
-        reject_iter_data = {}
-        local_iter_data = {}
+    for iter_idx in range(len(iters)):
+        local_iter, reject_iter, forward_iter = {}, {}, {}
         for agent in agents:
-            reject_iter_data[agent] = np.empty(episodes, np.float32)
-            local_iter_data[agent] = np.empty(episodes, np.float32)
+            local_iter[agent] = np.empty(episodes, np.float32)
+            reject_iter[agent] = np.empty(episodes, np.float32)
+            forward_iter[agent] = np.empty(episodes, np.float32)
 
-            for episode in range(episodes):
-                reject_iter_data[agent][episode] = metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_episode"][episode][agent]
-                local_iter_data[agent][episode] = metrics["iterations"][iter]["local_reqs_percent_exceed_per_episode"][episode][agent]
+        for epi_idx in range(episodes):
+            for agent in agents:
+                tmp = metrics["local_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
+                local_iter[agent][epi_idx] = tmp
 
-        reject_avg = {}
-        local_avg = {}
+                tmp = metrics["reject_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
+                reject_iter[agent][epi_idx] = tmp
+
+                tmp = metrics["forward_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
+                forward_iter[agent][epi_idx] = tmp
+
+        local_avg, reject_avg, forward_avg = {}, {}, {}
         for agent in agents:
-            reject_avg[agent] = np.average(reject_iter_data[agent])
-            local_avg[agent] = np.average(local_iter_data[agent])
+            local_avg[agent] = np.average(local_iter[agent])
+            reject_avg[agent] = np.average(reject_iter[agent])
+            forward_avg[agent] = np.average(forward_iter[agent])
 
-        metrics["iterations"][iter]["rejected_reqs_percent_exceed_per_iteration"] = reject_avg
-        metrics["iterations"][iter]["local_reqs_percent_exceed_per_iteration"] = local_avg
+        metrics["local_reqs_percent_excess_per_iteration"].append(local_avg)
+        metrics["reject_reqs_percent_excess_per_iteration"].append(reject_avg)
+        metrics["forward_reqs_percent_excess_per_iteration"].append(forward_avg)
 
 
 def abs_reqs_exceed_per_step(iters, metrics):
@@ -221,13 +292,9 @@ def main(exp_dir):
     # Each element is one iteration.
     iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
 
-    # The metrics dictionary: it contains all calculated metrics for each
-    # iteration and episode.
-    metrics = {"iterations": [None] * len(iters)}
-
-    # Initialize internal dicts for all iterations.
-    for idx in range(len(iters)):
-        metrics["iterations"][idx] = {}
+    # Each key in the metrics dictionary is a calculated metric. Note that the
+    # value can be a subdictionary or a sublist.
+    metrics = {}
 
     average_reward_per_step(iters, metrics)
 
@@ -237,10 +304,10 @@ def main(exp_dir):
 
     average_reqs_percent_exceed_per_iteration(iters, metrics)
 
-    abs_reqs_exceed_per_step(iters, metrics)
+    # abs_reqs_exceed_per_step(iters, metrics)
 
     # Save the metrics dictionary to disk as a JSON file.
-    metrics_path = exp_dir / "metrics.json"
+    metrics_path = exp_dir / "metrics-result.json"
     dfaas_utils.dict_to_json(metrics, metrics_path)
     logger.info(f"Metrics data saved to: {metrics_path.as_posix()!r}")
 
