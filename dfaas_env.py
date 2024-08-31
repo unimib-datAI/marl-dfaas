@@ -78,8 +78,13 @@ class DFaaS(MultiAgentEnv):
         self.current_step = 0
 
         # Seed used for this episode.
-        iinfo = np.iinfo(np.uint32)
-        self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)[0]
+        if isinstance(options, dict) and "override_seed" in options:
+            # By default, the seed is generated. But can be overrided (usually
+            # on manual calls, not from Ray).
+            self.seed = options["override_seed"]
+        else:
+            iinfo = np.iinfo(np.uint32)
+            self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)[0]
 
         # Create the RNG used to generate input requests.
         self.rng = np.random.default_rng(seed=self.seed)
