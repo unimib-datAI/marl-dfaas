@@ -107,11 +107,12 @@ def reqs_exceed_per_step(iters, metrics):
     metrics["local_reqs_percent_excess_per_step"] = []
     metrics["reject_reqs_percent_excess_per_step"] = []
     metrics["forward_reqs_percent_excess_per_step"] = []
+    metrics["forward_reqs_percent_reject_per_step"] = []
 
     for iter in iters:
-        local_iter, reject_iter, forward_iter = [], [], []
+        local_iter, reject_iter, forward_iter, forward_reject_iter = [], [], [], []
         for epi_idx in range(num_episodes(iters)):
-            local_epi, reject_epi, forward_epi = {}, {}, {}
+            local_epi, reject_epi, forward_epi, forward_reject_epi = {}, {}, {}, {}
             for agent in agents:
                 # Calculation of local excess percent.
                 excess_local = np.array(iter["hist_stats"]["excess_local"][epi_idx][agent], dtype=np.int32)
@@ -144,13 +145,27 @@ def reqs_exceed_per_step(iters, metrics):
             forward_epi = {"node_0": np.nan_to_num(excess_forward_perc, posinf=0.0, neginf=0.0),
                            "node_1": np.zeros(steps, dtype=np.float32)}
 
+            # Rejected forwarded requests only for "node_0".
+            reject_reqs = np.array(iter["hist_stats"]["excess_forward_reject"][epi_idx]["node_0"], dtype=np.int32)
+
+            # First, we need to get the actual forwarded requests.
+            actual_forward = action_forward - excess_forward
+
+            old = np.seterr(invalid="ignore")
+            reject_reqs_perc = reject_reqs * 100 / actual_forward
+            np.seterr(invalid=old["invalid"])
+            forward_reject_epi = {"node_0": np.nan_to_num(reject_reqs_perc, posinf=0.0, neginf=0.0),
+                                  "node_1": np.zeros(steps, dtype=np.float32)}
+
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
             forward_iter.append(forward_epi)
+            forward_reject_iter.append(forward_reject_epi)
 
         metrics["local_reqs_percent_excess_per_step"].append(local_iter)
         metrics["reject_reqs_percent_excess_per_step"].append(reject_iter)
         metrics["forward_reqs_percent_excess_per_step"].append(forward_iter)
+        metrics["forward_reqs_percent_reject_per_step"].append(forward_reject_iter)
 
 
 def average_reqs_percent_exceed_per_episode(iters, metrics):
@@ -163,12 +178,13 @@ def average_reqs_percent_exceed_per_episode(iters, metrics):
     metrics["local_reqs_percent_excess_per_episode"] = []
     metrics["reject_reqs_percent_excess_per_episode"] = []
     metrics["forward_reqs_percent_excess_per_episode"] = []
+    metrics["forward_reqs_percent_reject_per_episode"] = []
 
     for iter_idx in range(len(iters)):
-        local_iter, reject_iter, forward_iter = [], [], []
+        local_iter, reject_iter, forward_iter, forward_reject_iter = [], [], [], []
 
         for epi_idx in range(num_episodes(iters)):
-            local_epi, reject_epi, forward_epi = {}, {}, {}
+            local_epi, reject_epi, forward_epi, forward_reject_epi = {}, {}, {}, {}
 
             for agent in agents:
                 tmp = metrics["local_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
@@ -180,13 +196,18 @@ def average_reqs_percent_exceed_per_episode(iters, metrics):
                 tmp = metrics["forward_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
                 forward_epi[agent] = np.average(tmp)
 
+                tmp = metrics["forward_reqs_percent_reject_per_step"][iter_idx][epi_idx][agent]
+                forward_reject_epi[agent] = np.average(tmp)
+
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
             forward_iter.append(forward_epi)
+            forward_reject_iter.append(forward_reject_epi)
 
         metrics["local_reqs_percent_excess_per_episode"].append(local_iter)
         metrics["reject_reqs_percent_excess_per_episode"].append(reject_iter)
         metrics["forward_reqs_percent_excess_per_episode"].append(forward_iter)
+        metrics["forward_reqs_percent_reject_per_episode"].append(forward_reject_iter)
 
 
 def average_reqs_percent_exceed_per_iteration(iters, metrics):
@@ -200,13 +221,15 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
     metrics["local_reqs_percent_excess_per_iteration"] = []
     metrics["reject_reqs_percent_excess_per_iteration"] = []
     metrics["forward_reqs_percent_excess_per_iteration"] = []
+    metrics["forward_reqs_percent_reject_per_iteration"] = []
 
     for iter_idx in range(len(iters)):
-        local_iter, reject_iter, forward_iter = {}, {}, {}
+        local_iter, reject_iter, forward_iter, forward_reject_iter = {}, {}, {}, {}
         for agent in agents:
             local_iter[agent] = np.empty(episodes, np.float32)
             reject_iter[agent] = np.empty(episodes, np.float32)
             forward_iter[agent] = np.empty(episodes, np.float32)
+            forward_reject_iter[agent] = np.empty(episodes, np.float32)
 
         for epi_idx in range(episodes):
             for agent in agents:
@@ -219,15 +242,20 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
                 tmp = metrics["forward_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
                 forward_iter[agent][epi_idx] = tmp
 
-        local_avg, reject_avg, forward_avg = {}, {}, {}
+                tmp = metrics["forward_reqs_percent_reject_per_episode"][iter_idx][epi_idx][agent]
+                forward_reject_iter[agent][epi_idx] = tmp
+
+        local_avg, reject_avg, forward_avg, forward_reject_avg = {}, {}, {}, {}
         for agent in agents:
             local_avg[agent] = np.average(local_iter[agent])
             reject_avg[agent] = np.average(reject_iter[agent])
             forward_avg[agent] = np.average(forward_iter[agent])
+            forward_reject_avg[agent] = np.average(forward_reject_iter[agent])
 
         metrics["local_reqs_percent_excess_per_iteration"].append(local_avg)
         metrics["reject_reqs_percent_excess_per_iteration"].append(reject_avg)
         metrics["forward_reqs_percent_excess_per_iteration"].append(forward_avg)
+        metrics["forward_reqs_percent_reject_per_iteration"].append(forward_reject_avg)
 
 
 def abs_reqs_exceed_per_step(iters, metrics):
