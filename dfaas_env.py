@@ -123,12 +123,12 @@ class DFaaS(MultiAgentEnv):
         # the number of requests to locally process and reject.
         action_1 = self._convert_distribution(input_requests_1, action_dict["node_1"])
 
-        # We have the actions, not update the environment state.
+        # We have the actions, now update the environment state.
         excess = self._manage_workload(action_0, action_1)
 
         # Calculate the reward for both agents.
         rewards = {}
-        rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"])
+        rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"], self.last_obs["node_0"]["forward_capacity"])
         rewards["node_1"] = self._calculate_reward(action_1, excess["node_1"])
 
         # Make sure the reward is of type float.
@@ -245,7 +245,7 @@ class DFaaS(MultiAgentEnv):
         # unnecessary rejected requests increases.
         return 1 - reqs_reject / reqs_total
 
-    def _calculate_reward_0(self, action, excess):
+    def _calculate_reward_0(self, action, excess, forward_capacity):
         """Returns the reward for the agent "node_0" for the current step.
 
         The reward is based on:
@@ -266,19 +266,31 @@ class DFaaS(MultiAgentEnv):
         reqs_total = sum(action)
         reqs_local, reqs_forward, reqs_reject = action
         local_excess, forward_excess, forward_reject = excess
+        assert local_excess <= reqs_local
+        assert forward_excess <= reqs_forward
+        assert forward_reject <= reqs_forward
 
-        forward_capacity = reqs_forward - forward_excess
+        assert forward_capacity >= 0
+
+
+        reward = 1
 
         # The agent (policy) tried to be sneaky, but it is not possible to
         # locally process more requests than the internal limit for each step.
         # This behavior must be discouraged by penalizing the reward, but not as
         # much as by rejecting too many requests (the .5 factor).
         if local_excess > 0:
-            return 1 - (local_excess / 100) * .5
+            reward -= (local_excess / 100) * .6
 
         # The same also for forwarding.
         if forward_excess > 0:
-            return 1 - (forward_excess / 100) * .5
+            if forward_capacity > 0:
+                reward -= (forward_excess / forward_capacity) * .3
+            else:
+                reward -= .3
+
+        if forward_capacity > 0:
+            reward -= (forward_reject / forward_capacity) * .4
 
         # If there are more requests than the node can handle locally, the
         # optimal strategy should be to process all possible requests locally
@@ -303,16 +315,7 @@ class DFaaS(MultiAgentEnv):
 
         # The reward is a range from 0 to 1. It decreases as the number of
         # unnecessary rejected requests increases.
-        reward = 1 - reqs_reject / reqs_total
-
-        # Some forwarded requests have been rejected by agent "node_1". Penalize
-        # the reward because these requests could have been rejected immediately
-        # by node_0.
-        if forward_reject > 0:
-            assert forward_excess == 0
-
-            # Decrease the reward by a maximum of 0.5 points.
-            reward -= forward_reject / reqs_forward * .5
+        reward -= (reqs_reject / reqs_total) * 2
 
         reward = np.clip(reward, .0, 1.)
         return reward
