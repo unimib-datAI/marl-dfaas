@@ -18,7 +18,18 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(Path(__file__).name)
 
-tmp_env = DFaaS()
+# Experiment configuration.
+# TODO: make this configurable!
+exp_config = {"seed": 42,  # Seed of the experiment.
+              "max_iterations": 100  # Number of iterations.
+              }
+
+# Env configuration.
+env_config = {}
+env_config["seed"] = exp_config["seed"]
+
+# Create a dummy environment, used to get observation and action spaces.
+dummy_env = DFaaS(config=env_config)
 
 # PolicySpec is required to specify the action/observation space for each
 # policy. Because each agent in the env has different action and observation
@@ -31,12 +42,12 @@ tmp_env = DFaaS()
 # Note that if no option is given to PolicySpec, it will inherit the
 # configuration/algorithm from the main configuration.
 policies = {"policy_node_0": PolicySpec(policy_class=None,
-                                        observation_space=tmp_env.observation_space["node_0"],
-                                        action_space=tmp_env.action_space["node_0"],
+                                        observation_space=dummy_env.observation_space["node_0"],
+                                        action_space=dummy_env.action_space["node_0"],
                                         config=None),
             "policy_node_1": PolicySpec(policy_class=None,
-                                        observation_space=tmp_env.observation_space["node_1"],
-                                        action_space=tmp_env.action_space["node_1"],
+                                        observation_space=dummy_env.observation_space["node_1"],
+                                        action_space=dummy_env.action_space["node_1"],
                                         config=None)
             }
 
@@ -55,21 +66,11 @@ logdir = logdir / Path(f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}
 logdir.mkdir(parents=True, exist_ok=True)
 logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 
-# Experiment configuration.
-# TODO: make this configurable!
-exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 1  # Number of iterations.
-              }
+# Save experiment and environment config to disk.
 exp_file = logdir / "exp_config.json"
 dfaas_utils.dict_to_json(exp_config, exp_file)
+logger.info(f"Experiment configuration saved to: {exp_file.as_posix()!r}")
 
-# Env configuration.
-env_config = {}
-env_config["seed"] = exp_config["seed"]
-
-# Create a dummy environment just to get the full configuration, and save it to
-# disk as a JSON file.
-dummy_env = DFaaS(config=env_config)
 dummy_config = dummy_env.get_config()
 env_config_path = logdir / "env_config.json"
 dfaas_utils.dict_to_json(dummy_config, env_config_path)
