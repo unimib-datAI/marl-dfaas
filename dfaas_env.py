@@ -485,7 +485,7 @@ class DFaaS(MultiAgentEnv):
             fn = np.sin if agent == "node_0" else np.cos
 
             base_input = average_requests + amplitude_requests * fn(2 * np.pi * steps / period)
-            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.queue_capacity_max[agent])
+            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
 
