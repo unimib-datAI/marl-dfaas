@@ -237,7 +237,7 @@ class DFaaS(MultiAgentEnv):
         # This behavior must be discouraged by penalizing the reward, but not as
         # much as by rejecting too many requests (the .5 factor).
         if local_excess > 0:
-            return 1 - (local_excess / 100) * .5
+            return 1 - (local_excess / self.queue_capacity_max["node_1"]) * .5
 
         # If there are more input requests than available slots in the agent
         # queue, the optimal strategy should be to fill the queue and then
@@ -293,7 +293,7 @@ class DFaaS(MultiAgentEnv):
         # This behavior must be discouraged by penalizing the reward, but not as
         # much as by rejecting too many requests (the .5 factor).
         if local_excess > 0:
-            reward -= (local_excess / 100) * .6
+            reward -= (local_excess / self.queue_capacity_max["node_0"]) * .6
 
         # The same also for forwarding.
         if forward_excess > 0:
