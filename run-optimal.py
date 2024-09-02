@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 
@@ -73,7 +74,7 @@ def main(seed):
     given seed for reproducibility."""
     # Write the result file to a specified directory.
     out_dir = Path.cwd() / "results" / "optimal"
-    out_dir = out_dir / Path(f"DFAAS-MA_{seed}")
+    out_dir = out_dir / Path(f"DFAAS-MA_{seed}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # This dictionary contains all the data related to the run, which is then
