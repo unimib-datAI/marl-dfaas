@@ -77,6 +77,16 @@ class DFaaS(MultiAgentEnv):
 
         super().__init__()
 
+    def get_config(self):
+        """Returns a dictionary with the current configuration of the
+        environment."""
+        config = {}
+        config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
+        config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
+        config["max_steps"] = self.max_steps
+        config["seed"] = self.master_seed
+        return config
+
     def reset(self, *, seed=None, options=None):
         # Current step.
         self.current_step = 0

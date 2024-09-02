@@ -58,13 +58,22 @@ logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 100  # Number of iterations.
+              "max_iterations": 1  # Number of iterations.
               }
 exp_file = logdir / "exp_config.json"
 dfaas_utils.dict_to_json(exp_config, exp_file)
 
 # Env configuration.
-env_config = {'seed': exp_config["seed"]}
+env_config = {}
+env_config["seed"] = exp_config["seed"]
+
+# Create a dummy environment just to get the full configuration, and save it to
+# disk as a JSON file.
+dummy_env = DFaaS(config=env_config)
+dummy_config = dummy_env.get_config()
+env_config_path = logdir / "env_config.json"
+dfaas_utils.dict_to_json(dummy_config, env_config_path)
+logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
 
 
 # This function is called by Ray when creating the logger for the experiment.

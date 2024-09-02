@@ -68,10 +68,18 @@ def choose_action(obs):
     return action_dist
 
 
-def main(seed):
-    """Run an episode of the DFaaS environment and save the result in a
-    directory named result/optimal. The environment will be created with the
-    given seed for reproducibility."""
+def main(config):
+    """Run an episode of the DFaaS environment with the optimal action at each step.
+
+    The environment will be created with the given configuration. The seed is
+    the only mandatory key.
+
+    The result of the episode is stored in the results/optimal directory."""
+    assert isinstance(config, dict), f"config must be a dictionary, it is {type(config)!r}"
+    assert "seed" in config, "'seed' key is required in config"
+
+    seed = config["seed"]
+
     # Write the result file to a specified directory.
     out_dir = Path.cwd() / "results" / "optimal"
     out_dir = out_dir / Path(f"DFAAS-MA_{seed}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
@@ -81,7 +89,13 @@ def main(seed):
     # saved as a JSON file in the results directory.
     result = {}
 
-    env = DFaaS()
+    env = DFaaS(config=config)
+
+    # Save the env configuration to a JSON file.
+    config = env.get_config()
+    config_path = out_dir / "env_config.json"
+    dfaas_utils.dict_to_json(config, config_path)
+    print(f"Environment configuration saved to: {config_path.as_posix()!r}")
 
     # To store the data, the following code mimics Ray and reuses the same
     # callbacks used for training.
@@ -134,4 +148,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.seed)
+    config = {}
+    config["seed"] = args.seed
+
+    main(config)
