@@ -20,8 +20,12 @@ class DFaaS(MultiAgentEnv):
         # step() call.
         self.reward_range = (.0, 1.)
 
-        # The size of the queue of requests to be processed locally on an agent.
-        self.queue_capacity_max = config.get("queue_capacity_max", 100)
+        # The size of each agent's local queue. The queue can be filled with
+        # requests to be processed locally.
+        self.queue_capacity_max = {
+                "node_0": config.get("queue_capacity_max_node_0", 100),
+                "node_1": config.get("queue_capacity_max_node_1", 100),
+                }
 
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
@@ -44,10 +48,10 @@ class DFaaS(MultiAgentEnv):
                 "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
 
                 # Queue capacity (currently a constant).
-                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max, dtype=np.int32),
+                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
 
-                # Forwarding capacity (currently a constant).
-                "forward_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max, dtype=np.int32)
+                # Forwarding capacity (depends on node_1 queue).
+                "forward_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_1"], dtype=np.int32)
                  }),
 
             "node_1": gym.spaces.Dict({
@@ -55,7 +59,7 @@ class DFaaS(MultiAgentEnv):
                 "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
 
                 # Queue capacity (currently a constant).
-                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max, dtype=np.int32)
+                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_1"], dtype=np.int32)
                 })
             })
 
@@ -178,7 +182,7 @@ class DFaaS(MultiAgentEnv):
         # Set common observation values for the agents.
         for agent in self.agent_ids:
             # The queue capacity is always a fixed value for now.
-            obs[agent]["queue_capacity"] = np.array([self.queue_capacity_max], dtype=np.int32)
+            obs[agent]["queue_capacity"] = np.array([self.queue_capacity_max[agent]], dtype=np.int32)
 
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
@@ -191,7 +195,7 @@ class DFaaS(MultiAgentEnv):
         # positive, node_1 can accept a maximum number of forwarded requests,
         # but does not guarantee processing.
         input_requests = self.input_requests["node_1"][self.current_step]
-        forward_capacity = self.queue_capacity_max - input_requests
+        forward_capacity = self.queue_capacity_max["node_1"] - input_requests
         if forward_capacity < 0:
             forward_capacity = 0
         obs["node_0"]["forward_capacity"] = np.array([forward_capacity], dtype=np.int32)
@@ -228,16 +232,16 @@ class DFaaS(MultiAgentEnv):
         # If there are more input requests than available slots in the agent
         # queue, the optimal strategy should be to fill the queue and then
         # reject the other requests.
-        if reqs_total > self.queue_capacity_max:
+        if reqs_total > self.queue_capacity_max["node_1"]:
             # The reward penalises the agent if the action doesn't maximise the
             # request process locally.
-            if reqs_local < self.queue_capacity_max:
+            if reqs_local < self.queue_capacity_max["node_1"]:
                 # The new value is the number of rejected requests that will be
                 # considered a penalty for the reward. Note that some rejections
                 # are inevitable and will not be penalized, only those that can
                 # be processed locally but the agent didn't.
-                reqs_reject = self.queue_capacity_max - reqs_local
-                reqs_total = self.queue_capacity_max
+                reqs_reject = self.queue_capacity_max["node_1"] - reqs_local
+                reqs_total = self.queue_capacity_max["node_1"]
             else:
                 reqs_reject = 0
 
@@ -272,7 +276,6 @@ class DFaaS(MultiAgentEnv):
 
         assert forward_capacity >= 0
 
-
         reward = 1
 
         # The agent (policy) tried to be sneaky, but it is not possible to
@@ -295,21 +298,21 @@ class DFaaS(MultiAgentEnv):
         # If there are more requests than the node can handle locally, the
         # optimal strategy should be to process all possible requests locally
         # and forward or reject the extra ones.
-        if reqs_total > self.queue_capacity_max:
+        if reqs_total > self.queue_capacity_max["node_0"]:
             # The reward penalises the agent if the action doesn't maximise the
             # request process locally.
-            if reqs_local < self.queue_capacity_max:
+            if reqs_local < self.queue_capacity_max["node_0"]:
                 # The new value is the number of rejected requests that will be
                 # considered a penalty for the reward. Note that some rejections
                 # are inevitable and will not be penalized, only those that can
                 # be processed locally but the agent didn't.
-                reqs_reject = self.queue_capacity_max - reqs_local - reqs_forward
+                reqs_reject = self.queue_capacity_max["node_0"] - reqs_local - reqs_forward
                 reqs_reject = np.clip(reqs_reject, a_min=0, a_max=None)
-                reqs_total = self.queue_capacity_max + reqs_forward
+                reqs_total = self.queue_capacity_max["node_0"] + reqs_forward
             elif reqs_forward < forward_capacity:
                 reqs_reject = reqs_reject - (forward_capacity - reqs_forward)
                 reqs_reject = np.clip(reqs_reject, a_min=0, a_max=None)
-                reqs_total = self.queue_capacity_max + reqs_forward
+                reqs_total = self.queue_capacity_max["node_0"] + reqs_forward
             else:
                 reqs_reject = 0
 
@@ -412,7 +415,7 @@ class DFaaS(MultiAgentEnv):
             cannot be added to the queue)."""
             excess = 0
 
-            free_slots = self.queue_capacity_max - self.queue[agent]
+            free_slots = self.queue_capacity_max[agent] - self.queue[agent]
             if free_slots >= requests:
                 # There are enough slots in the queue to handle the number of
                 # requests specified by the action.
@@ -466,13 +469,13 @@ class DFaaS(MultiAgentEnv):
         noise_ratio = .1
 
         input_requests = {}
-        steps = np.arange(self.queue_capacity_max)
+        steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
             # TODO: do not directly check the value of the agent ID.
             fn = np.sin if agent == "node_0" else np.cos
 
             base_input = average_requests + amplitude_requests * fn(2 * np.pi * steps / period)
-            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.queue_capacity_max)
+            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.queue_capacity_max[agent])
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
 
