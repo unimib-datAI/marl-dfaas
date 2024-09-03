@@ -21,7 +21,7 @@ logger = logging.getLogger(Path(__file__).name)
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 100  # Number of iterations.
+              "max_iterations": 200  # Number of iterations.
               }
 
 # Env configuration.
@@ -62,7 +62,8 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 
 # Create the results directory to override Ray's default.
 logdir = Path.cwd() / "results"
-logdir = logdir / Path(f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}")
+dirname = f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+logdir = logdir / dirname
 logdir.mkdir(parents=True, exist_ok=True)
 logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 
