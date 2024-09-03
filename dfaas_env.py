@@ -135,7 +135,7 @@ class DFaaS(MultiAgentEnv):
 
         # Convert the action distribution (a distribution of probabilities) into
         # the number of requests to locally process and reject.
-        action_1 = self._convert_distribution(input_requests_1, action_dict["node_1"])
+        action_1 = self._convert_distribution_1(input_requests_1, action_dict["node_1"])
 
         # We have the actions, now update the environment state.
         excess = self._manage_workload(action_0, action_1)
@@ -143,7 +143,7 @@ class DFaaS(MultiAgentEnv):
         # Calculate the reward for both agents.
         rewards = {}
         rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"], self.last_obs["node_0"]["forward_capacity"])
-        rewards["node_1"] = self._calculate_reward(action_1, excess["node_1"])
+        rewards["node_1"] = self._calculate_reward_1(action_1, excess["node_1"])
 
         # Make sure the reward is of type float.
         for agent in self.agent_ids:
@@ -212,7 +212,7 @@ class DFaaS(MultiAgentEnv):
 
         return obs
 
-    def _calculate_reward(self, action, excess):
+    def _calculate_reward_1(self, action, excess):
         """Returns the reward for the agent "node_1" for the current step.
 
         The reward is based on:
@@ -374,7 +374,7 @@ class DFaaS(MultiAgentEnv):
         return tuple(actions)
 
     @staticmethod
-    def _convert_distribution(input_requests, action_dist):
+    def _convert_distribution_1(input_requests, action_dist):
         """Converts the given action distribution (e.g. [.7, .3]) into the
         absolute number of requests to process locally or reject. Returns the
         result as a tuple.
