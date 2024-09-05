@@ -142,8 +142,16 @@ class DFaaS(MultiAgentEnv):
 
         # Calculate the reward for both agents.
         rewards = {}
-        rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"], self.last_obs["node_0"]["forward_capacity"])
-        rewards["node_1"] = self._calculate_reward_1(action_1, excess["node_1"])
+        #rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"], self.last_obs["node_0"]["forward_capacity"])
+        #rewards["node_1"] = self._calculate_reward_1(action_1, excess["node_1"])
+        # TODO: Fix _manage_workload()
+        forward_reject = excess["node_0"][1] + excess["node_0"][2]
+        rewards["node_0"] = self._calculate_reward_0_v2(action_0,
+                                                     (excess["node_0"][0], forward_reject),
+                                                     (self.queue["node_0"], self.queue_capacity_max["node_0"]))
+        rewards["node_1"] = self._calculate_reward_1_v2(action_1,
+                                                     excess["node_1"],
+                                                     (self.queue["node_1"], self.queue_capacity_max["node_1"]))
 
         # Make sure the reward is of type float.
         for agent in self.agent_ids:
@@ -259,6 +267,51 @@ class DFaaS(MultiAgentEnv):
         # unnecessary rejected requests increases.
         return 1 - reqs_reject / reqs_total
 
+    @staticmethod
+    def _calculate_reward_1_v2(action, excess, queue):
+        """Returns the reward for agent "node_0" for the current step.
+
+        The reward is based on:
+
+            - The action, a 3-length tuple containing the number of requests to
+              process locally and to reject.
+
+            - The excess, a 1-length tuple containing the number of local
+              requests that exceed the queue capacity.
+
+            - The queue, a 2-length tuple containing the status of the queue (0
+              is empty) and the maximum capacity of the queue.
+
+        The reward returned is in the range [0, 1]."""
+        assert len(action) == 2, "Expected (local, reject)"
+        assert len(excess) == 1, "Expected (local_excess)"
+        assert len(queue) == 2, "Expected (queue_status, queue_max_capacity)"
+
+        reqs_total = sum(action)
+        reqs_local, reqs_reject = action
+        local_excess = excess[0]
+        queue_status, queue_max = queue
+
+        if reqs_total == 0:
+            return 1.
+
+        if local_excess > 0:
+            return 1 - (local_excess / reqs_local)
+
+        free_slots = queue_max - queue_status
+        assert free_slots >= 0
+
+        # Calculate the number of excess reject requests.
+        if free_slots > reqs_reject:
+            reject_excess = reqs_reject
+        else:  # reqs_reject >= free_slots
+            valid_reject = reqs_reject - free_slots
+            assert valid_reject >= 0
+            reject_excess = reqs_reject - valid_reject
+        assert reject_excess >= 0
+
+        return 1 - (reject_excess / reqs_total)
+
     def _calculate_reward_0(self, action, excess, forward_capacity):
         """Returns the reward for the agent "node_0" for the current step.
 
@@ -332,6 +385,78 @@ class DFaaS(MultiAgentEnv):
 
         reward = np.clip(reward, .0, 1.)
         return reward
+
+    @staticmethod
+    def _calculate_reward_0_v2(action, excess, queue):
+        """Returns the reward for agent "node_0" for the current step.
+
+        The reward is based on:
+
+            - The action, a 3-length tuple containing the number of requests to
+              process locally, to forward, and to reject.
+
+            - The excess, a 2-length tuple containing the local requests that
+              exceed the queue capacity and the forwarded requests that were
+              rejected by the other agent.
+
+            - The queue, a 2-length tuple containing the status of the queue (0
+              is empty) and the maximum capacity of the queue.
+
+        The reward returned is in the range [0, 1]."""
+        assert len(action) == 3, "Expected (local, forward, reject)"
+        assert len(excess) == 2, "Expected (local_excess, forward_reject)"
+        assert len(queue) == 2, "Expected (queue_status, queue_max_capacity)"
+
+        reqs_total = sum(action)
+        reqs_local, reqs_forward, reqs_reject = action
+        local_excess, forward_reject = excess
+        queue_status, queue_max = queue
+
+        if reqs_total == 0:
+            return 1.
+
+        free_slots = queue_max - queue_status
+        assert free_slots >= 0
+
+        # Calculate the number of excess forward requests.
+        #
+        # The forwarded and rejected requests must be excluded from the count
+        # because they are considered separately.
+        reqs_forward -= forward_reject
+        if free_slots > reqs_forward:
+            forward_excess = reqs_forward
+        else:  # reqs_forward >= free_slots
+            valid_forward = reqs_forward - free_slots
+            assert valid_forward >= 0
+            forward_excess = reqs_forward - valid_forward
+
+        # Calculate the number of excess reject requests.
+        free_slots = free_slots - forward_excess
+        assert free_slots >= 0
+        if free_slots > reqs_reject:
+            valid_reject = 0
+            reject_excess = reqs_reject
+        else:  # reqs_reject >= free_slots
+            valid_reject = reqs_reject - free_slots
+            assert valid_reject >= 0
+            reject_excess = reqs_reject - valid_reject
+
+        # Calculate the number of rejected requests that could have been
+        # forwarded.
+        if forward_reject == 0 and valid_reject > 0:
+            # Assume that all rejected requests could have been forwarded
+            # because no forwarded requests were rejected.
+            reject_excess += valid_reject
+            valid_reject = 0
+
+        assert local_excess >= 0 \
+            and forward_reject >= 0 \
+            and forward_excess >= 0 \
+            and reject_excess >= 0
+        wrong_reqs = local_excess + forward_reject + forward_excess + reject_excess
+        assert wrong_reqs <= reqs_total, f"({local_excess = } + {forward_reject = } + {forward_excess = } + {reject_excess = }) <= {reqs_total}"
+
+        return 1 - (wrong_reqs / reqs_total)
 
     @staticmethod
     def _convert_distribution_0(input_requests, action_dist):
