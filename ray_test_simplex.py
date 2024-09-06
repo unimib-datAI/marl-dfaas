@@ -1,6 +1,7 @@
 # This script tests the Ray's ability to save and load model checkpoints using
 # the Simplex space as the action or observation space.
 from pathlib import Path
+import shutil
 import logging
 
 import gymnasium as gym
@@ -86,12 +87,11 @@ def load_and_train(checkpoint_path):
     ppo_algo.stop()
     logger.info("Training stopped")
 
-    saved = ppo_algo.save()
-    path_saved = saved.checkpoint.path
-    logger.info(f"Checkpoint saved to {path_saved!r}")
-
 
 if __name__ == "__main__":
     checkpoint_path = create_and_save()
 
     load_and_train(checkpoint_path)
+
+    shutil.rmtree(checkpoint_path, ignore_errors=True)
+    logger.info(f"Checkpoint {checkpoint_path!r} removed")
