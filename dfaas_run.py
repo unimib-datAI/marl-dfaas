@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 from datetime import datetime
 import logging
 
@@ -108,10 +109,7 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 Path(logdir / "progress.csv").unlink()
 
 # Move the original experiment directory to a custom directory.
-result_dir = Path.cwd() / "results"
-result_dir.mkdir(parents=True, exist_ok=True)
 exp_name = f"DFAAS-MA_{start}"
-result_dir = result_dir / exp_name
-result_dir = result_dir.resolve()
-logdir.replace(result_dir)
+result_dir = Path.cwd() / "results" / exp_name
+shutil.move(logdir, result_dir.resolve())
 logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
