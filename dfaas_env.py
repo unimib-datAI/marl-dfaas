@@ -1,10 +1,11 @@
+# This file contains the DFaaS multi-agent environment and associated callbacks.
 import gymnasium as gym
 import numpy as np
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.tune.registry import register_env
-
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
@@ -147,11 +148,11 @@ class DFaaS(MultiAgentEnv):
         # TODO: Fix _manage_workload()
         forward_reject = excess["node_0"][1] + excess["node_0"][2]
         rewards["node_0"] = self._calculate_reward_0_v2(action_0,
-                                                     (excess["node_0"][0], forward_reject),
-                                                     (self.queue["node_0"], self.queue_capacity_max["node_0"]))
+                                                        (excess["node_0"][0], forward_reject),
+                                                        (self.queue["node_0"], self.queue_capacity_max["node_0"]))
         rewards["node_1"] = self._calculate_reward_1_v2(action_1,
-                                                     excess["node_1"],
-                                                     (self.queue["node_1"], self.queue_capacity_max["node_1"]))
+                                                        excess["node_1"],
+                                                        (self.queue["node_1"], self.queue_capacity_max["node_1"]))
 
         # Make sure the reward is of type float.
         for agent in self.agent_ids:
@@ -656,3 +657,119 @@ class DFaaS(MultiAgentEnv):
 # Register the environment with Ray so that it can be used automatically when
 # creating experiments.
 register_env("DFaaS", lambda env_config: DFaaS(config=env_config))
+
+
+class DFaaSCallbacks(DefaultCallbacks):
+    """User defined callbacks for the DFaaS environment.
+
+    See the Ray's API documentation for DefaultCallbacks, the custom class
+    overrides (and uses) only a subset of callbacks and keyword arguments."""
+
+    def on_episode_start(self, *, episode, base_env, **kwargs):
+        """Callback run right after an episode has started.
+
+        Only the episode and base_env keyword arguments are used, other
+        arguments are ignored."""
+        # Make sure this episode has just been started (only initial obs logged
+        # so far).
+        assert episode.length <= 0, f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+
+        env = base_env.envs[0]
+
+        # Initialize the dictionaries and lists.
+        episode.user_data["observation_queue_capacity"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["observation_input_requests"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["observation_forward_capacity"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["action_local"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["action_forward"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["action_reject"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_local"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_forward"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["excess_forward_reject"] = {agent: [] for agent in env.agent_ids}
+        episode.user_data["reward"] = {agent: [] for agent in env.agent_ids}
+        episode.hist_data["seed"] = [env.seed]
+
+        # The way to get the info data is complicated because of the Ray API.
+        # However, we need to save the first observation because it contains the
+        # initial data.
+        info = env._additional_info()
+
+        # Track common info for all agents.
+        for agent in env.agent_ids:
+            # Note that each element is a np.ndarray of size 1. It must be
+            # unwrapped!
+            episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
+            episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
+
+        # Track forwarded capacity only for node_0.
+        episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
+
+    def on_episode_step(self, *, episode, base_env, **kwargs):
+        """Called on each episode step (after the action has been logged).
+
+        Only the episode and base_env keyword arguments are used, other
+        arguments are ignored"""
+        # Make sure this episode is ongoing.
+        assert episode.length > 0, f"'on_episode_step()' callback should not be called right after env reset! {episode.length = }"
+
+        env = base_env.envs[0]
+
+        info = env._additional_info()
+
+        # Track common info for all agents.
+        for agent in env.agent_ids:
+            episode.user_data["action_local"][agent].append(info[agent]["action"]["local"])
+            episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
+            episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
+            episode.user_data["reward"][agent].append(info[agent]["reward"])
+
+        # Track forwarded requests only for node_0.
+        episode.user_data["action_forward"]["node_0"].append(info["node_0"]["action"]["forward"])
+        episode.user_data["excess_forward"]["node_0"].append(info["node_0"]["excess"]["forward_excess"])
+        episode.user_data["excess_forward_reject"]["node_0"].append(info["node_0"]["excess"]["forward_reject"])
+
+        # If it is the last step, skip the observation because it will not be
+        # paired with the next action.
+        if env.current_step < env.max_steps:
+            for agent in env.agent_ids:
+                episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
+                episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
+
+            # Track forwarded capacity only for node_0.
+            episode.user_data["observation_forward_capacity"]["node_0"].append(info["node_0"]["observation"]["forward_capacity"].item())
+
+    def on_episode_end(self, *, episode, **kwargs):
+        """Called when an episode is done (after terminated/truncated have been
+        logged).
+
+        Only the episode keyword arguments is used, other arguments are
+        ignored."""
+        # Note that this has to be a list of length 1 because there can be
+        # multiple episodes in a single iteration, so at the end Ray will append
+        # the list to a general list for the iteration.
+        episode.hist_data["observation_queue_capacity"] = [episode.user_data["observation_queue_capacity"]]
+        episode.hist_data["observation_input_requests"] = [episode.user_data["observation_input_requests"]]
+        episode.hist_data["observation_forward_capacity"] = [episode.user_data["observation_forward_capacity"]]
+        episode.hist_data["action_local"] = [episode.user_data["action_local"]]
+        episode.hist_data["action_forward"] = [episode.user_data["action_forward"]]
+        episode.hist_data["action_reject"] = [episode.user_data["action_reject"]]
+        episode.hist_data["excess_local"] = [episode.user_data["excess_local"]]
+        episode.hist_data["excess_forward"] = [episode.user_data["excess_forward"]]
+        episode.hist_data["excess_forward_reject"] = [episode.user_data["excess_forward_reject"]]
+        episode.hist_data["reward"] = [episode.user_data["reward"]]
+
+    def on_train_result(self, *, algorithm, result, **kwargs):
+        """Called at the end of Algorithm.train()."""
+        # Final checker to verify the callbacks are executed.
+        result["callbacks_ok"] = True
+
+        # The problem here is that Ray cumulates the values of the keys under
+        # hist_stats across iterations, but I do not want this behavior.
+        # Solution: keep only the values generated by episodes in this
+        # iteration.
+        episodes = result["episodes_this_iter"]
+        for key in result["hist_stats"]:
+            result["hist_stats"][key] = result["hist_stats"][key][-episodes:]
+
+        # Because they are repeated by Ray within the result dictionary.
+        del result["sampler_results"]

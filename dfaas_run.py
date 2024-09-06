@@ -6,8 +6,7 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
 from ray.tune.logger import UnifiedLogger
 
-from dfaas_env import DFaaS  # noqa: F401
-from dfaas_callbacks import DFaaSCallbacks
+from dfaas_env import DFaaS, DFaaSCallbacks  # noqa: F401
 import dfaas_utils
 
 # Disable Ray's warnings.

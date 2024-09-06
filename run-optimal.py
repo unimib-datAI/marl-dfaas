@@ -7,8 +7,7 @@ import numpy as np
 from ray.rllib.env.base_env import BaseEnv
 from ray.rllib.evaluation.episode_v2 import EpisodeV2
 
-from dfaas_env import DFaaS
-from dfaas_callbacks import DFaaSCallbacks
+from dfaas_env import DFaaS, DFaaSCallbacks
 import dfaas_utils
 
 
