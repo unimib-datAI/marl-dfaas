@@ -1,5 +1,5 @@
-# This is a test file to run Ray in a multi-agent environment with two different
-# algorithms. If it runs, Ray is installed correctly.
+# This is a test file to run Ray in a multi-agent environment with PPO
+# algorithm. If it runs, Ray is installed correctly.
 from ray.rllib.examples.env.multi_agent import GuessTheNumberGame
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
