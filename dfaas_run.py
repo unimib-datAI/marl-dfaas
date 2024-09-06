@@ -4,7 +4,6 @@ import logging
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
-from ray.tune.logger import UnifiedLogger
 
 from dfaas_env import DFaaS, DFaaSCallbacks  # noqa: F401
 import dfaas_utils
@@ -20,7 +19,7 @@ logger = logging.getLogger(Path(__file__).name)
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 200  # Number of iterations.
+              "max_iterations": 2  # Number of iterations.
               }
 
 # Env configuration.
@@ -59,36 +58,13 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
-# Create the results directory to override Ray's default.
-logdir = Path.cwd() / "results"
-dirname = f"DFAAS-MA_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-logdir = logdir / dirname
-logdir.mkdir(parents=True, exist_ok=True)
-logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
-
-# Save experiment and environment config to disk.
-exp_file = logdir / "exp_config.json"
-dfaas_utils.dict_to_json(exp_config, exp_file)
-logger.info(f"Experiment configuration saved to: {exp_file.as_posix()!r}")
-
-dummy_config = dummy_env.get_config()
-env_config_path = logdir / "env_config.json"
-dfaas_utils.dict_to_json(dummy_config, env_config_path)
-logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
-
-
-# This function is called by Ray when creating the logger for the experiment.
-def logger_creator(config):
-    return UnifiedLogger(config, logdir.as_posix())
-
-
 # Algorithm config.
 ppo_config = (PPOConfig()
               .environment(env="DFaaS", env_config=env_config)
               .framework("torch")
               .rollouts(num_rollout_workers=0)  # Only a local worker.
               .evaluation(evaluation_interval=None)
-              .debugging(logger_creator=logger_creator, seed=exp_config["seed"])
+              .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1)
               .callbacks(DFaaSCallbacks)
               .multi_agent(policies=policies,
@@ -98,14 +74,30 @@ ppo_config = (PPOConfig()
 # Build the experiment.
 ppo_algo = ppo_config.build()
 
+# Get the experiment directory to save other files.
+logdir = Path(ppo_algo.logdir)
+logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
+# This will be used after the evaluation.
+start = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+exp_file = logdir / "exp_config.json"
+dfaas_utils.dict_to_json(exp_config, exp_file)
+logger.info(f"Experiment configuration saved to: {exp_file.as_posix()!r}")
+
+dummy_config = dummy_env.get_config()
+env_config_path = logdir / "env_config.json"
+dfaas_utils.dict_to_json(dummy_config, env_config_path)
+logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
+
 # Run the training phase for n iterations.
+logger.info("Training start")
 for iteration in range(exp_config["max_iterations"]):
     logger.info(f"Iteration {iteration}")
     result = ppo_algo.train()
 logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
 
 # Do a final evaluation.
-logger.info("Final evaluation")
+logger.info("Final evaluation start")
 evaluation = ppo_algo.evaluate()
 eval_file = logdir / "final_evaluation.json"
 dfaas_utils.dict_to_json(evaluation, eval_file)
@@ -114,3 +106,12 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 # Remove this file as it is redundant, "result.json" already contains the same
 # data.
 Path(logdir / "progress.csv").unlink()
+
+# Move the original experiment directory to a custom directory.
+result_dir = Path.cwd() / "results"
+result_dir.mkdir(parents=True, exist_ok=True)
+exp_name = f"DFAAS-MA_{start}"
+result_dir = result_dir / exp_name
+result_dir = result_dir.resolve()
+logdir.replace(result_dir)
+logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
