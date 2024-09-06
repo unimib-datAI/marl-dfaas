@@ -44,7 +44,7 @@ class SimplexTest(gym.Env):
 register_env("SimplexTest", lambda env_config: SimplexTest(config=env_config))
 
 
-def create_and_save():
+def create_and_save(checkpoint_path=None):
     # Algorithm config.
     ppo_config = (PPOConfig()
                   .environment(env="SimplexTest")
@@ -64,7 +64,7 @@ def create_and_save():
         ppo_algo.train()
     logger.info("Training terminated")
 
-    saved = ppo_algo.save()
+    saved = ppo_algo.save(checkpoint_path)
     path_saved = saved.checkpoint.path
     logger.info(f"Checkpoint saved to {path_saved!r}")
 
