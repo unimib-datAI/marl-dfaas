@@ -20,7 +20,7 @@ logger = logging.getLogger(Path(__file__).name)
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 2  # Number of iterations.
+              "max_iterations": 7  # Number of iterations.
               }
 
 # Env configuration.
@@ -76,7 +76,7 @@ ppo_config = (PPOConfig()
 ppo_algo = ppo_config.build()
 
 # Get the experiment directory to save other files.
-logdir = Path(ppo_algo.logdir)
+logdir = Path(ppo_algo.logdir).resolve()
 logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
 # This will be used after the evaluation.
 start = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -94,7 +94,21 @@ logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}
 logger.info("Training start")
 for iteration in range(exp_config["max_iterations"]):
     logger.info(f"Iteration {iteration}")
-    result = ppo_algo.train()
+    ppo_algo.train()
+
+    # Save a checkpoint every 50 iterations.
+    if ((iteration + 1) % 50) == 0:
+        checkpoint_path = (logdir / f"checkpoint_{iteration:03d}").as_posix()
+        ppo_algo.save(checkpoint_path)
+        logger.info(f"Checkpoint saved to {checkpoint_path!r}")
+
+# Save always the latest training iteration.
+latest_iteration = exp_config["max_iterations"] - 1
+checkpoint_path = logdir / f"checkpoint_{latest_iteration:03d}"
+if not checkpoint_path.exists():  # May exist if max_iter is a multiple of 50.
+    checkpoint_path = checkpoint_path.as_posix()
+    ppo_algo.save(checkpoint_path)
+    logger.info(f"Checkpoint saved to {checkpoint_path!r}")
 logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
 
 # Do a final evaluation.
