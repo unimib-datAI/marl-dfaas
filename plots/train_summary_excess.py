@@ -45,29 +45,25 @@ def _get_data(exp_dir):
 
     percent_reject_reqs_excess = {}
     percent_local_reqs_excess = {}
-    percent_forward_reqs_excess = {}
-    percent_forward_reqs_reject = {}
+    percent_forward_reject_reqs = {}
 
     # The data is grouped in agents.
     for agent in agents:
         percent_reject_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
         percent_local_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
-        percent_forward_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
-        percent_forward_reqs_reject[agent] = np.empty(len(iters), dtype=np.float32)
+        percent_forward_reject_reqs[agent] = np.empty(len(iters), dtype=np.float32)
 
     for iter in range(len(iters)):
         for agent in agents:
             percent_reject_reqs_excess[agent][iter] = metrics["reject_reqs_percent_excess_per_iteration"][iter][agent]
             percent_local_reqs_excess[agent][iter] = metrics["local_reqs_percent_excess_per_iteration"][iter][agent]
-            percent_forward_reqs_excess[agent][iter] = metrics["forward_reqs_percent_excess_per_iteration"][iter][agent]
-            percent_forward_reqs_reject[agent][iter] = metrics["forward_reqs_percent_reject_per_iteration"][iter][agent]
+            percent_forward_reject_reqs[agent][iter] = metrics["forward_reject_reqs_percent_per_iteration"][iter][agent]
 
     data["agents"] = agents
     data["iterations"] = len(iters)
     data["percent_reject_reqs_excess"] = percent_reject_reqs_excess
     data["percent_local_reqs_excess"] = percent_local_reqs_excess
-    data["percent_forward_reqs_excess"] = percent_forward_reqs_excess
-    data["percent_forward_reqs_reject"] = percent_forward_reqs_reject
+    data["percent_forward_reject_reqs"] = percent_forward_reject_reqs
 
     return data
 
@@ -79,8 +75,8 @@ def make(exp_dir):
 
     data = _get_data(exp_dir)
 
-    fig = plt.figure(figsize=(17, 8), dpi=600, layout="constrained")
-    axs = fig.subplots(nrows=2, ncols=2)
+    fig = plt.figure(figsize=(9, 10), dpi=600, layout="constrained")
+    axs = fig.subplots(nrows=3)
 
     # For the ylim, the total reward for one episode cannot exceed the possible
     # max and min of one episode. The limits ensure a bit of space for both
@@ -91,37 +87,28 @@ def make(exp_dir):
     top = 100.0 + 1
 
     for agent in data["agents"]:
-        axs[0, 0].plot(data["percent_reject_reqs_excess"][agent], label=agent)
-    axs[0, 0].set_ylim(bottom=bottom, top=top)
-    axs[0, 0].set_title("Excessive rejected requests per step (average percent over rejected requests)")
-    axs[0, 0].set_ylabel("Percentage")
-    axs[0, 0].set_ylim(bottom=0, top=100)  # Set Y axis range from 0 to 100 (percent).
-    axs[0, 0].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
-    axs[0, 0].set_yticks(np.arange(0, 100+1, 10))
+        axs[0].plot(data["percent_reject_reqs_excess"][agent], label=agent)
+    axs[0].set_ylim(bottom=bottom, top=top)
+    axs[0].set_title("Excess of rejections per step (over all rejected requests)")
+    axs[0].set_ylim(bottom=0, top=100)  # Set Y axis range from 0 to 100 (percent).
+    axs[0].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[0].set_yticks(np.arange(0, 100+1, 10))
 
     for agent in data["agents"]:
-        axs[0, 1].plot(data["percent_local_reqs_excess"][agent], label=agent)
-    axs[0, 1].set_title("Excessive local requests per step (average percent over queue size)")
-    axs[0, 1].set_ylabel("Percentage")
-    axs[0, 1].set_ylim(bottom=0, top=100)
-    axs[0, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
-    axs[0, 1].set_yticks(np.arange(0, 100+1, 10))
+        axs[1].plot(data["percent_local_reqs_excess"][agent], label=agent)
+    axs[1].set_title("Excess of local requests per step (over the all local requests)")
+    axs[1].set_ylabel("Percentage")
+    axs[1].set_ylim(bottom=0, top=100)
+    axs[1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[1].set_yticks(np.arange(0, 100+1, 10))
 
     for agent in data["agents"]:
-        axs[1, 0].plot(data["percent_forward_reqs_excess"][agent], label=agent)
-    axs[1, 0].set_title("Excessive forwarded requests per step (average percent over forwarded requests)")
-    axs[1, 0].set_ylabel("Percentage")
-    axs[1, 0].set_ylim(bottom=0, top=100)
-    axs[1, 0].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
-    axs[1, 0].set_yticks(np.arange(0, 100+1, 10))
-
-    for agent in data["agents"]:
-        axs[1, 1].plot(data["percent_forward_reqs_reject"][agent], label=agent)
-    axs[1, 1].set_title("Forwarded requests rejected per step (average percent over forwarded requests)")
-    axs[1, 1].set_ylabel("Percentage")
-    axs[1, 1].set_ylim(bottom=0, top=100)
-    axs[1, 1].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
-    axs[1, 1].set_yticks(np.arange(0, 100+1, 10))
+        axs[2].plot(data["percent_forward_reject_reqs"][agent], label=agent)
+    axs[2].set_title("Forward rejects per step (over all forwarded requests)")
+    axs[2].set_ylabel("Percentage")
+    axs[2].set_ylim(bottom=0, top=100)
+    axs[2].yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter())
+    axs[2].set_yticks(np.arange(0, 100+1, 10))
 
     # Common settings for the plots.
     for ax in axs.flat:
