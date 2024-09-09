@@ -51,46 +51,71 @@ def average_reward_per_step(iters, metrics):
         metrics["reward_average_per_step"].append(reward_iter)
 
 
+def _calc_excess_reject_step(action, excess, queue_capacity):
+    """Returns the number of excess rejected requests for a single step for a
+    generic agent, using the given action, excess, and queue capacity. This is a
+    helper function that is used in calc_excess_reject().
+
+    The arguments are:
+
+        - action: a tuple of three sizes with the requests to locally process,
+          forward, and reject,
+
+        - excess: a tuple of length two with the excess number of locally
+          processed requests and forwarded rejected requests,
+
+        - queue_capacity: the queue capacity of the agent.
+    """
+    local, forward, reject = action
+    excess_local, forward_reject = excess
+
+    free_slots = queue_capacity - local
+    if free_slots < 0:
+        # There is a over-local processing.
+        assert excess_local == -free_slots, f"Expected equal, found {excess_local} != {-free_slots}"
+        excess_reject = 0
+    elif free_slots >= reject:
+        # All rejected requests could have been processed locally.
+        excess_reject = reject
+    else:
+        # Some rejected requests could have been processed locally.
+        excess_reject = reject - (reject - free_slots)
+    reject -= excess_reject
+
+    if forward_reject == 0:
+        # All forwarded requests were not rejected. This means that the policy
+        # may have forwarded more requests instead of rejecting them
+        # immediately.
+        excess_reject += reject
+
+    return excess_reject
+
+
 def calc_excess_reject(episode_data, agent, epi_idx):
-    """Returns the number of rejected requests in excess of the allowed rejected
-    requests expected for each step in the episode.
+    """Returns the number of excess rejected requests (requests that could have
+    been forwarded or processed locally) for each step.
+
+    The number is calculated for the given agent in each step.
 
     TODO: This function should not exist, the environment should provide this
     value."""
     input_reqs = episode_data["observation_input_requests"][epi_idx][agent]
+    queue_capacity = episode_data["observation_queue_capacity"][epi_idx][agent]
     local_reqs = episode_data["action_local"][epi_idx][agent]
     reject_reqs = episode_data["action_reject"][epi_idx][agent]
+    excess_local = episode_data["excess_local"][epi_idx][agent]
 
-    if agent == "node_0":
-        forward_reqs = episode_data["action_forward"][epi_idx][agent]
-        forward_capacity = episode_data["observation_forward_capacity"][epi_idx][agent]
-    else:
-        steps = len(input_reqs)
-        forward_reqs = np.zeros(steps)
-        forward_capacity = np.zeros(steps)
+    forward_reqs = episode_data["action_forward"][epi_idx][agent]
+    excess_forward_reject = episode_data["excess_forward_reject"][epi_idx][agent]
 
-    excess_reject = np.empty(len(input_reqs), dtype=np.int32)
+    excess_reject = np.zeros(len(input_reqs), dtype=np.int32)
     for step in range(len(input_reqs)):
-        # All rejected requests are excessive.
-        if input_reqs[step] <= 100:  # Size of the queue.
-            excess_reject[step] = reject_reqs[step]
-            continue
+        action = (local_reqs[step], forward_reqs[step], reject_reqs[step])
+        excess = (excess_local[step], excess_forward_reject[step])
 
-        # We calculate the slots that are not used to process a request locally
-        # or to route it. Note that the value may be negative if there is
-        # over-forwarding or over-local processing: in this case it must be set
-        # to zero.
-        free_local = np.clip(100 - local_reqs[step], 0, 100)
-        free_forward = np.clip(forward_capacity[step] - forward_reqs[step], 0, forward_capacity[step])
-
-        if reject_reqs[step] <= (free_local + free_forward):
-            # All rejected requests could be processed.
-            excess_reject_step = reject_reqs[step]
-        else:
-            # Some rejected requests could be processed.
-            excess_reject_step = free_local + free_forward
-
-        excess_reject[step] = excess_reject_step
+        excess_reject[step] = _calc_excess_reject_step(action,
+                                                       excess,
+                                                       queue_capacity[step])
 
     return excess_reject
 
@@ -98,77 +123,59 @@ def calc_excess_reject(episode_data, agent, epi_idx):
 def reqs_exceed_per_step(iters, metrics):
     """Calculates the following metrics:
 
-    1. Percentage of local requests that exceed queue capacity.
-    2. Percentage of forwarded requests that exceed forwarding capacity.
-    3. Percentage of rejected requests that could have been forwarded or handled
-    locally, but were rejected.
+        1. Percentage of local requests that exceed queue capacity out of all
+        local requests.
 
-    Percentages are calculated for each step."""
+        2. Percentage of forwarded requests that are rejected out of all
+        forwarded requests.
+
+        3. Percentage of excess rejected requests out of all rejected requests.
+
+    The metrics are calculated for each step."""
     agents = get_agents()
-    steps = 100  # TODO: Extract this value from data, not as fixed constant!
 
     metrics["local_reqs_percent_excess_per_step"] = []
     metrics["reject_reqs_percent_excess_per_step"] = []
-    metrics["forward_reqs_percent_excess_per_step"] = []
-    metrics["forward_reqs_percent_reject_per_step"] = []
+    metrics["forward_reject_reqs_percent_per_step"] = []
+
+    # If an action is zero, we get a NaN or other invalid values, but can safely
+    # convert to zero percent because the excess reject is also zero.
+    old = np.seterr(invalid="ignore")
 
     for iter in iters:
-        local_iter, reject_iter, forward_iter, forward_reject_iter = [], [], [], []
+        local_iter, reject_iter, forward_reject_iter = [], [], []
         for epi_idx in range(num_episodes(iters)):
-            local_epi, reject_epi, forward_epi, forward_reject_epi = {}, {}, {}, {}
+            local_epi, reject_epi, forward_reject_epi = {}, {}, {}
             for agent in agents:
                 # Calculation of local excess percent.
+                # Note these are NumPy arrays.
+                local_reqs = np.array(iter["hist_stats"]["action_local"][epi_idx][agent], dtype=np.int32)
                 excess_local = np.array(iter["hist_stats"]["excess_local"][epi_idx][agent], dtype=np.int32)
-
-                # TODO: Extract this value from data, not as fixed constant!
-                queue_capacity_max = 100
-
-                excess_local_perc = excess_local * 100 / queue_capacity_max
-                local_epi[agent] = excess_local_perc
+                local_epi[agent] = excess_local * 100 / local_reqs
+                local_epi[agent] = np.nan_to_num(local_epi[agent], posinf=0.0, neginf=0.0)
 
                 # Calculation of reject excess percent.
                 excess_reject = calc_excess_reject(iter["hist_stats"], agent, epi_idx)
                 action_reject = np.array(iter["hist_stats"]["action_reject"][epi_idx][agent], dtype=np.int32)
+                reject_epi[agent] = excess_reject * 100 / action_reject
+                reject_epi[agent] = np.nan_to_num(reject_epi[agent], posinf=0.0, neginf=0.0)
 
-                # If the action is zero, we get a NaN or other invalid values,
-                # but can safely convert to zero percent because the excess
-                # reject is also zero.
-                old = np.seterr(invalid="ignore")
-                excess_reject_perc = excess_reject * 100 / action_reject
-                np.seterr(invalid=old["invalid"])
-                reject_epi[agent] = np.nan_to_num(excess_reject_perc, posinf=0.0, neginf=0.0)
-
-            # Forwarded requests only for "node_0".
-            excess_forward = np.array(iter["hist_stats"]["excess_forward"][epi_idx]["node_0"], dtype=np.int32)
-            action_forward = np.array(iter["hist_stats"]["action_forward"][epi_idx]["node_0"], dtype=np.int32)
-
-            old = np.seterr(invalid="ignore")
-            excess_forward_perc = excess_forward * 100 / action_forward
-            np.seterr(invalid=old["invalid"])
-            forward_epi = {"node_0": np.nan_to_num(excess_forward_perc, posinf=0.0, neginf=0.0),
-                           "node_1": np.zeros(steps, dtype=np.float32)}
-
-            # Rejected forwarded requests only for "node_0".
-            reject_reqs = np.array(iter["hist_stats"]["excess_forward_reject"][epi_idx]["node_0"], dtype=np.int32)
-
-            # First, we need to get the actual forwarded requests.
-            actual_forward = action_forward - excess_forward
-
-            old = np.seterr(invalid="ignore")
-            reject_reqs_perc = reject_reqs * 100 / actual_forward
-            np.seterr(invalid=old["invalid"])
-            forward_reject_epi = {"node_0": np.nan_to_num(reject_reqs_perc, posinf=0.0, neginf=0.0),
-                                  "node_1": np.zeros(steps, dtype=np.float32)}
+                # Forwarded requests.
+                forward_reject = np.array(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
+                action_forward = np.array(iter["hist_stats"]["action_forward"][epi_idx][agent], dtype=np.int32)
+                forward_reject_epi[agent] = forward_reject * 100 / action_forward
+                forward_reject_epi[agent] = np.nan_to_num(forward_reject_epi["node_0"], posinf=0.0, neginf=0.0)
 
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
-            forward_iter.append(forward_epi)
             forward_reject_iter.append(forward_reject_epi)
 
         metrics["local_reqs_percent_excess_per_step"].append(local_iter)
         metrics["reject_reqs_percent_excess_per_step"].append(reject_iter)
-        metrics["forward_reqs_percent_excess_per_step"].append(forward_iter)
-        metrics["forward_reqs_percent_reject_per_step"].append(forward_reject_iter)
+        metrics["forward_reject_reqs_percent_per_step"].append(forward_reject_iter)
+
+    # Reset the NumPy error handling.
+    np.seterr(invalid=old["invalid"])
 
 
 def average_reqs_percent_exceed_per_episode(iters, metrics):
@@ -180,14 +187,13 @@ def average_reqs_percent_exceed_per_episode(iters, metrics):
 
     metrics["local_reqs_percent_excess_per_episode"] = []
     metrics["reject_reqs_percent_excess_per_episode"] = []
-    metrics["forward_reqs_percent_excess_per_episode"] = []
-    metrics["forward_reqs_percent_reject_per_episode"] = []
+    metrics["forward_reject_reqs_percent_per_episode"] = []
 
     for iter_idx in range(len(iters)):
-        local_iter, reject_iter, forward_iter, forward_reject_iter = [], [], [], []
+        local_iter, reject_iter, forward_reject_iter = [], [], []
 
         for epi_idx in range(num_episodes(iters)):
-            local_epi, reject_epi, forward_epi, forward_reject_epi = {}, {}, {}, {}
+            local_epi, reject_epi, forward_reject_epi = {}, {}, {}
 
             for agent in agents:
                 tmp = metrics["local_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
@@ -196,21 +202,16 @@ def average_reqs_percent_exceed_per_episode(iters, metrics):
                 tmp = metrics["reject_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
                 reject_epi[agent] = np.average(tmp)
 
-                tmp = metrics["forward_reqs_percent_excess_per_step"][iter_idx][epi_idx][agent]
-                forward_epi[agent] = np.average(tmp)
-
-                tmp = metrics["forward_reqs_percent_reject_per_step"][iter_idx][epi_idx][agent]
+                tmp = metrics["forward_reject_reqs_percent_per_step"][iter_idx][epi_idx][agent]
                 forward_reject_epi[agent] = np.average(tmp)
 
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
-            forward_iter.append(forward_epi)
             forward_reject_iter.append(forward_reject_epi)
 
         metrics["local_reqs_percent_excess_per_episode"].append(local_iter)
         metrics["reject_reqs_percent_excess_per_episode"].append(reject_iter)
-        metrics["forward_reqs_percent_excess_per_episode"].append(forward_iter)
-        metrics["forward_reqs_percent_reject_per_episode"].append(forward_reject_iter)
+        metrics["forward_reject_reqs_percent_per_episode"].append(forward_reject_iter)
 
 
 def average_reqs_percent_exceed_per_iteration(iters, metrics):
@@ -223,15 +224,13 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
 
     metrics["local_reqs_percent_excess_per_iteration"] = []
     metrics["reject_reqs_percent_excess_per_iteration"] = []
-    metrics["forward_reqs_percent_excess_per_iteration"] = []
-    metrics["forward_reqs_percent_reject_per_iteration"] = []
+    metrics["forward_reject_reqs_percent_per_iteration"] = []
 
     for iter_idx in range(len(iters)):
-        local_iter, reject_iter, forward_iter, forward_reject_iter = {}, {}, {}, {}
+        local_iter, reject_iter, forward_reject_iter = {}, {}, {}
         for agent in agents:
             local_iter[agent] = np.empty(episodes, np.float32)
             reject_iter[agent] = np.empty(episodes, np.float32)
-            forward_iter[agent] = np.empty(episodes, np.float32)
             forward_reject_iter[agent] = np.empty(episodes, np.float32)
 
         for epi_idx in range(episodes):
@@ -242,23 +241,18 @@ def average_reqs_percent_exceed_per_iteration(iters, metrics):
                 tmp = metrics["reject_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
                 reject_iter[agent][epi_idx] = tmp
 
-                tmp = metrics["forward_reqs_percent_excess_per_episode"][iter_idx][epi_idx][agent]
-                forward_iter[agent][epi_idx] = tmp
-
-                tmp = metrics["forward_reqs_percent_reject_per_episode"][iter_idx][epi_idx][agent]
+                tmp = metrics["forward_reject_reqs_percent_per_episode"][iter_idx][epi_idx][agent]
                 forward_reject_iter[agent][epi_idx] = tmp
 
-        local_avg, reject_avg, forward_avg, forward_reject_avg = {}, {}, {}, {}
+        local_avg, reject_avg, forward_reject_avg = {}, {}, {}
         for agent in agents:
             local_avg[agent] = np.average(local_iter[agent])
             reject_avg[agent] = np.average(reject_iter[agent])
-            forward_avg[agent] = np.average(forward_iter[agent])
             forward_reject_avg[agent] = np.average(forward_reject_iter[agent])
 
         metrics["local_reqs_percent_excess_per_iteration"].append(local_avg)
         metrics["reject_reqs_percent_excess_per_iteration"].append(reject_avg)
-        metrics["forward_reqs_percent_excess_per_iteration"].append(forward_avg)
-        metrics["forward_reqs_percent_reject_per_iteration"].append(forward_reject_avg)
+        metrics["forward_reject_reqs_percent_per_iteration"].append(forward_reject_avg)
 
 
 def reject_reqs_excess_per_step(iters, metrics):
