@@ -36,16 +36,12 @@ class DFaaS(MultiAgentEnv):
         self.action_space = gym.spaces.Dict({
             # Distribution of how many requests are processed locally, forwarded
             # and rejected.
-            "node_0": Simplex(shape=(3,)),
-
-            # Distribution of how many requests are processed locally and
-            # rejected.
-            "node_1": Simplex(shape=(2,))
+            agent: Simplex(shape=(3,)) for agent in self.agent_ids
             })
 
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
-            "node_0": gym.spaces.Dict({
+            agent: gym.spaces.Dict({
                 # Number of input requests to process for a single step.
                 "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
 
@@ -55,15 +51,7 @@ class DFaaS(MultiAgentEnv):
                 # Number of forwarded requests that have been rejected by the
                 # other agent in the previous step.
                 "forward_reject": gym.spaces.Box(low=0, high=150, dtype=np.int32)
-                 }),
-
-            "node_1": gym.spaces.Dict({
-                # Number of input requests to process for a single step.
-                "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-
-                # Queue capacity (currently a constant).
-                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_1"], dtype=np.int32)
-                })
+                 }) for agent in self.agent_ids
             })
 
         # Number of steps in the environment.
@@ -118,7 +106,6 @@ class DFaaS(MultiAgentEnv):
         # step. It is None because there is no action in the first step. Mainly
         # used by the _additional_info() method.
         self.last_action_data = None
-        self.last_forward_reject = 0
 
         obs = self._build_observation()
         self.last_obs = obs
@@ -127,41 +114,30 @@ class DFaaS(MultiAgentEnv):
         return obs, info
 
     def step(self, action_dict):
-        # Action for node_0.
-        input_requests_0 = self.input_requests["node_0"][self.current_step]
+        action = {}  # Absolute number of requests for each action.
+        for agent in self.agent_ids:
+            # Get input requests.
+            input_requests = self.input_requests[agent][self.current_step]
 
-        # Convert the action distribution (a distribution of probabilities) into
-        # the number of requests to locally process, to forward and to reject.
-        action_0 = self._convert_distribution_0(input_requests_0, action_dict["node_0"])
-
-        # Action for node_1.
-        input_requests_1 = self.input_requests["node_1"][self.current_step]
-
-        # Convert the action distribution (a distribution of probabilities) into
-        # the number of requests to locally process and reject.
-        action_1 = self._convert_distribution_1(input_requests_1, action_dict["node_1"])
+            # Convert the action distribution (a distribution of probabilities)
+            # into the number of requests to locally process, to forward and to
+            # reject.
+            action[agent] = self._convert_distribution(input_requests, action_dict[agent])
 
         # We have the actions, now update the environment state.
-        excess = self._manage_workload(action_0, action_1)
+        excess = self._manage_workload(action)
 
         # Calculate the reward for both agents.
         rewards = {}
-        # Old reward function.
-        #   rewards["node_0"] = self._calculate_reward_0(action_0, excess["node_0"], self.last_obs["node_0"]["forward_capacity"])
-        #   rewards["node_1"] = self._calculate_reward_1(action_1, excess["node_1"])
-        self.last_forward_reject = excess["node_0"][1]
-        rewards["node_0"] = self._calculate_reward_0_v2(action_0,
-                                                        (excess["node_0"][0], self.last_forward_reject),
-                                                        (self.queue["node_0"], self.queue_capacity_max["node_0"]))
-        rewards["node_1"] = self._calculate_reward_1_v2(action_1,
-                                                        excess["node_1"],
-                                                        (self.queue["node_1"], self.queue_capacity_max["node_1"]))
-
-        # Make sure the reward is of type float.
         for agent in self.agent_ids:
+            rewards[agent] = self._calculate_reward_v2(action[agent],
+                                                       excess[agent],
+                                                       (self.queue[agent], self.queue_capacity_max[agent]))
+            # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
 
-        self.last_action_data = (action_0, action_1, excess, rewards)
+        # Save data collected in this step.
+        self.last_action_data = (action, excess, rewards)
 
         # Go to the next step.
         self.current_step += 1
@@ -209,104 +185,16 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-        obs["node_0"]["forward_reject"] = np.array([self.last_forward_reject], dtype=np.int32)
+            if self.last_action_data is not None:
+                forward_reject = self.last_action_data[1][agent][1]
+                obs[agent]["forward_reject"] = np.array([forward_reject], dtype=np.int32)
+            else:
+                obs[agent]["forward_reject"] = np.array([0], dtype=np.int32)
 
         return obs
 
-    def _calculate_reward_1(self, action, excess):
-        """Returns the reward for the agent "node_1" for the current step.
-
-        The reward is based on:
-
-            - The action, a 2-length tuple containing the number of requests to
-              process locally  and to reject.
-
-            - The excess, a 1-length tuple containing the local requests that
-              exceed the queue capacity.
-
-        This reward function assumes that the queue starts empty at each
-        step."""
-        assert len(action) == 2, "Expected (local, reject)"
-        assert len(excess) == 1, "Expected (local_excess)"
-
-        reqs_total = sum(action)
-        reqs_local, reqs_reject = action
-        local_excess = excess[0]
-
-        # The agent (policy) tried to be sneaky, but it is not possible to
-        # locally process more requests than the internal limit for each step.
-        # This behavior must be discouraged by penalizing the reward, but not as
-        # much as by rejecting too many requests (the .5 factor).
-        if local_excess > 0:
-            return 1 - (local_excess / self.queue_capacity_max["node_1"]) * .5
-
-        # If there are more input requests than available slots in the agent
-        # queue, the optimal strategy should be to fill the queue and then
-        # reject the other requests.
-        if reqs_total > self.queue_capacity_max["node_1"]:
-            # The reward penalises the agent if the action doesn't maximise the
-            # request process locally.
-            if reqs_local < self.queue_capacity_max["node_1"]:
-                # The new value is the number of rejected requests that will be
-                # considered a penalty for the reward. Note that some rejections
-                # are inevitable and will not be penalized, only those that can
-                # be processed locally but the agent didn't.
-                reqs_reject = self.queue_capacity_max["node_1"] - reqs_local
-                reqs_total = self.queue_capacity_max["node_1"]
-            else:
-                reqs_reject = 0
-
-        # The reward is a range from 0 to 1. It decreases as the number of
-        # unnecessary rejected requests increases.
-        return 1 - reqs_reject / reqs_total
-
-    @staticmethod
-    def _calculate_reward_1_v2(action, excess, queue):
-        """Returns the reward for agent "node_0" for the current step.
-
-        The reward is based on:
-
-            - The action, a 3-length tuple containing the number of requests to
-              process locally and to reject.
-
-            - The excess, a 1-length tuple containing the number of local
-              requests that exceed the queue capacity.
-
-            - The queue, a 2-length tuple containing the status of the queue (0
-              is empty) and the maximum capacity of the queue.
-
-        The reward returned is in the range [0, 1]."""
-        assert len(action) == 2, "Expected (local, reject)"
-        assert len(excess) == 1, "Expected (local_excess)"
-        assert len(queue) == 2, "Expected (queue_status, queue_max_capacity)"
-
-        reqs_total = sum(action)
-        reqs_local, reqs_reject = action
-        local_excess = excess[0]
-        queue_status, queue_max = queue
-
-        if reqs_total == 0:
-            return 1.
-
-        if local_excess > 0:
-            return 1 - (local_excess / reqs_local)
-
-        free_slots = queue_max - queue_status
-        assert free_slots >= 0
-
-        # Calculate the number of excess reject requests.
-        if free_slots > reqs_reject:
-            reject_excess = reqs_reject
-        else:  # reqs_reject >= free_slots
-            valid_reject = reqs_reject - free_slots
-            assert valid_reject >= 0
-            reject_excess = reqs_reject - valid_reject
-        assert reject_excess >= 0
-
-        return 1 - (reject_excess / reqs_total)
-
-    def _calculate_reward_0(self, action, excess, forward_capacity):
-        """Returns the reward for the agent "node_0" for the current step.
+    def _calculate_reward(self, action, excess, forward_capacity):
+        """Returns the reward for an agent for the current step.
 
         The reward is based on:
 
@@ -380,8 +268,8 @@ class DFaaS(MultiAgentEnv):
         return reward
 
     @staticmethod
-    def _calculate_reward_0_v2(action, excess, queue):
-        """Returns the reward for agent "node_0" for the current step.
+    def _calculate_reward_v2(action, excess, queue):
+        """Returns the reward for an agent for the current step.
 
         The reward is based on:
 
@@ -452,12 +340,10 @@ class DFaaS(MultiAgentEnv):
         return 1 - (wrong_reqs / reqs_total)
 
     @staticmethod
-    def _convert_distribution_0(input_requests, action_dist):
+    def _convert_distribution(input_requests, action_dist):
         """Converts the given action distribution (e.g. [.7, .2, .1]) into the
         absolute number of requests to process locally, to forward and to
-        reject. Returns the result as a tuple.
-
-        This function is only for node_0 agent."""
+        reject. Returns the result as a tuple."""
         assert len(action_dist) == 3, "Expected (local, forward, reject)"
 
         # Extract the three actions from the action distribution
@@ -491,49 +377,18 @@ class DFaaS(MultiAgentEnv):
         assert sum(actions) == input_requests
         return tuple(actions)
 
-    @staticmethod
-    def _convert_distribution_1(input_requests, action_dist):
-        """Converts the given action distribution (e.g. [.7, .3]) into the
-        absolute number of requests to process locally or reject. Returns the
-        result as a tuple.
+    def _manage_workload(self, action):
+        """Apply the action given as input to the current state of the
+        environment.
 
-        This function is only for node_1 agent."""
-        assert len(action_dist) == 2, "Expected (local, reject)"
+        In this case, it tries to fill the local queue of both agents.
 
-        # Extract the single actions probabilities from the array.
-        prob_local, prob_reject = action_dist
-
-        # Get the corresponding number of requests for each action. Note: the
-        # number of requests is a discrete number, so there is a fraction of the
-        # action probabilities that is left out of the calculation.
-        actions = [int(prob_local * input_requests),
-                   int(prob_reject * input_requests)]
-
-        processed_requests = sum(actions)
-
-        # There is a fraction of unprocessed input requests. We need to fix this
-        # problem by assigning the remaining requests to the higher fraction for
-        # the three action probabilities, because that action is the one that
-        # loses the most.
-        if processed_requests < input_requests:
-            # Extract the fraction for each action probability.
-            fractions = [prob_local * input_requests - actions[0],
-                         prob_reject * input_requests - actions[1]]
-
-            # Get the highest fraction index and and assign remaining requests
-            # to that action.
-            max_fraction_index = np.argmax(fractions)
-            actions[max_fraction_index] += input_requests - processed_requests
-
-        assert sum(actions) == input_requests
-        return tuple(actions)
-
-    def _manage_workload(self, action_0, action_1):
-        """Fills the agent queues with the requests provided by the actions and
-        returns a dictionary containing the surplus of local requests for node_0
-        and node_1, and the forwarded requests that were rejected for node_0."""
-        local_0, forward_0, _ = action_0
-        local_1, _ = action_1
+        Returns a dictionary containing the number of excess local requests,
+        rejected forwarded requests, and excess rejected requests for each
+        agent."""
+        assert len(action) == self.agents, f"Expected {self.agents} entries, found {len(action)}"
+        local_0, forward_0, reject_0 = action["node_0"]
+        local_1, forward_1, reject_1 = action["node_1"]
 
         # Helper function.
         def fill_queue(agent, requests):
@@ -558,18 +413,17 @@ class DFaaS(MultiAgentEnv):
 
             return excess
 
-        # Local processing for node_0.
+        # Fill both local queues with local requests first.
         local_excess_0 = fill_queue("node_0", local_0)
-
-        # Local processing for node_1. Input requests for node_1 have the
-        # priority over the forwarded requests from node_0.
         local_excess_1 = fill_queue("node_1", local_1)
 
-        # Handle now forwarded requests.
-        forward_reject = fill_queue("node_1", forward_0)
+        # Try to fill the local queues with the forwarded requests provided by
+        # the opposing agent.
+        forward_reject_0 = fill_queue("node_1", forward_0)
+        forward_reject_1 = fill_queue("node_0", forward_1)
 
-        retval = {"node_0": (local_excess_0, forward_reject),
-                  "node_1": (local_excess_1,)}
+        retval = {"node_0": (local_excess_0, forward_reject_0),
+                  "node_1": (local_excess_1, forward_reject_1)}
         return retval
 
     def _get_input_requests(self):
@@ -609,24 +463,17 @@ class DFaaS(MultiAgentEnv):
 
         # Also save the actions, excess and rewards from the last step.
         if self.last_action_data is not None:
-            info["node_0"]["action"] = {
-                    "local": self.last_action_data[0][0],
-                    "forward": self.last_action_data[0][1],
-                    "reject": self.last_action_data[0][2]}
-            info["node_1"]["action"] = {
-                    "local": self.last_action_data[1][0],
-                    "reject": self.last_action_data[1][1]}
-
-            info["node_0"]["excess"] = {
-                    "local_excess": self.last_action_data[2]["node_0"][0],
-                    "forward_reject": self.last_action_data[2]["node_0"][1],
-                    }
-            info["node_1"]["excess"] = {
-                    "local_excess": self.last_action_data[2]["node_1"][0]
-                    }
-
-            info["node_0"]["reward"] = self.last_action_data[3]["node_0"]
-            info["node_1"]["reward"] = self.last_action_data[3]["node_1"]
+            for agent in self.agent_ids:
+                info[agent]["action"] = {
+                        "local": self.last_action_data[0][agent][0],
+                        "forward": self.last_action_data[0][agent][1],
+                        "reject": self.last_action_data[0][agent][2]
+                        }
+                info[agent]["excess"] = {
+                        "local_excess": self.last_action_data[1][agent][0],
+                        "forward_reject": self.last_action_data[1][agent][1],
+                        }
+                info[agent]["reward"] = self.last_action_data[2][agent]
 
         return info
 
@@ -698,13 +545,11 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Track common info for all agents.
         for agent in env.agent_ids:
             episode.user_data["action_local"][agent].append(info[agent]["action"]["local"])
+            episode.user_data["action_forward"][agent].append(info[agent]["action"]["forward"])
             episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
             episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
+            episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_reject"])
             episode.user_data["reward"][agent].append(info[agent]["reward"])
-
-        # Track forwarded requests only for node_0.
-        episode.user_data["action_forward"]["node_0"].append(info["node_0"]["action"]["forward"])
-        episode.user_data["excess_forward_reject"]["node_0"].append(info["node_0"]["excess"]["forward_reject"])
 
         # If it is the last step, skip the observation because it will not be
         # paired with the next action.
