@@ -164,7 +164,7 @@ def reqs_exceed_per_step(iters, metrics):
                 forward_reject = np.array(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
                 action_forward = np.array(iter["hist_stats"]["action_forward"][epi_idx][agent], dtype=np.int32)
                 forward_reject_epi[agent] = forward_reject * 100 / action_forward
-                forward_reject_epi[agent] = np.nan_to_num(forward_reject_epi["node_0"], posinf=0.0, neginf=0.0)
+                forward_reject_epi[agent] = np.nan_to_num(forward_reject_epi[agent], posinf=0.0, neginf=0.0)
 
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
