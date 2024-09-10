@@ -102,10 +102,10 @@ class DFaaS(MultiAgentEnv):
         # The queues start empty (max capacity) and can be full.
         self.queue = {agent: 0 for agent in self.agent_ids}
 
-        # This variable holds the action, excess, and reward for the current
-        # step. It is None because there is no action in the first step. Mainly
-        # used by the _additional_info() method.
-        self.last_action_data = None
+        # This variable is used by _additional_info() to build the info
+        # dictionary. It is None in reset() because there is no action and
+        # reward in this step.
+        self.last_info = None
 
         obs = self._build_observation()
         self.last_obs = obs
@@ -125,19 +125,22 @@ class DFaaS(MultiAgentEnv):
             action[agent] = self._convert_distribution(input_requests, action_dict[agent])
 
         # We have the actions, now update the environment state.
-        excess = self._manage_workload(action)
+        info_work = self._manage_workload(action)
 
         # Calculate the reward for both agents.
         rewards = {}
         for agent in self.agent_ids:
             rewards[agent] = self._calculate_reward_v2(action[agent],
-                                                       excess[agent],
-                                                       (self.queue[agent], self.queue_capacity_max[agent]))
+                                                       (info_work[agent]["local_excess"], info_work[agent]["forward_reject"]),
+                                                       (info_work[agent]["queue_status_pre_forward"], self.queue_capacity_max[agent]))
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
 
-        # Save data collected in this step.
-        self.last_action_data = (action, excess, rewards)
+        self.last_info = {
+                "action": action,
+                "rewards": rewards,
+                "workload": info_work
+                }
 
         # Go to the next step.
         self.current_step += 1
@@ -185,11 +188,11 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-            if self.last_action_data is not None:
-                forward_reject = self.last_action_data[1][agent][1]
-                obs[agent]["forward_reject"] = np.array([forward_reject], dtype=np.int32)
+            if self.last_info is None:
+                last_forward_reject = 0
             else:
-                obs[agent]["forward_reject"] = np.array([0], dtype=np.int32)
+                last_forward_reject = self.last_info["workload"][agent]["forward_reject"]
+            obs[agent]["forward_reject"] = np.array([last_forward_reject], dtype=np.int32)
 
         return obs
 
@@ -378,17 +381,19 @@ class DFaaS(MultiAgentEnv):
         return tuple(actions)
 
     def _manage_workload(self, action):
-        """Apply the action given as input to the current state of the
-        environment.
+        """Fills the agent queues with the requests provided by the actions and
+        returns a dictionary containing the same information for all agents:
 
-        In this case, it tries to fill the local queue of both agents.
-
-        Returns a dictionary containing the number of excess local requests,
-        rejected forwarded requests, and excess rejected requests for each
-        agent."""
+            - The number of excess local requests,
+            - The number of rejected forwarded requests,
+            - The queue status before and after processing the forwarded
+              requests from the other agent.
+        """
         assert len(action) == self.agents, f"Expected {self.agents} entries, found {len(action)}"
         local_0, forward_0, reject_0 = action["node_0"]
         local_1, forward_1, reject_1 = action["node_1"]
+
+        info = {agent: {} for agent in self.agent_ids}
 
         # Helper function.
         def fill_queue(agent, requests):
@@ -414,17 +419,19 @@ class DFaaS(MultiAgentEnv):
             return excess
 
         # Fill both local queues with local requests first.
-        local_excess_0 = fill_queue("node_0", local_0)
-        local_excess_1 = fill_queue("node_1", local_1)
+        info["node_0"]["local_excess"] = fill_queue("node_0", local_0)
+        info["node_1"]["local_excess"] = fill_queue("node_1", local_1)
+        info["node_0"]["queue_status_pre_forward"] = self.queue["node_0"]
+        info["node_1"]["queue_status_pre_forward"] = self.queue["node_1"]
 
         # Try to fill the local queues with the forwarded requests provided by
         # the opposing agent.
-        forward_reject_0 = fill_queue("node_1", forward_0)
-        forward_reject_1 = fill_queue("node_0", forward_1)
+        info["node_0"]["forward_reject"] = fill_queue("node_1", forward_0)
+        info["node_1"]["forward_reject"] = fill_queue("node_0", forward_1)
+        info["node_0"]["queue_status_post_forward"] = self.queue["node_0"]
+        info["node_1"]["queue_status_post_forward"] = self.queue["node_1"]
 
-        retval = {"node_0": (local_excess_0, forward_reject_0),
-                  "node_1": (local_excess_1, forward_reject_1)}
-        return retval
+        return info
 
     def _get_input_requests(self):
         """Calculate the input requests for all agents for all steps.
@@ -462,18 +469,22 @@ class DFaaS(MultiAgentEnv):
             info[agent]["observation"] = self.last_obs[agent]
 
         # Also save the actions, excess and rewards from the last step.
-        if self.last_action_data is not None:
+        if self.last_info is not None:
             for agent in self.agent_ids:
                 info[agent]["action"] = {
-                        "local": self.last_action_data[0][agent][0],
-                        "forward": self.last_action_data[0][agent][1],
-                        "reject": self.last_action_data[0][agent][2]
+                        "local": self.last_info["action"][agent][0],
+                        "forward": self.last_info["action"][agent][1],
+                        "reject": self.last_info["action"][agent][2]
                         }
                 info[agent]["excess"] = {
-                        "local_excess": self.last_action_data[1][agent][0],
-                        "forward_reject": self.last_action_data[1][agent][1],
+                        "local_excess": self.last_info["workload"][agent]["local_excess"],
+                        "forward_reject": self.last_info["workload"][agent]["forward_reject"]
                         }
-                info[agent]["reward"] = self.last_action_data[2][agent]
+                info[agent]["queue_status"] = {
+                    "pre_forward": self.last_info["workload"][agent]["queue_status_pre_forward"],
+                    "post_forward": self.last_info["workload"][agent]["queue_status_post_forward"]
+                    }
+                info[agent]["reward"] = self.last_info["rewards"][agent]
 
         return info
 
@@ -500,16 +511,19 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         env = base_env.envs[0]
 
-        # Initialize the dictionaries and lists.
-        episode.user_data["observation_queue_capacity"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["observation_input_requests"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["action_local"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["action_forward"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["action_reject"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["excess_local"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["excess_forward_reject"] = {agent: [] for agent in env.agent_ids}
-        episode.user_data["reward"] = {agent: [] for agent in env.agent_ids}
+        # Common keys with one entry for each agent in each step.
+        keys = ["observation_queue_capacity", "observation_input_requests",
+                "action_local", "action_forward", "action_reject",
+                "excess_local", "excess_forward_reject",
+                "queue_status_pre_forward", "queue_status_post_forward",
+                "reward"]
+
+        # Save environment seed directly in hist_data.
         episode.hist_data["seed"] = [env.seed]
+
+        # Initialize the dictionaries and lists.
+        for key in keys:
+            episode.user_data[key] = {agent: [] for agent in env.agent_ids}
 
         # The way to get the info data is complicated because of the Ray API.
         # However, we need to save the first observation because it contains the
@@ -527,8 +541,6 @@ class DFaaSCallbacks(DefaultCallbacks):
             # info dictionary at each step. This value is only important for the
             # current step, because it shows how many forwarded requests were
             # rejected by the other agent in the last step, not in the future!
-            # This is why the next line is commented.
-            #   episode.user_data["observation_forward_reject"]["node_0"].append(info["node_0"]["observation"]["forward_reject"].item())
 
     def on_episode_step(self, *, episode, base_env, **kwargs):
         """Called on each episode step (after the action has been logged).
@@ -549,6 +561,8 @@ class DFaaSCallbacks(DefaultCallbacks):
             episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
             episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
             episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_reject"])
+            episode.user_data["queue_status_pre_forward"][agent].append(info[agent]["queue_status"]["pre_forward"])
+            episode.user_data["queue_status_post_forward"][agent].append(info[agent]["queue_status"]["post_forward"])
             episode.user_data["reward"][agent].append(info[agent]["reward"])
 
         # If it is the last step, skip the observation because it will not be
