@@ -6,7 +6,7 @@ import logging
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.policy.policy import PolicySpec
 
-import dfaas_env
+import dfaas_asym.env as dfaas_env
 import dfaas_utils
 
 # Disable Ray's warnings.
