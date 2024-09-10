@@ -6,7 +6,7 @@ import logging
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.policy.policy import PolicySpec
 
-from dfaas_env import DFaaS, DFaaSCallbacks  # noqa: F401
+import dfaas_env
 import dfaas_utils
 
 # Disable Ray's warnings.
@@ -28,7 +28,7 @@ env_config = {}
 env_config["seed"] = exp_config["seed"]
 
 # Create a dummy environment, used to get observation and action spaces.
-dummy_env = DFaaS(config=env_config)
+dummy_env = dfaas_env.DFaaS(config=env_config)
 
 # PolicySpec is required to specify the action/observation space for each
 # policy. Because each agent in the env has different action and observation
@@ -67,7 +67,7 @@ ppo_config = (SACConfig()
               .evaluation(evaluation_interval=None)
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1)
-              .callbacks(DFaaSCallbacks)
+              .callbacks(dfaas_env.DFaaSCallbacks)
               .multi_agent(policies=policies,
                            policy_mapping_fn=policy_mapping_fn)
               )
@@ -89,6 +89,12 @@ dummy_config = dummy_env.get_config()
 env_config_path = logdir / "env_config.json"
 dfaas_utils.dict_to_json(dummy_config, env_config_path)
 logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
+
+# Copy the environment source file into the experiment directory. This ensures
+# that the original environment used for the experiment is preserved.
+dfaas_env_dst = logdir / Path(dfaas_env.__file__).name
+shutil.copy2(dfaas_env.__file__, dfaas_env_dst)
+logger.info(f"Environment source file saved to: {dfaas_env_dst.as_posix()!r}")
 
 # Run the training phase for n iterations.
 logger.info("Training start")
