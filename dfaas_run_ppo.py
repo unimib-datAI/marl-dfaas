@@ -3,6 +3,7 @@ import shutil
 from datetime import datetime
 import logging
 import argparse
+import importlib
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
@@ -17,13 +18,10 @@ parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
 parser.add_argument(dest="env", help="DFaaS environment to train")
 args = parser.parse_args()
 
-if args.env == "dfaas_asym":
-    import dfaas_asym.env as dfaas_env
-    env_prefix = "ASYM"  # Used when generating experiment directory name.
-elif args.env == "dfaas_sym":
-    import dfaas_sym.env as dfaas_env
-    env_prefix = "SYM"
-else:
+# Dynamically load the environment for training. An example is "dfaas_sym.env".
+try:
+    dfaas_env = importlib.import_module(args.env)
+except ModuleNotFoundError:
     print(f"Unsupported given environment {args.env!r}")
     exit(1)
 
@@ -143,7 +141,7 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 Path(logdir / "progress.csv").unlink()
 
 # Move the original experiment directory to a custom directory.
-exp_name = f"DFAAS-MA_{start}_test"
+exp_name = f"DFAAS-MA_{dfaas_env.prefix}_{start}_reward_fix"
 result_dir = Path.cwd() / "results" / exp_name
 shutil.move(logdir, result_dir.resolve())
 logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")

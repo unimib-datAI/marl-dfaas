@@ -8,6 +8,10 @@ from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 
 
+# The environment prefix, it can be used as a portion string to generate the
+# experiment directory.
+prefix = "ASYM"
+
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
