@@ -2,16 +2,30 @@ from pathlib import Path
 import shutil
 from datetime import datetime
 import logging
+import argparse
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
 
-import dfaas_asym.env as dfaas_env
 import dfaas_utils
 
 # Disable Ray's warnings.
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
+parser.add_argument(dest="env", help="DFaaS environment to train")
+args = parser.parse_args()
+
+if args.env == "dfaas_asym":
+    import dfaas_asym.env as dfaas_env
+    env_prefix = "ASYM"  # Used when generating experiment directory name.
+elif args.env == "dfaas_sym":
+    import dfaas_sym.env as dfaas_env
+    env_prefix = "SYM"
+else:
+    print(f"Unsupported given environment {args.env!r}")
+    exit(1)
 
 # Initialize logger for this module.
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
