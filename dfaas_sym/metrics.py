@@ -7,8 +7,14 @@
 import argparse
 from pathlib import Path
 import logging
+import sys
+import os
 
 import numpy as np
+
+# Add the current directory (where Python is called) to sys.path. This is
+# required to load modules in the project root directory (like dfaas_utils.py).
+sys.path.append(os.getcwd())
 
 import dfaas_utils
 
