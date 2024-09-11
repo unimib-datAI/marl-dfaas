@@ -3,30 +3,24 @@
 #
 # The environment config is retrieved from the specified experiment directory.
 from pathlib import Path
+import sys
+import os
+import argparse
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 
-if __name__ == "__main__":
-    import sys
-    import os
-    import argparse
-    import matplotlib
+# Add the current directory (where Python is called) to sys.path. This is
+# required to load modules in the project root directory (like dfaas_utils.py).
+sys.path.append(os.getcwd())
 
-    # Add the current directory (where Python is called) to sys.path. This
-    # assumes this script is called in the project root directory, not inside
-    # the directory where the script is.
-    #
-    # Required when calling this module directly as main.
-    sys.path.append(os.getcwd())
-
-from dfaas_env import DFaaS
+from dfaas_asym.env import DFaaS
 import dfaas_utils
 
-
+''' Old code
 def _get_data(env_config):
     env = DFaaS(config=env_config)
-
     assert env.agents == 2, "The scripts supports only DFaaS env with two agents"
 
     input_requests, queue_capacity, forward_capacity = {}, {}, {}
@@ -139,6 +133,76 @@ def make(plots_dir, env_config):
     fig.savefig(path)
     plt.close(fig)
     print(f"{path.as_posix()!r}")
+'''
+
+
+def _get_data(env_config):
+    env = DFaaS(config=env_config)
+    env.reset()
+
+    data = {}
+
+    input_reqs = {}
+    for agent in env.agent_ids:
+        input_reqs[agent] = np.zeros(env.max_steps, dtype=np.int32)
+
+    data["env"] = env
+    data["input_reqs"] = input_reqs
+
+    return data
+
+
+def make(exp_dir, env_config):
+    exp_dir = dfaas_utils.to_pathlib(exp_dir)
+    plots_dir = exp_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    data = _get_data(env_config)
+
+    # Make the plot.
+    fig = plt.figure(figsize=(10, 10), dpi=600, layout="constrained")
+    axs = fig.subplots(nrows=2)
+
+    env = data["env"]
+
+    # Get the upper and lower limits for the y-axis.
+    bottom, top = +np.inf, -np.inf
+    for agent in env.agent_ids:
+        tmp_bottom = env.observation_space[agent]["input_requests"].low[0]
+        if tmp_bottom < bottom:
+            bottom = tmp_bottom
+        tmp_top = env.observation_space[agent]["input_requests"].high[0]
+        if tmp_top > top:
+            top = tmp_top
+    bottom -= 10  # Add a bit of space.
+    top += 10
+
+    idx = 0
+    for agent in env.agent_ids:
+        axs[idx].plot(env.input_requests[agent], label=agent)
+        idx += 1
+
+    # Common settings for the plots.
+    for ax in axs.flat:
+        ax.set_title("Input requests")
+
+        ax.set_xlabel("Step")
+        ax.set_xticks(np.arange(stop=env.max_steps+1, step=10))
+
+        ax.set_ylabel("Requests")
+        ax.set_ylim(bottom=bottom, top=top)
+        ax.set_yticks(np.arange(start=bottom, stop=top+1, step=10))
+
+        ax.grid(axis="both")
+        ax.set_axisbelow(True)  # By default the axis is over the content.
+
+        ax.legend()
+
+    # Save the plot.
+    path = plots_dir / "dfaas_env_requests.pdf"
+    fig.savefig(path)
+    plt.close(fig)
+    print(f"{path.as_posix()!r}")
 
 
 if __name__ == "__main__":
@@ -152,12 +216,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Create the folders.
-    plots_dir = Path(args.experiment_directory, "plots")
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
     # Get the environment config.
     config_path = Path(args.experiment_directory, "env_config.json")
     config = dfaas_utils.json_to_dict(config_path)
 
-    make(plots_dir, config)
+    make(args.experiment_directory, config)
