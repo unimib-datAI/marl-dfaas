@@ -136,9 +136,9 @@ def make(plots_dir, env_config):
 '''
 
 
-def _get_data(env_config):
+def _get_data(env_config, seed):
     env = DFaaS(config=env_config)
-    env.reset()
+    env.reset(options={"override_seed": seed})
 
     data = {}
 
@@ -152,15 +152,16 @@ def _get_data(env_config):
     return data
 
 
-def make(exp_dir, env_config):
+def make(exp_dir, env_config, seed):
     exp_dir = dfaas_utils.to_pathlib(exp_dir)
     plots_dir = exp_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    data = _get_data(env_config)
+    data = _get_data(env_config, seed)
 
     # Make the plot.
     fig = plt.figure(figsize=(10, 10), dpi=600, layout="constrained")
+    fig.suptitle(f"DFaaS seed {seed}")
     axs = fig.subplots(nrows=2)
 
     env = data["env"]
@@ -199,7 +200,7 @@ def make(exp_dir, env_config):
         ax.legend()
 
     # Save the plot.
-    path = plots_dir / "dfaas_env_requests.pdf"
+    path = plots_dir / f"dfaas_env_requests_{seed}.pdf"
     fig.savefig(path)
     plt.close(fig)
     print(f"{path.as_posix()!r}")
@@ -213,6 +214,9 @@ if __name__ == "__main__":
 
     parser.add_argument(dest="experiment_directory",
                         help="DFaaS experiment directory")
+    parser.add_argument(dest="seed",
+                        help="Seed of the environment",
+                        type=int)
 
     args = parser.parse_args()
 
@@ -220,4 +224,4 @@ if __name__ == "__main__":
     config_path = Path(args.experiment_directory, "env_config.json")
     config = dfaas_utils.json_to_dict(config_path)
 
-    make(args.experiment_directory, config)
+    make(args.experiment_directory, config, args.seed)
