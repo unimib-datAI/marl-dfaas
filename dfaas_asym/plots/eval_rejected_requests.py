@@ -76,7 +76,12 @@ def make(exp_dir):
         axs[idx].bar(x=steps_x, height=data[agent]["reject_ratio"], label=agent)
 
         avg_line = np.full(data["episodes"], data[agent]["reject_ratio_avg"])
-        axs[idx].plot(avg_line, linewidth=3, color="r", label="Average")
+        axs[idx].plot(avg_line, linewidth=2, color="r", label="Average")
+
+        # Draw the average number directly above the average curve.
+        axs[idx].annotate(f'{data[agent]["reject_ratio_avg"]:.2f}%',
+                          (0, data[agent]["reject_ratio_avg"] + 1),
+                          bbox={"boxstyle": "square", "alpha": .7, "facecolor": "white"})
 
         axs[idx].set_title(f"Total rejected requests ({agent})")
 
