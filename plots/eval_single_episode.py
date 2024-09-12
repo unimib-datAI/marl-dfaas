@@ -16,13 +16,95 @@ import matplotlib.ticker
 sys.path.append(os.getcwd())
 
 import dfaas_utils
-from dfaas_asym.env import DFaaS
+from dfaas_sym.env import DFaaS
 
 
 def _get_agents():
     """Returns the agent IDs from the given list of iterations. Assumes at least
     one iteration and one episode for iteration."""
     return ["node_0", "node_1"]
+
+
+def _calc_excess_reject_step(action, excess, queue_capacity):
+    """Returns the number of excess rejected requests for a single step for a
+    generic agent, using the given action, excess, and queue capacity. This is a
+    helper function that is used in calc_excess_reject().
+
+    The arguments are:
+
+        - action: a tuple of three sizes with the requests to locally process,
+          forward, and reject,
+
+        - excess: a tuple of length two with the excess number of locally
+          processed requests and forwarded rejected requests,
+
+        - queue_capacity: the queue capacity of the agent.
+    """
+    local, forward, reject = action
+    excess_local, forward_reject = excess
+
+    free_slots = queue_capacity - local
+    if free_slots < 0:
+        # There is a over-local processing.
+        assert excess_local == -free_slots, f"Expected equal, found {excess_local} != {-free_slots}"
+        excess_reject = 0
+    elif free_slots >= reject:
+        # All rejected requests could have been processed locally.
+        excess_reject = reject
+    else:
+        # Some rejected requests could have been processed locally.
+        excess_reject = reject - (reject - free_slots)
+    reject -= excess_reject
+
+    if forward_reject == 0:
+        # All forwarded requests were not rejected. This means that the policy
+        # may have forwarded more requests instead of rejecting them
+        # immediately.
+        excess_reject += reject
+
+    return excess_reject
+
+
+def calc_excess_reject(episode_data, agent, epi_idx):
+    """Returns the number of excess rejected requests (requests that could have
+    been forwarded or processed locally) for each step.
+
+    The number is calculated for the given agent in each step.
+
+    TODO: This function should not exist, the environment should provide this
+    value."""
+    input_reqs = episode_data["observation_input_requests"][epi_idx][agent]
+    queue_capacity = episode_data["observation_queue_capacity"][epi_idx][agent]
+    local_reqs = episode_data["action_local"][epi_idx][agent]
+    reject_reqs = episode_data["action_reject"][epi_idx][agent]
+    excess_local = episode_data["excess_local"][epi_idx][agent]
+
+    if agent == "node_0":
+        forward_reqs = episode_data["action_forward"][epi_idx][agent]
+        excess_forward_reject = episode_data["excess_forward_reject"][epi_idx][agent]
+    else:
+        steps = len(input_reqs)
+        forward_reqs = np.zeros(steps, dtype=np.int32)
+        excess_forward_reject = np.zeros(steps, dtype=np.int32)
+
+    excess_reject = np.zeros(len(input_reqs), dtype=np.int32)
+    for step in range(len(input_reqs)):
+        action = (local_reqs[step], forward_reqs[step], reject_reqs[step])
+        excess = (excess_local[step], excess_forward_reject[step])
+
+        excess_reject[step] = _calc_excess_reject_step(action,
+                                                       excess,
+                                                       queue_capacity[step])
+
+    return excess_reject
+
+
+def _get_excess_reject(iter, epi_idx):
+    excess = {}
+    excess["node_0"] = calc_excess_reject(iter["hist_stats"], "node_0", epi_idx)
+    excess["node_1"] = calc_excess_reject(iter["hist_stats"], "node_1", epi_idx)
+
+    return excess
 
 
 def _get_forward_capacity(iter, epi_idx):
@@ -56,7 +138,11 @@ def _get_data(exp_dir, episode_idx):
 
     # Read data from experiment directory.
     iters = dfaas_utils.parse_result_file(exp_dir / "final_evaluation.json")
-    metrics = dfaas_utils.json_to_dict(exp_dir / "metrics-final_evaluation.json")
+
+    # Commented because it is not ready. The reject_excess_per_step is
+    # calculated on the fly.
+    # metrics = dfaas_utils.json_to_dict(exp_dir / "metrics-final_evaluation.json")
+
     agents = _get_agents()
 
     # Get only a specific iteration (the only one).
@@ -72,9 +158,16 @@ def _get_data(exp_dir, episode_idx):
     action_reject = iter["hist_stats"]["action_reject"][episode_idx]
     excess_local = iter["hist_stats"]["excess_local"][episode_idx]
     forward_reject = iter["hist_stats"]["excess_forward_reject"][episode_idx]
-    excess_reject = metrics["reject_excess_per_step"][episode_idx]
+    excess_reject = _get_excess_reject(iter, episode_idx)
     reward = iter["hist_stats"]["reward"][episode_idx]
     steps = iter["hist_stats"]["episode_lengths"][0]
+
+    for agent in agents:
+        if len(action_forward[agent]) == 0:
+            # The data given is from an asymmetric environment. Fix the values
+            # by setting an array of zero values.
+            action_forward[agent] = np.zeros(steps, dtype=np.int32)
+            forward_reject[agent] = np.zeros(steps, dtype=np.int32)
 
     # Get the reward range from the environment.
     reward_range = DFaaS().reward_range
@@ -98,12 +191,8 @@ def _get_data(exp_dir, episode_idx):
         data["excess_local"][agent] = np.array(excess_local[agent], dtype=np.int32)
         data["excess_reject"][agent] = np.array(excess_reject[agent], dtype=np.int32)
 
-        if agent == "node_0":
-            data["action_forward"][agent] = np.array(action_forward[agent], dtype=np.int32)
-            data["forward_reject"][agent] = np.array(forward_reject[agent], dtype=np.int32)
-        else:
-            data["action_forward"][agent] = np.zeros(steps, dtype=np.int32)
-            data["forward_reject"][agent] = np.zeros(steps, dtype=np.int32)
+        data["action_forward"][agent] = np.array(action_forward[agent], dtype=np.int32)
+        data["forward_reject"][agent] = np.array(forward_reject[agent], dtype=np.int32)
 
     data["reward"] = reward
     data["reward_range"] = reward_range
@@ -135,8 +224,7 @@ def make(exp_dir, episode_idx):
 
         axs[0, idx].bar(x=steps_x, height=local, label="Local")
         axs[0, idx].bar(x=steps_x, height=reject, label="Reject", bottom=local)
-        if agent == "node_0":
-            axs[0, idx].bar(x=steps_x, height=forward, label="Forward", bottom=local+reject)
+        axs[0, idx].bar(x=steps_x, height=forward, label="Forward", bottom=local+reject)
         axs[0, idx].plot(data["input_requests"][agent], linewidth=3, color="r", label="Input requests")
         axs[0, idx].set_title(f"Action ({agent})")
         axs[0, idx].set_ylabel("Requests")
