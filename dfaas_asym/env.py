@@ -12,6 +12,7 @@ from ray.rllib.algorithms.callbacks import DefaultCallbacks
 # experiment directory.
 prefix = "ASYM"
 
+
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
@@ -593,17 +594,16 @@ class DFaaS(MultiAgentEnv):
         Returns a dictionary whose keys are the agent IDs and whose value is an
         np.ndarray containing the input requests for each step."""
         average_requests = 100
-        period = 50
         amplitude_requests = 50
         noise_ratio = .1
 
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            # TODO: do not directly check the value of the agent ID.
-            fn = np.sin if agent == "node_0" else np.cos
+            period = self.rng.integers(15, high=75, endpoint=True)
+            shift = self.rng.integers(low=-1, high=1, endpoint=True)
 
-            base_input = average_requests + amplitude_requests * fn(2 * np.pi * steps / period)
+            base_input = average_requests + amplitude_requests * np.sin((2 * np.pi * steps / period) + shift)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
