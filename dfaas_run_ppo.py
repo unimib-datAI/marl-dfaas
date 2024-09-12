@@ -3,12 +3,12 @@ import shutil
 from datetime import datetime
 import logging
 import argparse
-import importlib
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
 
 import dfaas_utils
+import dfaas_env
 
 # Disable Ray's warnings.
 import warnings
@@ -18,29 +18,33 @@ parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
 parser.add_argument(dest="env", help="DFaaS environment to train")
 args = parser.parse_args()
 
-# Dynamically load the environment for training. An example is "dfaas_sym.env".
-try:
-    dfaas_env = importlib.import_module(args.env)
-except ModuleNotFoundError:
-    print(f"Unsupported given environment {args.env!r}")
-    exit(1)
-
 # Initialize logger for this module.
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(Path(__file__).name)
 
+# Try to load the given environment class from the dfaas_env module.
+try:
+    DFaaS = getattr(dfaas_env, args.env)
+    logger.info(f"Environment {DFaaS.__name__!r} loaded")
+except AttributeError:
+    logger.error(f"Environment {args.env!r} not found in dfaas_env.py")
+    exit(1)
+
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 2  # Number of iterations.
+              "max_iterations": 200,  # Number of iterations.
+              "env": DFaaS.__name__  # Environment.
               }
+logger.info(f"Experiment configuration = {exp_config}")
 
 # Env configuration.
 env_config = {}
 env_config["seed"] = exp_config["seed"]
+logger.info(f"Environment configuration = {env_config}")
 
 # Create a dummy environment, used to get observation and action spaces.
-dummy_env = dfaas_env.DFaaS(config=env_config)
+dummy_env = DFaaS(config=env_config)
 
 # PolicySpec is required to specify the action/observation space for each
 # policy. Because each agent in the env has different action and observation
@@ -73,7 +77,7 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 
 # Algorithm config.
 ppo_config = (PPOConfig()
-              .environment(env="DFaaS", env_config=env_config)
+              .environment(env=DFaaS.__name__, env_config=env_config)
               .framework("torch")
               .rollouts(num_rollout_workers=0)  # Only a local worker.
               .evaluation(evaluation_interval=None)
@@ -141,7 +145,7 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 Path(logdir / "progress.csv").unlink()
 
 # Move the original experiment directory to a custom directory.
-exp_name = f"DFAAS-MA_{dfaas_env.prefix}_{start}_reward_fix"
+exp_name = f"DFAAS-MA_{DFaaS.type}_{start}_variable_period"
 result_dir = Path.cwd() / "results" / exp_name
 shutil.move(logdir, result_dir.resolve())
 logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
