@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # required to load modules in the project root directory (like dfaas_utils.py).
 sys.path.append(os.getcwd())
 
-from dfaas_asym.env import DFaaS
+import dfaas_env
 import dfaas_utils
 
 ''' Old code
@@ -136,7 +136,15 @@ def make(plots_dir, env_config):
 '''
 
 
-def _get_data(env_config, seed):
+def _get_data(exp_dir, seed):
+    # Get the environment class.
+    exp_config = dfaas_utils.json_to_dict(exp_dir / "exp_config.json")
+    env_name = exp_config["env"]
+    DFaaS = getattr(dfaas_env, env_name)
+
+    # Get the environment config.
+    env_config = dfaas_utils.json_to_dict(exp_dir / "env_config.json")
+
     env = DFaaS(config=env_config)
     env.reset(options={"override_seed": seed})
 
@@ -152,12 +160,11 @@ def _get_data(env_config, seed):
     return data
 
 
-def make(exp_dir, env_config, seed):
-    exp_dir = dfaas_utils.to_pathlib(exp_dir)
+def make(exp_dir, seed):
     plots_dir = exp_dir / "plots"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    data = _get_data(env_config, seed)
+    data = _get_data(exp_dir, seed)
 
     # Make the plot.
     fig = plt.figure(figsize=(10, 10), dpi=600, layout="constrained")
@@ -220,8 +227,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Get the environment config.
-    config_path = Path(args.experiment_directory, "env_config.json")
-    config = dfaas_utils.json_to_dict(config_path)
-
-    make(args.experiment_directory, config, args.seed)
+    make(Path(args.experiment_directory), args.seed)
