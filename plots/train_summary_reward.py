@@ -1,21 +1,17 @@
 # This Python script generates a graph showing the metrics related to the reward
 # of the the training phase.
+import sys
+import os
+import argparse
+
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker
 
-if __name__ == "__main__":
-    import sys
-    import os
-    import argparse
-    import matplotlib
-
-    # Add the current directory (where Python is called) to sys.path. This
-    # assumes this script is called in the project root directory, not inside
-    # the directory where the script is.
-    #
-    # Required when calling this module directly as main.
-    sys.path.append(os.getcwd())
+# Add the current directory (where Python is called) to sys.path. This is
+# required to load modules in the project root directory (like dfaas_utils.py).
+sys.path.append(os.getcwd())
 
 import dfaas_utils
 

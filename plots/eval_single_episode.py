@@ -16,7 +16,7 @@ import matplotlib.ticker
 sys.path.append(os.getcwd())
 
 import dfaas_utils
-from dfaas_sym.env import DFaaS
+import dfaas_env
 
 
 def _get_agents():
@@ -168,6 +168,11 @@ def _get_data(exp_dir, episode_idx):
             # by setting an array of zero values.
             action_forward[agent] = np.zeros(steps, dtype=np.int32)
             forward_reject[agent] = np.zeros(steps, dtype=np.int32)
+
+    # Get the environment class.
+    exp_config = dfaas_utils.json_to_dict(exp_dir / "exp_config.json")
+    env_name = exp_config["env"]
+    DFaaS = getattr(dfaas_env, env_name)
 
     # Get the reward range from the environment.
     reward_range = DFaaS().reward_range
