@@ -110,12 +110,19 @@ def calc_excess_reject(episode_data, agent, epi_idx):
     local_reqs = episode_data["action_local"][epi_idx][agent]
     reject_reqs = episode_data["action_reject"][epi_idx][agent]
     excess_local = episode_data["excess_local"][epi_idx][agent]
+    steps = len(input_reqs)
 
     forward_reqs = episode_data["action_forward"][epi_idx][agent]
     excess_forward_reject = episode_data["excess_forward_reject"][epi_idx][agent]
 
-    excess_reject = np.zeros(len(input_reqs), dtype=np.int32)
-    for step in range(len(input_reqs)):
+    if len(forward_reqs) == 0:
+        # If it is zero, we have an asymmetric environment: create zero arrays
+        # to be compatible with the metrics calculation.
+        forward_reqs = np.zeros(steps, dtype=np.int32)
+        excess_forward_reject = np.zeros(steps, dtype=np.int32)
+
+    excess_reject = np.zeros(steps, dtype=np.int32)
+    for step in range(steps):
         action = (local_reqs[step], forward_reqs[step], reject_reqs[step])
         excess = (excess_local[step], excess_forward_reject[step])
 
@@ -169,8 +176,13 @@ def reqs_exceed_per_step(iters, metrics):
                 # Forwarded requests.
                 forward_reject = np.array(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
                 action_forward = np.array(iter["hist_stats"]["action_forward"][epi_idx][agent], dtype=np.int32)
-                forward_reject_epi[agent] = forward_reject * 100 / action_forward
-                forward_reject_epi[agent] = np.nan_to_num(forward_reject_epi[agent], posinf=0.0, neginf=0.0)
+                if len(forward_reject) == 0:
+                    # If it is zero, we have an asymmetric environment, this
+                    # metric is useless for this agent.
+                    forward_reject_epi[agent] = 0
+                else:
+                    forward_reject_epi[agent] = forward_reject * 100 / action_forward
+                    forward_reject_epi[agent] = np.nan_to_num(forward_reject_epi[agent], posinf=0.0, neginf=0.0)
 
             local_iter.append(local_epi)
             reject_iter.append(reject_epi)
