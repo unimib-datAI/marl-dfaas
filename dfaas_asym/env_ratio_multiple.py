@@ -48,6 +48,11 @@ class DFaaS(MultiAgentEnv):
             "node_1": Simplex(shape=(2,))
             })
 
+        # Number of latest steps to return in the observation space (the ratio
+        # of forwarded but rejected requests).
+        self.forward_reject_steps = config.get("forward_reject_steps", 3)
+        assert self.forward_reject_steps >= 1, f"forward_reject_steps must be positive, found {self.forward_reject_steps}"
+
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict({
             "node_0": gym.spaces.Dict({
@@ -57,11 +62,8 @@ class DFaaS(MultiAgentEnv):
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
 
-                # Number of forwarded requests in the previous step.
-                "forwarded_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
-
-                # Number of forwarded rejected requests in the previous step.
-                "forward_reject": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                # Ratio of forwarded but rejected requests in the previous steps.
+                "forward_reject": gym.spaces.Box(low=0, high=1, shape=(self.forward_reject_steps,))
                  }),
 
             "node_1": gym.spaces.Dict({
@@ -125,6 +127,11 @@ class DFaaS(MultiAgentEnv):
         # dictionary. It is None in reset() because there is no action and
         # reward in this step.
         self.last_info = None
+
+        # This variable is used to store the most recent ratios of forwarded but
+        # rejected requests used to build the observation dictionary for the
+        # current step.
+        self.last_forward_reject_ratios = np.zeros(self.forward_reject_steps, dtype=np.float32)
 
         obs = self._build_observation()
         self.last_obs = obs
@@ -215,14 +222,19 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-        if self.last_info is None:
-            last_forward_reqs = 0
-            last_forward_reject = 0
-        else:
-            last_forward_reqs = self.last_info["action"]["node_0"][1]
-            last_forward_reject = self.last_info["workload"]["node_0"]["forward_reject"]
-        obs["node_0"]["forwarded_requests"] = np.array([last_forward_reqs], dtype=np.int32)
-        obs["node_0"]["forward_reject"] = np.array([last_forward_reject], dtype=np.int32)
+        # Shift the last saved ratios to the left. The first slot must be zeroed
+        # because it is the current ratio for this step.
+        self.last_forward_reject_ratios = np.roll(self.last_forward_reject_ratios, 1)
+        self.last_forward_reject_ratios[0] = 0
+
+        if self.last_info is not None:
+            forward_reqs = self.last_info["action"]["node_0"][1]
+            forward_reject = self.last_info["workload"]["node_0"]["forward_reject"]
+
+            if forward_reject > 0:
+                self.last_forward_reject_ratios[0] = forward_reject / forward_reqs
+
+        obs["node_0"]["forward_reject"] = self.last_forward_reject_ratios
 
         return obs
 
@@ -599,16 +611,17 @@ class DFaaS(MultiAgentEnv):
         Returns a dictionary whose keys are the agent IDs and whose value is an
         np.ndarray containing the input requests for each step."""
         average_requests = 100
+        period = 50
         amplitude_requests = 50
         noise_ratio = .1
 
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            period = self.rng.integers(15, high=75, endpoint=True)
-            shift = self.rng.integers(low=-1, high=1, endpoint=True)
+            # TODO: do not directly check the value of the agent ID.
+            fn = np.sin if agent == "node_0" else np.cos
 
-            base_input = average_requests + amplitude_requests * np.sin((2 * np.pi * steps / period) + shift)
+            base_input = average_requests + amplitude_requests * fn(2 * np.pi * steps / period)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
