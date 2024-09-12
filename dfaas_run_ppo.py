@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
 parser.add_argument(dest="env", help="DFaaS environment to train")
+parser.add_argument(dest="suffix", help="A string to append to experiment directory")
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -145,7 +146,7 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 Path(logdir / "progress.csv").unlink()
 
 # Move the original experiment directory to a custom directory.
-exp_name = f"DFAAS-MA_{DFaaS.type}_{start}_variable_period"
+exp_name = f"DFAAS-MA_{DFaaS.type}_{start}_{args.suffix}"
 result_dir = Path.cwd() / "results" / exp_name
 shutil.move(logdir, result_dir.resolve())
 logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
