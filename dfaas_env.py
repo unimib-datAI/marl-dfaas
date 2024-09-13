@@ -222,6 +222,7 @@ class DFaaS_ASYM(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
+        # Set the ratio of forwarded but rejected requests.
         if self.last_info is None:
             last_forward_reject = 0
         else:
@@ -1367,9 +1368,8 @@ class DFaaS(MultiAgentEnv):
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
 
-                # Number of forwarded requests that have been rejected by the
-                # other agent in the previous step.
-                "forward_reject": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                # Ratio of forwarded rejected requests in the previosus step.
+                "forward_reject": gym.spaces.Box(low=0, high=1)
                  }) for agent in self.agent_ids
             })
 
@@ -1507,11 +1507,18 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
+            # Set the ratio of forwarded but rejected requests.
             if self.last_info is None:
                 last_forward_reject = 0
             else:
-                last_forward_reject = self.last_info["workload"][agent]["forward_reject"]
-            obs[agent]["forward_reject"] = np.array([last_forward_reject], dtype=np.int32)
+                forward_reqs = self.last_info["action"][agent][1]
+                forward_reject = self.last_info["workload"][agent]["forward_reject"]
+
+                if forward_reqs != 0:
+                    last_forward_reject = forward_reject / forward_reqs
+                else:
+                    last_forward_reject = 0
+            obs[agent]["forward_reject"] = np.array([last_forward_reject], dtype=np.float32)
 
         return obs
 
