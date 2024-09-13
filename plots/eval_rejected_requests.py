@@ -24,11 +24,14 @@ def _get_data(exp_dir):
     # Read data from the experiment directory.
     iters = dfaas_utils.parse_result_file(exp_dir / "final_evaluation.json")
     iter = iters[0]["evaluation"]  # There is only one iteration.
-
+    episodes = iter["episodes_this_iter"]
     agents = _get_agents()
 
-    episodes = iter["episodes_this_iter"]
-    data = {agent: {"input_reqs": [], "rejected_reqs": [], "reject_ratio": []} for agent in agents}
+    data = {}
+    for agent in agents:
+        data[agent] = {}
+        data[agent]["reject_ratios"] = np.empty(episodes)
+
     for epi_idx in range(episodes):
         for agent in agents:
             input_reqs = np.sum(iter["hist_stats"]["observation_input_requests"][epi_idx][agent], dtype=np.int32)
@@ -36,19 +39,13 @@ def _get_data(exp_dir):
             excess_local = np.sum(iter["hist_stats"]["excess_local"][epi_idx][agent], dtype=np.int32)
             forward_reject = np.sum(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
 
-            rejected_reqs = action_reject + excess_local
-            if agent == "node_0":
-                rejected_reqs += forward_reject
+            rejected_reqs = action_reject + excess_local + forward_reject
+            reject_ratio = rejected_reqs / input_reqs
 
-            reject_ratio = rejected_reqs / input_reqs * 100
+            data[agent]["reject_ratios"][epi_idx] = reject_ratio
 
-            data[agent]["input_reqs"].append(input_reqs)
-            data[agent]["rejected_reqs"].append(rejected_reqs)
-            data[agent]["reject_ratio"].append(reject_ratio)
-
-    # Average value only for reject ratio.
     for agent in agents:
-        data[agent]["reject_ratio_avg"] = np.average(data[agent]["reject_ratio"])
+        data[agent]["reject_ratio_avg"] = np.average(data[agent]["reject_ratios"])
 
     data["steps"] = iter["episode_len_mean"]
     data["episodes"] = episodes
@@ -73,14 +70,15 @@ def make(exp_dir):
 
     idx = 0
     for agent in _get_agents():
-        axs[idx].bar(x=steps_x, height=data[agent]["reject_ratio"], label=agent)
+        # Note: the ratio is in [0, 1], must be converted to percentual.
+        axs[idx].bar(x=steps_x, height=data[agent]["reject_ratios"] * 100, label=agent)
 
-        avg_line = np.full(data["episodes"], data[agent]["reject_ratio_avg"])
+        avg_line = np.full(data["episodes"], data[agent]["reject_ratio_avg"] * 100)
         axs[idx].plot(avg_line, linewidth=2, color="r", label="Average")
 
         # Draw the average number directly above the average curve.
-        axs[idx].annotate(f'{data[agent]["reject_ratio_avg"]:.2f}%',
-                          (0, data[agent]["reject_ratio_avg"] + 1),
+        axs[idx].annotate(f'{data[agent]["reject_ratio_avg"]:.2%}',
+                          (0, data[agent]["reject_ratio_avg"] * 100 + 1),
                           bbox={"boxstyle": "square", "alpha": .7, "facecolor": "white"})
 
         axs[idx].set_title(f"Total rejected requests ({agent})")
