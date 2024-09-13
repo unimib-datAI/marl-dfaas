@@ -146,7 +146,7 @@ logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json
 Path(logdir / "progress.csv").unlink()
 
 # Move the original experiment directory to a custom directory.
-exp_name = f"DFAAS-MA_{DFaaS.type}_{start}_{args.suffix}"
+exp_name = f"DFAAS-MA_{start}_{DFaaS.type}_{args.suffix}"
 result_dir = Path.cwd() / "results" / exp_name
 shutil.move(logdir, result_dir.resolve())
 logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
