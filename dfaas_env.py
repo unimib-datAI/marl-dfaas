@@ -19,7 +19,7 @@ from ray.rllib.algorithms.callbacks import DefaultCallbacks
 
 class DFaaS_ASYM(MultiAgentEnv):
     # String representing the type of this environment.
-    type = "SYM"
+    type = "ASYM"
 
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
@@ -668,7 +668,7 @@ class DFaaS_ASYM(MultiAgentEnv):
 
 class DFaaS_ASYM_MULTIPLE_RATIO(MultiAgentEnv):
     # String representing the type of this environment.
-    type = "SYM"
+    type = "ASYM"
 
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
