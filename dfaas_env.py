@@ -1892,13 +1892,13 @@ class DFaaSCallbacks(DefaultCallbacks):
             episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
             episode.user_data["reward"][agent].append(info[agent]["reward"])
 
-        # Track forwarded requests only for node_0.
-        episode.user_data["action_forward"]["node_0"].append(info["node_0"]["action"]["forward"])
-        episode.user_data["excess_forward_reject"]["node_0"].append(info["node_0"]["excess"]["forward_reject"])
+            # Track forwarded requests.
+            episode.user_data["action_forward"][agent].append(info[agent]["action"]["forward"])
+            episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_reject"])
 
-        # Track queue status only for node_1.
-        episode.user_data["queue_status_pre_forward"]["node_1"].append(info["node_1"]["queue_status"]["pre_forward"])
-        episode.user_data["queue_status_post_forward"]["node_1"].append(info["node_1"]["queue_status"]["post_forward"])
+            # Track queue status.
+            episode.user_data["queue_status_pre_forward"][agent].append(info[agent]["queue_status"]["pre_forward"])
+            episode.user_data["queue_status_post_forward"][agent].append(info[agent]["queue_status"]["post_forward"])
 
         # If it is the last step, skip the observation because it will not be
         # paired with the next action.
