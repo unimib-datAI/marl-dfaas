@@ -108,7 +108,7 @@ class DFaaS_ASYM(MultiAgentEnv):
             #
             # Using the master seed make sure to generate a reproducible
             # sequence of seeds.
-     self.master_seed = seed
+            self.master_seed = seed
             self.master_rng = np.random.default_rng(seed=self.master_seed)
 
         # Seed used for this episode.

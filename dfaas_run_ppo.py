@@ -17,6 +17,12 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
 parser.add_argument(dest="env", help="DFaaS environment to train")
 parser.add_argument(dest="suffix", help="A string to append to experiment directory")
+parser.add_argument("--rollout-workers",
+                    help="Number of rollout worker to create for parallel sampling",
+                    default=0, dest="workers", type=int)
+parser.add_argument("--use-gpu",
+                    help="Use GPU instead of CPU",
+                    default=False, dest="gpu", action="store_true")
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -35,13 +41,14 @@ except AttributeError:
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
               "max_iterations": 200,  # Number of iterations.
-              "env": DFaaS.__name__  # Environment.
+              "env": DFaaS.__name__,  # Environment.
+              "gpu": args.gpu,
+              "workers": args.workers
               }
 logger.info(f"Experiment configuration = {exp_config}")
 
 # Env configuration.
 env_config = {}
-env_config["seed"] = exp_config["seed"]
 logger.info(f"Environment configuration = {env_config}")
 
 # Create a dummy environment, used to get observation and action spaces.
@@ -80,10 +87,10 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 ppo_config = (PPOConfig()
               .environment(env=DFaaS.__name__, env_config=env_config)
               .framework("torch")
-              .rollouts(num_rollout_workers=0)  # Only a local worker.
+              .rollouts(num_rollout_workers=args.workers, create_env_on_local_worker=True)
               .evaluation(evaluation_interval=None)
               .debugging(seed=exp_config["seed"])
-              .resources(num_gpus=1)
+              .resources(num_gpus=1 if args.gpu else 0)
               .callbacks(dfaas_env.DFaaSCallbacks)
               .multi_agent(policies=policies,
                            policy_mapping_fn=policy_mapping_fn)
