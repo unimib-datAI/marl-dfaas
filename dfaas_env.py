@@ -83,15 +83,6 @@ class DFaaS_ASYM(MultiAgentEnv):
         # Number of steps in the environment.
         self.max_steps = config.get("max_steps", 100)
 
-        # The master seed for the RNG. This is used in each episode (each
-        # "reset()") to create a new RNG that will be used for generating input
-        # requests.
-        #
-        # Using the master seed make sure to generate a reproducible sequence of
-        # seeds.
-        self.master_seed = config.get("seed", 0)
-        self.master_rng = np.random.default_rng(seed=self.master_seed)
-
         super().__init__()
 
     def get_config(self):
@@ -101,7 +92,6 @@ class DFaaS_ASYM(MultiAgentEnv):
         config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
         config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
         config["max_steps"] = self.max_steps
-        config["seed"] = self.master_seed
         return config
 
     def reset(self, *, seed=None, options=None):
@@ -112,7 +102,13 @@ class DFaaS_ASYM(MultiAgentEnv):
         # reset() only when it creates the environment for each rollout worker
         # (and local worker). Each worker has a specific seed.
         if seed is not None:
-            self.master_seed = seed
+            # The master seed for the RNG. This is used in each episode (each
+            # "reset()") to create a new RNG that will be used for generating
+            # input requests.
+            #
+            # Using the master seed make sure to generate a reproducible
+            # sequence of seeds.
+     self.master_seed = seed
             self.master_rng = np.random.default_rng(seed=self.master_seed)
 
         # Seed used for this episode.
@@ -742,15 +738,6 @@ class DFaaS_ASYM_MULTIPLE_RATIO(MultiAgentEnv):
         # Number of steps in the environment.
         self.max_steps = config.get("max_steps", 100)
 
-        # The master seed for the RNG. This is used in each episode (each
-        # "reset()") to create a new RNG that will be used for generating input
-        # requests.
-        #
-        # Using the master seed make sure to generate a reproducible sequence of
-        # seeds.
-        self.master_seed = config.get("seed", 0)
-        self.master_rng = np.random.default_rng(seed=self.master_seed)
-
         super().__init__()
 
     def get_config(self):
@@ -760,7 +747,6 @@ class DFaaS_ASYM_MULTIPLE_RATIO(MultiAgentEnv):
         config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
         config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
         config["max_steps"] = self.max_steps
-        config["seed"] = self.master_seed
         return config
 
     def reset(self, *, seed=None, options=None):
@@ -1390,14 +1376,7 @@ class DFaaS(MultiAgentEnv):
         # Number of steps in the environment.
         self.max_steps = config.get("max_steps", 100)
 
-        # The master seed for the RNG. This is used in each episode (each
-        # "reset()") to create a new RNG that will be used for generating input
-        # requests.
-        #
-        # Using the master seed make sure to generate a reproducible sequence of
-        # seeds.
-        self.master_seed = config.get("seed", 0)
-        self.master_rng = np.random.default_rng(seed=self.master_seed)
+        print(f"ENV CREATED")
 
         super().__init__()
 
@@ -1408,7 +1387,6 @@ class DFaaS(MultiAgentEnv):
         config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
         config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
         config["max_steps"] = self.max_steps
-        config["seed"] = self.master_seed
         return config
 
     def reset(self, *, seed=None, options=None):
@@ -1419,8 +1397,17 @@ class DFaaS(MultiAgentEnv):
         # reset() only when it creates the environment for each rollout worker
         # (and local worker). Each worker has a specific seed.
         if seed is not None:
+            # The master seed for the RNG. This is used in each episode (each
+            # "reset()") to create a new RNG that will be used for generating
+            # input requests.
+            #
+            # Using the master seed make sure to generate a reproducible
+            # sequence of seeds.
             self.master_seed = seed
             self.master_rng = np.random.default_rng(seed=self.master_seed)
+
+        # At least one time the reset() method must be called with a seed.
+        assert getattr(self, "master_seed", None) is not None
 
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
