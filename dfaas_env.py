@@ -108,6 +108,13 @@ class DFaaS_ASYM(MultiAgentEnv):
         # Current step.
         self.current_step = 0
 
+        # If seed is given, overwrite the master seed. Ray will give the seed in
+        # reset() only when it creates the environment for each rollout worker
+        # (and local worker). Each worker has a specific seed.
+        if seed is not None:
+            self.master_seed = seed
+            self.master_rng = np.random.default_rng(seed=self.master_seed)
+
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
             # By default, the seed is generated. But can be overrided (usually
@@ -760,6 +767,13 @@ class DFaaS_ASYM_MULTIPLE_RATIO(MultiAgentEnv):
         # Current step.
         self.current_step = 0
 
+        # If seed is given, overwrite the master seed. Ray will give the seed in
+        # reset() only when it creates the environment for each rollout worker
+        # (and local worker). Each worker has a specific seed.
+        if seed is not None:
+            self.master_seed = seed
+            self.master_rng = np.random.default_rng(seed=self.master_seed)
+
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
             # By default, the seed is generated. But can be overrided (usually
@@ -1400,6 +1414,13 @@ class DFaaS(MultiAgentEnv):
     def reset(self, *, seed=None, options=None):
         # Current step.
         self.current_step = 0
+
+        # If seed is given, overwrite the master seed. Ray will give the seed in
+        # reset() only when it creates the environment for each rollout worker
+        # (and local worker). Each worker has a specific seed.
+        if seed is not None:
+            self.master_seed = seed
+            self.master_rng = np.random.default_rng(seed=self.master_seed)
 
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
