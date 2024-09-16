@@ -14,19 +14,25 @@ def make(output_dir):
     plots_dir = output_dir / "experiment_duration"
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    # Each key is a type of experiment ("gpu" and "no_gpu"). Each value is a
-    # list of 9 entries for each (from 0 rollout workers to 8). Each item is the
+    # Each key is a type of experiment ("gpu" and "cpu"). Each value is a list
+    # of 9 entries for each (from 0 rollout workers to 8). Each item is the
     # number of minutes taken from the corresponding experiment.
     data = {}
     data["gpu"] = [139, 126, 101, 89, 85, 42, 80, 78, 77]
+    data["cpu"] = [301, 227, 201, 188, 188]
 
     # Make the plot.
     fig = plt.figure(dpi=600, layout="constrained")
     ax = fig.subplots()
 
     ax.plot(data["gpu"], label="With GPU", color="g", linewidth=2, marker="o")
+    ax.plot(data["cpu"], label="CPU only", color="b", linewidth=2, marker="o")
 
-    ax.set_title("Experiment duration (24 CPU, 64 GB RAM, Testla T4)")
+    title = "Experiment duration\n" \
+            "Host 24 CPU, 64 GB RAM, Tesla T4 GPU\n" \
+            "Training 200 iterations, 4000 step per iteration, 100 step per episode\n"
+
+    ax.set_title(title)
     ax.set_xlabel("Rollout workers")
     ax.set_ylabel("Minutes")
 
