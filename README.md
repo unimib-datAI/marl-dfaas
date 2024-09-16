@@ -8,6 +8,7 @@ Minimal `requirements.txt` file:
 
 ```
 numpy==1.26.4
+gputil
 ray[rrlib]==2.10.0
 torch
 gymnasium
@@ -29,25 +30,37 @@ To set up the development environment with Fedora:
 
 ```
 $ dnf install python3.10
-$ mkdir ray
-$ cd ray
+$ mkdir dfaas-rl-petriglia
+$ cd dfaas-rl-petriglia
 $ python3.10 -m venv .env
 $ source .env/bin/activate
 $ pip install --requirement requirements.txt
-$ git clone https://github.com/FFede0/RL4CC.git
 ```
 
-The RL4CC module must be installed under `ray/RL4CC` directory. This git
-repository must be on the test branch, it has been tested with the b9146c1
-commit and some additional custom patches.
+## RL4CC
+
+The RL4CC module is optional and is only required for single agent experiments.
+It must be installed in the `dfaas-rl-petriglia/RL4CC` directory:
+
+    $ git clone https://github.com/FFede0/RL4CC.git
+
+This git repository must be on the test branch, it has been tested with the
+b9146c1 commit and some additional custom patches.
 
 The `single-agent` directory contains the code for the single agent version of
 DFaaS workload distribution using reinforcement learning, loosely based on
 Giacomo Pracucci's thesis and code.
 
-Run `make clean` to clean the `results` directory, which stores the experiment
-logs, metrics, results, and plots for each experiment run.
+## Patching Ray
 
-## Patching Ray and RL4CC
+The selected Ray version needs to be patched to fix some unwanted behaviour. The
+patches are collected in the `patches` directory and can be applied using the
+[`patch`](https://www.man7.org/linux/man-pages/man1/patch.1.html) command:
 
-`patch` binary is required. WIP
+    patch -p0 < patches/NAME.patch
+
+The patches have only been tested with Ray 2.10. They only work if the virtual
+environment is named `.env` and the Python version is 3.10.
+
+Note: the `patch` binary is required and is not installed by default in Fedora,
+it can be installed with `dnf install patch`.
