@@ -67,8 +67,12 @@ class DFaaS_ASYM(MultiAgentEnv):
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
 
-                # Ratio of forwarded rejected requests in the previosus step.
-                "forward_reject": gym.spaces.Box(low=0, high=1)
+                # Forwarded requests in the previous step.
+                "last_forward_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+
+                # Forwarded but rejected requests in the previous step. Note
+                # that last_forward_rejects <= last_forward_requests.
+                "last_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32)
                  }),
 
             "node_1": gym.spaces.Dict({
@@ -163,7 +167,7 @@ class DFaaS_ASYM(MultiAgentEnv):
         # Calculate the reward for both agents.
         rewards = {}
         rewards["node_0"] = self._calculate_reward_0_v2(action_0,
-                                                        (info_work["node_0"]["local_excess"], info_work["node_0"]["forward_reject"]),
+                                                        (info_work["node_0"]["local_excess"], info_work["node_0"]["forward_rejects"]),
                                                         (self.queue["node_0"], self.queue_capacity_max["node_0"]))
         rewards["node_1"] = self._calculate_reward_1_v2(action_1,
                                                         (info_work["node_1"]["local_excess"],),
@@ -227,16 +231,13 @@ class DFaaS_ASYM(MultiAgentEnv):
 
         # Set the ratio of forwarded but rejected requests.
         if self.last_info is None:
-            last_forward_reject = 0
+            last_forward_reqs = last_forward_rejects = 0
         else:
-            forward_reqs = self.last_info["action"]["node_0"][1]
-            forward_reject = self.last_info["workload"]["node_0"]["forward_reject"]
+            last_forward_reqs = self.last_info["action"]["node_0"][1]
+            last_forward_rejects = self.last_info["workload"]["node_0"]["forward_rejects"]
 
-            if forward_reject != 0:
-                last_forward_reject = forward_reject / forward_reqs
-            else:
-                last_forward_reject = 0
-        obs["node_0"]["forward_reject"] = np.array([last_forward_reject], dtype=np.float32)
+        obs["node_0"]["last_forward_requests"] = np.array([last_forward_reqs], dtype=np.int32)
+        obs["node_0"]["last_forward_rejects"] = np.array([last_forward_rejects], dtype=np.int32)
 
         return obs
 
@@ -596,13 +597,19 @@ class DFaaS_ASYM(MultiAgentEnv):
         # Local processing for node_0.
         info["node_0"]["local_excess"] = fill_queue("node_0", local_0)
 
+        # There is no incoming forwarded requests for node_0, so save the queue
+        # status with the same value (to be coherent with the symmetric
+        # version).
+        info["node_0"]["queue_status_pre_forward"] = self.queue["node_0"]
+        info["node_0"]["queue_status_post_forward"] = self.queue["node_0"]
+
         # Local processing for node_1. Input requests for node_1 have the
         # priority over the forwarded requests from node_0.
         info["node_1"]["local_excess"] = fill_queue("node_1", local_1)
         info["node_1"]["queue_status_pre_forward"] = self.queue["node_1"]
 
         # Handle now forwarded requests.
-        info["node_0"]["forward_reject"] = fill_queue("node_1", forward_0)
+        info["node_0"]["forward_rejects"] = fill_queue("node_1", forward_0)
         info["node_1"]["queue_status_post_forward"] = self.queue["node_1"]
 
         return info
@@ -649,23 +656,25 @@ class DFaaS_ASYM(MultiAgentEnv):
                     "reject": self.last_info["action"]["node_0"][2]}
             info["node_1"]["action"] = {
                     "local": self.last_info["action"]["node_1"][0],
+                    "forward": 0,  # node_1 cannot forward.
                     "reject": self.last_info["action"]["node_1"][1]}
 
             info["node_0"]["excess"] = {
                     "local_excess": self.last_info["workload"]["node_0"]["local_excess"],
-                    "forward_reject": self.last_info["workload"]["node_0"]["forward_reject"],
+                    "forward_rejects": self.last_info["workload"]["node_0"]["forward_rejects"],
                     }
             info["node_1"]["excess"] = {
                     "local_excess": self.last_info["workload"]["node_1"]["local_excess"],
+                    "forward_rejects": 0  # node_1 cannot forward.
                     }
 
-            info["node_1"]["queue_status"] = {
-                    "pre_forward": self.last_info["workload"]["node_1"]["queue_status_pre_forward"],
-                    "post_forward": self.last_info["workload"]["node_1"]["queue_status_post_forward"]
-                    }
+            for agent in self.agent_ids:
+                info[agent]["queue_status"] = {
+                        "pre_forward": self.last_info["workload"][agent]["queue_status_pre_forward"],
+                        "post_forward": self.last_info["workload"][agent]["queue_status_post_forward"]
+                        }
 
-            info["node_0"]["reward"] = self.last_info["rewards"]["node_0"]
-            info["node_1"]["reward"] = self.last_info["rewards"]["node_1"]
+                info[agent]["reward"] = self.last_info["rewards"][agent]
 
         return info
 
@@ -713,15 +722,19 @@ class DFaaS(MultiAgentEnv):
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
 
-                # Ratio of forwarded rejected requests in the previosus step.
-                "forward_reject": gym.spaces.Box(low=0, high=1)
-                 }) for agent in self.agent_ids
+                # Forwarded requests in the previous step.
+                "last_forward_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+
+                # Forwarded but rejected requests in the previous step. Note
+                # that last_forward_rejects <= last_forward_requests.
+                "last_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                }) for agent in self.agent_ids
             })
 
         # Number of steps in the environment.
         self.max_steps = config.get("max_steps", 100)
 
-        print(f"ENV CREATED")
+        print("ENV CREATED")
 
         super().__init__()
 
@@ -803,7 +816,7 @@ class DFaaS(MultiAgentEnv):
         rewards = {}
         for agent in self.agent_ids:
             rewards[agent] = self._calculate_reward_v2(action[agent],
-                                                       (info_work[agent]["local_excess"], info_work[agent]["forward_reject"]),
+                                                       (info_work[agent]["local_excess"], info_work[agent]["forward_rejects"]),
                                                        (info_work[agent]["queue_status_pre_forward"], self.queue_capacity_max[agent]))
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
@@ -860,18 +873,16 @@ class DFaaS(MultiAgentEnv):
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
-            # Set the ratio of forwarded but rejected requests.
+            # Set the forwarded and forwarded but rejected requests from the
+            # previous step.
             if self.last_info is None:
-                last_forward_reject = 0
+                last_forward_reqs = last_forward_rejects = 0
             else:
-                forward_reqs = self.last_info["action"][agent][1]
-                forward_reject = self.last_info["workload"][agent]["forward_reject"]
+                last_forward_reqs = self.last_info["action"][agent][1]
+                last_forward_rejects = self.last_info["workload"][agent]["forward_rejects"]
 
-                if forward_reqs != 0:
-                    last_forward_reject = forward_reject / forward_reqs
-                else:
-                    last_forward_reject = 0
-            obs[agent]["forward_reject"] = np.array([last_forward_reject], dtype=np.float32)
+            obs[agent]["last_forward_requests"] = np.array([last_forward_reqs], dtype=np.int32)
+            obs[agent]["last_forward_rejects"] = np.array([last_forward_rejects], dtype=np.int32)
 
         return obs
 
@@ -1105,8 +1116,8 @@ class DFaaS(MultiAgentEnv):
 
         # Try to fill the local queues with the forwarded requests provided by
         # the opposing agent.
-        info["node_0"]["forward_reject"] = fill_queue("node_1", forward_0)
-        info["node_1"]["forward_reject"] = fill_queue("node_0", forward_1)
+        info["node_0"]["forward_rejects"] = fill_queue("node_1", forward_0)
+        info["node_1"]["forward_rejects"] = fill_queue("node_0", forward_1)
         info["node_0"]["queue_status_post_forward"] = self.queue["node_0"]
         info["node_1"]["queue_status_post_forward"] = self.queue["node_1"]
 
@@ -1156,7 +1167,7 @@ class DFaaS(MultiAgentEnv):
                         }
                 info[agent]["excess"] = {
                         "local_excess": self.last_info["workload"][agent]["local_excess"],
-                        "forward_reject": self.last_info["workload"][agent]["forward_reject"]
+                        "forward_rejects": self.last_info["workload"][agent]["forward_rejects"]
                         }
                 info[agent]["queue_status"] = {
                     "pre_forward": self.last_info["workload"][agent]["queue_status_pre_forward"],
@@ -1246,7 +1257,7 @@ class DFaaSCallbacks(DefaultCallbacks):
 
             # Track forwarded requests.
             episode.user_data["action_forward"][agent].append(info[agent]["action"]["forward"])
-            episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_reject"])
+            episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_rejects"])
 
             # Track queue status.
             episode.user_data["queue_status_pre_forward"][agent].append(info[agent]["queue_status"]["pre_forward"])
