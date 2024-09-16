@@ -3,3 +3,5 @@ RL4CC
 __pycache__
 results
 *.swp
+*.csv
+*.tar
