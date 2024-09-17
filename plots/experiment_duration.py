@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 def make(output_dir):
-    plots_dir = output_dir / "experiment_duration"
+    plots_dir = output_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     # Each key is a type of experiment ("gpu" and "cpu"). Each value is a list
@@ -19,7 +19,7 @@ def make(output_dir):
     # number of minutes taken from the corresponding experiment.
     data = {}
     data["gpu"] = [139, 126, 101, 89, 85, 42, 80, 78, 77]
-    data["cpu"] = [301, 227, 201, 188, 188]
+    data["cpu"] = [301, 227, 201, 188, 188, 181, 176, 178, 173]
 
     # Make the plot.
     fig = plt.figure(dpi=600, layout="constrained")
