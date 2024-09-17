@@ -19,10 +19,10 @@ parser.add_argument(dest="env", help="DFaaS environment to train")
 parser.add_argument(dest="suffix", help="A string to append to experiment directory")
 parser.add_argument("--rollout-workers",
                     help="Number of rollout worker to create for parallel sampling",
-                    default=0, dest="workers", type=int)
-parser.add_argument("--use-gpu",
-                    help="Use GPU instead of CPU",
-                    default=False, dest="gpu", action="store_true")
+                    default=3, dest="workers", type=int)
+parser.add_argument("--no-gpu",
+                    help="Disable GPU usage",
+                    default=True, dest="gpu", action="store_false")
 args = parser.parse_args()
 
 # Initialize logger for this module.
