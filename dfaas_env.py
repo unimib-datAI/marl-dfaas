@@ -62,7 +62,7 @@ class DFaaS_ASYM(MultiAgentEnv):
         self.observation_space = gym.spaces.Dict({
             "node_0": gym.spaces.Dict({
                 # Number of input requests to process for a single step.
-                "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
+                "input_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
 
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
@@ -620,8 +620,8 @@ class DFaaS_ASYM(MultiAgentEnv):
 
         Returns a dictionary whose keys are the agent IDs and whose value is an
         np.ndarray containing the input requests for each step."""
-        average_requests = 100
-        amplitude_requests = 50
+        average_requests = 80
+        amplitude_requests = 75
         noise_ratio = .1
 
         input_requests = {}
@@ -635,12 +635,17 @@ class DFaaS_ASYM(MultiAgentEnv):
             repeats = 100
             periods = self.rng.uniform(15, high=75, size=unique_periods)
             periods = np.repeat(periods, repeats)  # Expand the single values.
-            np.resize(periods, periods.size + self.max_steps - periods.size)
+            periods = np.resize(periods, periods.size + self.max_steps - periods.size)
 
             base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
-            np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
+
+            # Clip the excess values respecting the minimum and maximum values
+            # for the input requests observation.
+            min = self.observation_space[agent]["input_requests"].low.item()
+            max = self.observation_space[agent]["input_requests"].high.item()
+            np.clip(input_requests[agent], min, max, out=input_requests[agent])
 
         return input_requests
 
@@ -725,7 +730,7 @@ class DFaaS(MultiAgentEnv):
         self.observation_space = gym.spaces.Dict({
             agent: gym.spaces.Dict({
                 # Number of input requests to process for a single step.
-                "input_requests": gym.spaces.Box(low=50, high=150, dtype=np.int32),
+                "input_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
 
                 # Queue capacity (currently a constant).
                 "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
@@ -1135,8 +1140,8 @@ class DFaaS(MultiAgentEnv):
 
         Returns a dictionary whose keys are the agent IDs and whose value is an
         np.ndarray containing the input requests for each step."""
-        average_requests = 100
-        amplitude_requests = 50
+        average_requests = 80
+        amplitude_requests = 75
         noise_ratio = .1
 
         input_requests = {}
@@ -1150,12 +1155,17 @@ class DFaaS(MultiAgentEnv):
             repeats = 100
             periods = self.rng.uniform(15, high=75, size=unique_periods)
             periods = np.repeat(periods, repeats)  # Expand the single values.
-            np.resize(periods, periods.size + self.max_steps - periods.size)
+            periods = np.resize(periods, periods.size + self.max_steps - periods.size)
 
             base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
-            np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
+
+            # Clip the excess values respecting the minimum and maximum values
+            # for the input requests observation.
+            min = self.observation_space[agent]["input_requests"].low.item()
+            max = self.observation_space[agent]["input_requests"].high.item()
+            np.clip(input_requests[agent], min, max, out=input_requests[agent])
 
         return input_requests
 
