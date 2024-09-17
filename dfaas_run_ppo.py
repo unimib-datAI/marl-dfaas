@@ -83,7 +83,7 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
-assert args.rollout_workers <= 3, "Max 3 workers supported because each iteration runs 3 episodes"
+assert args.workers <= 3, "Max 3 workers supported because each iteration runs 3 episodes"
 
 # Algorithm config.
 ppo_config = (PPOConfig()
