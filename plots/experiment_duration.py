@@ -18,7 +18,7 @@ def make(output_dir):
     # of 9 entries for each (from 0 rollout workers to 8). Each item is the
     # number of minutes taken from the corresponding experiment.
     data = {}
-    data["gpu"] = [139, 126, 101, 89, 85, 42, 80, 78, 77]
+    data["gpu"] = [139, 126, 101, 89, 85, 82, 80, 78, 77]
     data["cpu"] = [301, 227, 201, 188, 188, 181, 176, 178, 173]
 
     # Make the plot.
