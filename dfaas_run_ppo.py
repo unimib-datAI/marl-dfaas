@@ -83,12 +83,15 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
+assert args.rollout_workers <= 3, "Max 3 workers supported because each iteration runs 3 episodes"
+
 # Algorithm config.
 ppo_config = (PPOConfig()
               .environment(env=DFaaS.__name__, env_config=env_config)
+              .training(train_batch_size=4200)
               .framework("torch")
               .rollouts(num_rollout_workers=args.workers, create_env_on_local_worker=True)
-              .evaluation(evaluation_interval=None)
+              .evaluation(evaluation_interval=None, evaluation_duration=5)
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1 if args.gpu else 0)
               .callbacks(dfaas_env.DFaaSCallbacks)
