@@ -146,7 +146,8 @@ def _get_data(exp_dir, seed):
     env_config = dfaas_utils.json_to_dict(exp_dir / "env_config.json")
 
     env = DFaaS(config=env_config)
-    env.reset(options={"override_seed": seed})
+    # Note that the seed argument is ignored because of "override_seed".
+    env.reset(seed=seed, options={"override_seed": seed})
 
     data = {}
 
@@ -167,7 +168,7 @@ def make(exp_dir, seed):
     data = _get_data(exp_dir, seed)
 
     # Make the plot.
-    fig = plt.figure(figsize=(10, 10), dpi=600, layout="constrained")
+    fig = plt.figure(figsize=(25, 10), dpi=600, layout="constrained")
     fig.suptitle(f"DFaaS seed {seed}")
     axs = fig.subplots(nrows=2)
 
@@ -195,7 +196,7 @@ def make(exp_dir, seed):
         ax.set_title("Input requests")
 
         ax.set_xlabel("Step")
-        ax.set_xticks(np.arange(stop=env.max_steps+1, step=10))
+        ax.set_xticks(np.arange(stop=env.max_steps+1, step=50))
 
         ax.set_ylabel("Requests")
         ax.set_ylim(bottom=bottom, top=top)

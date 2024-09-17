@@ -84,8 +84,9 @@ class DFaaS_ASYM(MultiAgentEnv):
                 })
             })
 
-        # Number of steps in the environment.
-        self.max_steps = config.get("max_steps", 100)
+        # Number of steps in the environment. The default is one step for every
+        # minute of a 24-hour day.
+        self.max_steps = config.get("max_steps", 1400)
 
         super().__init__()
 
@@ -626,10 +627,17 @@ class DFaaS_ASYM(MultiAgentEnv):
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            period = self.rng.integers(15, high=75, endpoint=True)
-            shift = self.rng.integers(low=-1, high=1, endpoint=True)
+            # The period changes every 100 steps. We first generate the single
+            # periods and expand the array to match the max_steps. If max_steps
+            # is not a multiple of 100, some elements must be appended at the
+            # end, hence the resize call.
+            unique_periods = self.max_steps // 100
+            repeats = 100
+            periods = self.rng.uniform(15, high=75, size=unique_periods)
+            periods = np.repeat(periods, repeats)  # Expand the single values.
+            np.resize(periods, periods.size + self.max_steps - periods.size)
 
-            base_input = average_requests + amplitude_requests * np.sin((2 * np.pi * steps / period) + shift)
+            base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
@@ -731,10 +739,9 @@ class DFaaS(MultiAgentEnv):
                 }) for agent in self.agent_ids
             })
 
-        # Number of steps in the environment.
-        self.max_steps = config.get("max_steps", 100)
-
-        print("ENV CREATED")
+        # Number of steps in the environment. The default is one step for every
+        # minute of a 24-hour day.
+        self.max_steps = config.get("max_steps", 1400)
 
         super().__init__()
 
@@ -1135,10 +1142,17 @@ class DFaaS(MultiAgentEnv):
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            period = self.rng.integers(15, high=75, endpoint=True)
-            shift = self.rng.integers(low=-1, high=1, endpoint=True)
+            # The period changes every 100 steps. We first generate the single
+            # periods and expand the array to match the max_steps. If max_steps
+            # is not a multiple of 100, some elements must be appended at the
+            # end, hence the resize call.
+            unique_periods = self.max_steps // 100
+            repeats = 100
+            periods = self.rng.uniform(15, high=75, size=unique_periods)
+            periods = np.repeat(periods, repeats)  # Expand the single values.
+            np.resize(periods, periods.size + self.max_steps - periods.size)
 
-            base_input = average_requests + amplitude_requests * np.sin((2 * np.pi * steps / period) + shift)
+            base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
             input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
             np.clip(input_requests[agent], 50, 150, out=input_requests[agent])
