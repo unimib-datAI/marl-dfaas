@@ -21,6 +21,18 @@ class DFaaS_ASYM(MultiAgentEnv):
     # String representing the type of this environment.
     type = "ASYM"
 
+    # Keys contained in the additional_info dictionary.
+    info_keys = {"observation_input_requests": np.int32,
+                 "observation_queue_capacity": np.int32,
+                 "action_local": np.int32,
+                 "action_forward": np.int32,
+                 "action_reject": np.int32,
+                 "excess_local": np.int32,
+                 "excess_forward_reject": np.int32,
+                 "queue_status_pre_forward": np.int32,
+                 "queue_status_post_forward": np.int32,
+                 "reward": np.float32}
+
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
         self.agents = 2
@@ -136,16 +148,19 @@ class DFaaS_ASYM(MultiAgentEnv):
         # The queues start empty (max capacity) and can be full.
         self.queue = {agent: 0 for agent in self.agent_ids}
 
-        # This variable is used by _additional_info() to build the info
-        # dictionary. It is None in reset() because there is no action and
-        # reward in this step.
-        self.last_info = None
-
+        self.last_info = None  # Required by _build_observation().
         obs = self._build_observation()
-        self.last_obs = obs
-        info = self._additional_info()
 
-        return obs, info
+        # For each reset() and step() call, the info dictionary is stored in an
+        # attribute and is not returned. The caller can access this attribute
+        # directly (usually at the end of the episode).
+        #
+        # To update the dictionary, a private function is called at the end of
+        # reset() and call().
+        self.additional_info = None
+        self._additional_info(obs)
+
+        return obs, {}
 
     def step(self, action_dict):
         # Action for node_0.
@@ -178,6 +193,7 @@ class DFaaS_ASYM(MultiAgentEnv):
         for agent in self.agent_ids:
             rewards[agent] = float(rewards[agent])
 
+        # Required by _build_observation().
         self.last_info = {
                 "action": {"node_0": action_0, "node_1": action_1},
                 "rewards": rewards,
@@ -208,12 +224,11 @@ class DFaaS_ASYM(MultiAgentEnv):
         else:
             # Return a dummy observation because this is the last step.
             obs = self.observation_space_sample()
-        self.last_obs = obs
 
-        # Create the additional information dictionary.
-        info = self._additional_info()
+        # Update the additional_info dictionary.
+        self._additional_info(obs, self.last_info["action"], rewards, info_work)
 
-        return obs, rewards, terminated, truncated, info
+        return obs, rewards, terminated, truncated, {}
 
     def _build_observation(self):
         """Builds and returns the observation for the current step."""
@@ -652,52 +667,63 @@ class DFaaS_ASYM(MultiAgentEnv):
 
         return input_requests
 
-    def _additional_info(self):
-        """Builds and returns the info dictionary for the current step."""
-        # Each agent has its own additional information dictionary.
-        info = {agent: {} for agent in self.agent_ids}
+    def _additional_info(self, obs, action=None, rewards=None, info_work=None):
+        """Update the additional_info dictionary with the current step."""
+        # Initialize the additional_info dictionary with all the NumPy arrays.
+        if self.additional_info is None:
+            self.additional_info = {}
+            for key in self.info_keys:
+                self.additional_info[key] = {}
+                for agent in self.agent_ids:
+                    self.additional_info[key][agent] = np.empty(self.max_steps, dtype=self.info_keys[key])
 
-        # This special key contains information that is not specific to an
-        # individual agent.
-        info["__common__"] = {"current_step": self.current_step}
-
+        # Update the additional_info dictionary.
         for agent in self.agent_ids:
-            info[agent]["observation"] = self.last_obs[agent]
+            # In the last step, do not write the observation out of bounds.
+            if self.current_step < self.max_steps:
+                self.additional_info["observation_input_requests"][agent][self.current_step] = obs[agent]["input_requests"]
+                self.additional_info["observation_queue_capacity"][agent][self.current_step] = obs[agent]["queue_capacity"]
 
-        # Also save the actions, excess and rewards from the last step.
-        if self.last_info is not None:
-            info["node_0"]["action"] = {
-                    "local": self.last_info["action"]["node_0"][0],
-                    "forward": self.last_info["action"]["node_0"][1],
-                    "reject": self.last_info["action"]["node_0"][2]}
-            info["node_1"]["action"] = {
-                    "local": self.last_info["action"]["node_1"][0],
-                    "forward": 0,  # node_1 cannot forward.
-                    "reject": self.last_info["action"]["node_1"][1]}
+            if self.current_step == 0:
+                # After reset() there is no action, reward and info_work.
+                continue
 
-            info["node_0"]["excess"] = {
-                    "local_excess": self.last_info["workload"]["node_0"]["local_excess"],
-                    "forward_rejects": self.last_info["workload"]["node_0"]["forward_rejects"],
-                    }
-            info["node_1"]["excess"] = {
-                    "local_excess": self.last_info["workload"]["node_1"]["local_excess"],
-                    "forward_rejects": 0  # node_1 cannot forward.
-                    }
+            # These values refer to the previous step, so there is -1.
+            self.additional_info["action_local"][agent][self.current_step-1] = action[agent][0]
+            if agent == "node_0":
+                self.additional_info["action_forward"][agent][self.current_step-1] = action[agent][1]
+                self.additional_info["action_reject"][agent][self.current_step-1] = action[agent][2]
+            else:  # node_1 cannot forward.
+                self.additional_info["action_forward"][agent][self.current_step-1] = 0
+                self.additional_info["action_reject"][agent][self.current_step-1] = action[agent][1]
 
-            for agent in self.agent_ids:
-                info[agent]["queue_status"] = {
-                        "pre_forward": self.last_info["workload"][agent]["queue_status_pre_forward"],
-                        "post_forward": self.last_info["workload"][agent]["queue_status_post_forward"]
-                        }
+            self.additional_info["excess_local"][agent][self.current_step-1] = info_work[agent]["local_excess"]
+            if agent == "node_0":
+                self.additional_info["excess_forward_reject"][agent][self.current_step-1] = info_work[agent]["forward_rejects"]
+            else:
+                self.additional_info["excess_forward_reject"][agent][self.current_step-1] = 0
 
-                info[agent]["reward"] = self.last_info["rewards"][agent]
+            self.additional_info["queue_status_pre_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_pre_forward"]
+            self.additional_info["queue_status_post_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_post_forward"]
 
-        return info
+            self.additional_info["reward"][agent][self.current_step-1] = rewards[agent]
 
 
 class DFaaS(MultiAgentEnv):
     # String representing the type of this environment.
     type = "SYM"
+
+    # Keys contained in the additional_info dictionary.
+    info_keys = {"observation_input_requests": np.int32,
+                 "observation_queue_capacity": np.int32,
+                 "action_local": np.int32,
+                 "action_forward": np.int32,
+                 "action_reject": np.int32,
+                 "excess_local": np.int32,
+                 "excess_forward_reject": np.int32,
+                 "queue_status_pre_forward": np.int32,
+                 "queue_status_post_forward": np.int32,
+                 "reward": np.float32}
 
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
@@ -802,16 +828,19 @@ class DFaaS(MultiAgentEnv):
         # The queues start empty (max capacity) and can be full.
         self.queue = {agent: 0 for agent in self.agent_ids}
 
-        # This variable is used by _additional_info() to build the info
-        # dictionary. It is None in reset() because there is no action and
-        # reward in this step.
-        self.last_info = None
-
+        self.last_info = None  # Required by _build_observation().
         obs = self._build_observation()
-        self.last_obs = obs
-        info = self._additional_info()
 
-        return obs, info
+        # For each reset() and step() call, the info dictionary is stored in an
+        # attribute and is not returned. The caller can access this attribute
+        # directly (usually at the end of the episode).
+        #
+        # To update the dictionary, a private function is called at the end of
+        # reset() and call().
+        self.additional_info = None
+        self._additional_info(obs)
+
+        return obs, {}
 
     def step(self, action_dict):
         action = {}  # Absolute number of requests for each action.
@@ -836,6 +865,7 @@ class DFaaS(MultiAgentEnv):
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
 
+        # Required by _build_observation().
         self.last_info = {
                 "action": action,
                 "rewards": rewards,
@@ -866,12 +896,11 @@ class DFaaS(MultiAgentEnv):
         else:
             # Return a dummy observation because this is the last step.
             obs = self.observation_space_sample()
-        self.last_obs = obs
 
-        # Create the additional information dictionary.
-        info = self._additional_info()
+        # Update the additional_info dictionary.
+        self._additional_info(obs, action, rewards, info_work)
 
-        return obs, rewards, terminated, truncated, info
+        return obs, rewards, terminated, truncated, {}
 
     def _build_observation(self):
         """Builds and returns the observation for the current step."""
@@ -1175,37 +1204,39 @@ class DFaaS(MultiAgentEnv):
 
         return input_requests
 
-    def _additional_info(self):
-        """Builds and returns the info dictionary for the current step."""
-        # Each agent has its own additional information dictionary.
-        info = {agent: {} for agent in self.agent_ids}
+    def _additional_info(self, obs, action=None, rewards=None, info_work=None):
+        """Update the additional_info dictionary with the current step."""
+        # Initialize the additional_info dictionary with all the NumPy arrays.
+        if self.additional_info is None:
+            self.additional_info = {}
+            for key in self.info_keys:
+                self.additional_info[key] = {}
+                for agent in self.agent_ids:
+                    self.additional_info[key][agent] = np.empty(self.max_steps, dtype=self.info_keys[key])
 
-        # This special key contains information that is not specific to an
-        # individual agent.
-        info["__common__"] = {"current_step": self.current_step}
-
+        # Update the additional_info dictionary.
         for agent in self.agent_ids:
-            info[agent]["observation"] = self.last_obs[agent]
+            # In the last step, do not write the observation out of bounds.
+            if self.current_step < self.max_steps:
+                self.additional_info["observation_input_requests"][agent][self.current_step] = obs[agent]["input_requests"]
+                self.additional_info["observation_queue_capacity"][agent][self.current_step] = obs[agent]["queue_capacity"]
 
-        # Also save the actions, excess and rewards from the last step.
-        if self.last_info is not None:
-            for agent in self.agent_ids:
-                info[agent]["action"] = {
-                        "local": self.last_info["action"][agent][0],
-                        "forward": self.last_info["action"][agent][1],
-                        "reject": self.last_info["action"][agent][2]
-                        }
-                info[agent]["excess"] = {
-                        "local_excess": self.last_info["workload"][agent]["local_excess"],
-                        "forward_rejects": self.last_info["workload"][agent]["forward_rejects"]
-                        }
-                info[agent]["queue_status"] = {
-                    "pre_forward": self.last_info["workload"][agent]["queue_status_pre_forward"],
-                    "post_forward": self.last_info["workload"][agent]["queue_status_post_forward"]
-                    }
-                info[agent]["reward"] = self.last_info["rewards"][agent]
+            if self.current_step == 0:
+                # After reset() there is no action, reward and info_work.
+                continue
 
-        return info
+            # These values refer to the previous step, so there is -1.
+            self.additional_info["action_local"][agent][self.current_step-1] = action[agent][0]
+            self.additional_info["action_forward"][agent][self.current_step-1] = action[agent][1]
+            self.additional_info["action_reject"][agent][self.current_step-1] = action[agent][2]
+
+            self.additional_info["excess_local"][agent][self.current_step-1] = info_work[agent]["local_excess"]
+            self.additional_info["excess_forward_reject"][agent][self.current_step-1] = info_work[agent]["forward_rejects"]
+
+            self.additional_info["queue_status_pre_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_pre_forward"]
+            self.additional_info["queue_status_post_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_post_forward"]
+
+            self.additional_info["reward"][agent][self.current_step-1] = rewards[agent]
 
 
 # Register the environments with Ray so that they can be used automatically when
@@ -1238,79 +1269,20 @@ class DFaaSCallbacks(DefaultCallbacks):
         # Save environment seed directly in hist_data.
         episode.hist_data["seed"] = [env.seed]
 
-        # Common keys with one entry for each agent in each step.
-        keys = ["observation_queue_capacity", "observation_input_requests",
-                "action_local", "action_forward", "action_reject",
-                "excess_local", "excess_forward_reject",
-                "queue_status_pre_forward", "queue_status_post_forward",
-                "reward"]
-
-        # Initialize the dictionaries and lists.
-        for key in keys:
-            episode.user_data[key] = {agent: [] for agent in env.agent_ids}
-
-        # The way to get the info data is complicated because of the Ray API.
-        # However, we need to save the first observation because it contains the
-        # initial data.
-        info = env._additional_info()
-
-        # Track common info for all agents.
-        for agent in env.agent_ids:
-            # Note that each element is a np.ndarray of size 1. It must be
-            # unwrapped!
-            episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
-            episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
-
-            # Do not track forward rejects as they are already stored in the
-            # info dictionary at each step. This value is only important for the
-            # current step, because it shows how many forwarded requests were
-            # rejected by the other agent in the last step, not in the future!
-
-    def on_episode_step(self, *, episode, base_env, **kwargs):
-        """Called on each episode step (after the action has been logged).
-
-        Only the episode and base_env keyword arguments are used, other
-        arguments are ignored"""
-        # Make sure this episode is ongoing.
-        assert episode.length > 0, f"'on_episode_step()' callback should not be called right after env reset! {episode.length = }"
-
-        env = base_env.envs[0]
-
-        info = env._additional_info()
-
-        # Track common info for all agents.
-        for agent in env.agent_ids:
-            episode.user_data["action_local"][agent].append(info[agent]["action"]["local"])
-            episode.user_data["action_reject"][agent].append(info[agent]["action"]["reject"])
-            episode.user_data["excess_local"][agent].append(info[agent]["excess"]["local_excess"])
-            episode.user_data["reward"][agent].append(info[agent]["reward"])
-
-            # Track forwarded requests.
-            episode.user_data["action_forward"][agent].append(info[agent]["action"]["forward"])
-            episode.user_data["excess_forward_reject"][agent].append(info[agent]["excess"]["forward_rejects"])
-
-            # Track queue status.
-            episode.user_data["queue_status_pre_forward"][agent].append(info[agent]["queue_status"]["pre_forward"])
-            episode.user_data["queue_status_post_forward"][agent].append(info[agent]["queue_status"]["post_forward"])
-
-        # If it is the last step, skip the observation because it will not be
-        # paired with the next action.
-        if env.current_step < env.max_steps:
-            for agent in env.agent_ids:
-                episode.user_data["observation_queue_capacity"][agent].append(info[agent]["observation"]["queue_capacity"].item())
-                episode.user_data["observation_input_requests"][agent].append(info[agent]["observation"]["input_requests"].item())
-
-    def on_episode_end(self, *, episode, **kwargs):
+    def on_episode_end(self, *, episode, base_env, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
         logged).
 
-        Only the episode keyword arguments is used, other arguments are
-        ignored."""
+        Only the episode and base_env keyword arguments are used, other
+        arguments are ignored."""
+        env = base_env.envs[0]
+        info = env.additional_info
+
         # Note that this has to be a list of length 1 because there can be
         # multiple episodes in a single iteration, so at the end Ray will append
         # the list to a general list for the iteration.
-        for key in episode.user_data.keys():
-            episode.hist_data[key] = [episode.user_data[key]]
+        for key in env.info_keys:
+            episode.hist_data[key] = [info[key]]
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
