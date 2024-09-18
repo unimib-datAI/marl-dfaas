@@ -64,3 +64,10 @@ environment is named `.env` and the Python version is 3.10.
 
 Note: the `patch` binary is required and is not installed by default in Fedora,
 it can be installed with `dnf install patch`.
+
+The patches are created using the standard
+[`diff`](https://www.man7.org/linux/man-pages/man1/diff.1.html) tool:
+
+    diff -Naru .env/.../rllib/example.py .env/.../rllib/example_new.py > patches/NAME.patch
+
+See [this reply](https://unix.stackexchange.com/a/162146) on StackExchange for more information.
