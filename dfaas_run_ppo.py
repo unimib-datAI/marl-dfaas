@@ -17,9 +17,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
 parser.add_argument(dest="env", help="DFaaS environment to train")
 parser.add_argument(dest="suffix", help="A string to append to experiment directory")
-parser.add_argument("--rollout-workers",
-                    help="Number of rollout worker to create for parallel sampling",
-                    default=3, dest="workers", type=int)
 parser.add_argument("--no-gpu",
                     help="Disable GPU usage",
                     default=True, dest="gpu", action="store_false")
@@ -39,13 +36,17 @@ except AttributeError:
     logger.error(f"Environment {args.env!r} not found in dfaas_env.py")
     exit(1)
 
+# The number of rollout workers is fixed to five. This is because 4320 steps are
+# collected in each iteration, 864 from each worker (3 episodes).
+rollout_workers = 5
+
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 200,  # Number of iterations.
+              "max_iterations": 1,  # Number of iterations.
               "env": DFaaS.__name__,  # Environment.
               "gpu": args.gpu,
-              "workers": args.workers
+              "workers": rollout_workers
               }
 logger.info(f"Experiment configuration = {exp_config}")
 
@@ -85,9 +86,6 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
-assert args.workers <= 3, "Max 3 workers supported because each iteration runs 3 episodes"
-
-
 def from_checkpoint():
     # TODO
     env_config = {}
@@ -95,10 +93,11 @@ def from_checkpoint():
     # Algorithm config.
     ppo_config = (PPOConfig()
                   .environment(env=DFaaS.__name__, env_config=env_config)
-                  .training(train_batch_size=4200)
                   .framework("torch")
-                  .rollouts(num_rollout_workers=args.workers, create_env_on_local_worker=True)
-                  .evaluation(evaluation_interval=None, evaluation_duration=1)
+                  .rollouts(num_rollout_workers=0)  # Only evaluate.
+                  .evaluation(evaluation_interval=None,
+                              evaluation_duration=5,
+                              evaluation_num_workers=5)
                   .debugging(seed=exp_config["seed"])
                   .resources(num_gpus=1 if args.gpu else 0)
                   .callbacks(dfaas_env.DFaaSCallbacks)
@@ -131,12 +130,18 @@ def from_checkpoint():
 if args.from_checkpoint is not None:
     from_checkpoint()
 
+assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
+
+# Each rollout worker plays 3 episodes. Since max_steps and rollout_workers are
+# fixed, the result is 4320.
+train_batch_size = 3 * dummy_env.max_steps * rollout_workers
+
 # Algorithm config.
 ppo_config = (PPOConfig()
               .environment(env=DFaaS.__name__, env_config=env_config)
-              .training(train_batch_size=4200)
+              .training(train_batch_size=train_batch_size)
               .framework("torch")
-              .rollouts(num_rollout_workers=args.workers, create_env_on_local_worker=True)
+              .rollouts(num_rollout_workers=rollout_workers, create_env_on_local_worker=True)
               .evaluation(evaluation_interval=None, evaluation_duration=5)
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1 if args.gpu else 0)
