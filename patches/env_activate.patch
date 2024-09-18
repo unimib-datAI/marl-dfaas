@@ -1,0 +1,19 @@
+--- .env/bin/activate	2024-07-31 19:18:14.813772103 +0200
++++ .env/bin/activate_new	2024-09-18 14:48:18.208830744 +0200
+@@ -27,6 +27,8 @@
+         unset _OLD_VIRTUAL_PS1
+     fi
+ 
++    unset RAY_DEDUP_LOGS
++
+     unset VIRTUAL_ENV
+     unset VIRTUAL_ENV_PROMPT
+     if [ ! "${1:-}" = "nondestructive" ] ; then
+@@ -67,3 +69,7 @@
+ if [ -n "${BASH:-}" -o -n "${ZSH_VERSION:-}" ] ; then
+     hash -r 2> /dev/null
+ fi
++
++# Disable Ray log deduplication: I want to see the output of each worker
++# uniquely.
++export RAY_DEDUP_LOGS=0
