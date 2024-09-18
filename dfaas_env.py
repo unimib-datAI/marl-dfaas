@@ -85,8 +85,8 @@ class DFaaS_ASYM(MultiAgentEnv):
             })
 
         # Number of steps in the environment. The default is one step for every
-        # minute of a 24-hour day.
-        self.max_steps = config.get("max_steps", 1400)
+        # 5 minutes of a 24-hour day.
+        self.max_steps = config.get("max_steps", 288)
 
         super().__init__()
 
@@ -623,29 +623,32 @@ class DFaaS_ASYM(MultiAgentEnv):
         average_requests = 80
         amplitude_requests = 75
         noise_ratio = .1
+        unique_periods = 3  # The periods changes 3 times for each episode.
 
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            # The period changes every 100 steps. We first generate the single
-            # periods and expand the array to match the max_steps. If max_steps
-            # is not a multiple of 100, some elements must be appended at the
-            # end, hence the resize call.
-            unique_periods = self.max_steps // 100
-            repeats = 100
+            # Note: with default max_stes, the period changes every 96 steps
+            # (max_steps = 288). We first generate the periods and expand the
+            # array to match the max_steps.  If max_steps is not a multiple of
+            # 96, some elements must be appended at the end, hence the resize
+            # call.
+            repeats = self.max_steps // unique_periods
             periods = self.rng.uniform(15, high=75, size=unique_periods)
             periods = np.repeat(periods, repeats)  # Expand the single values.
             periods = np.resize(periods, periods.size + self.max_steps - periods.size)
 
             base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
-            input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
+            requests = np.asarray(noisy_input, dtype=np.int32)
 
             # Clip the excess values respecting the minimum and maximum values
             # for the input requests observation.
             min = self.observation_space[agent]["input_requests"].low.item()
             max = self.observation_space[agent]["input_requests"].high.item()
-            np.clip(input_requests[agent], min, max, out=input_requests[agent])
+            np.clip(requests, min, max, out=requests)
+
+            input_requests[agent] = requests
 
         return input_requests
 
@@ -745,8 +748,8 @@ class DFaaS(MultiAgentEnv):
             })
 
         # Number of steps in the environment. The default is one step for every
-        # minute of a 24-hour day.
-        self.max_steps = config.get("max_steps", 1400)
+        # 5 minutes of a 24-hour day.
+        self.max_steps = config.get("max_steps", 288)
 
         super().__init__()
 
@@ -1143,29 +1146,32 @@ class DFaaS(MultiAgentEnv):
         average_requests = 80
         amplitude_requests = 75
         noise_ratio = .1
+        unique_periods = 3  # The periods changes 3 times for each episode.
 
         input_requests = {}
         steps = np.arange(self.max_steps)
         for agent in self.agent_ids:
-            # The period changes every 100 steps. We first generate the single
-            # periods and expand the array to match the max_steps. If max_steps
-            # is not a multiple of 100, some elements must be appended at the
-            # end, hence the resize call.
-            unique_periods = self.max_steps // 100
-            repeats = 100
+            # Note: with default max_stes, the period changes every 96 steps
+            # (max_steps = 288). We first generate the periods and expand the
+            # array to match the max_steps.  If max_steps is not a multiple of
+            # 96, some elements must be appended at the end, hence the resize
+            # call.
+            repeats = self.max_steps // unique_periods
             periods = self.rng.uniform(15, high=75, size=unique_periods)
             periods = np.repeat(periods, repeats)  # Expand the single values.
             periods = np.resize(periods, periods.size + self.max_steps - periods.size)
 
             base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
             noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
-            input_requests[agent] = np.asarray(noisy_input, dtype=np.int32)
+            requests = np.asarray(noisy_input, dtype=np.int32)
 
             # Clip the excess values respecting the minimum and maximum values
             # for the input requests observation.
             min = self.observation_space[agent]["input_requests"].low.item()
             max = self.observation_space[agent]["input_requests"].high.item()
-            np.clip(input_requests[agent], min, max, out=input_requests[agent])
+            np.clip(requests, min, max, out=requests)
+
+            input_requests[agent] = requests
 
         return input_requests
 
