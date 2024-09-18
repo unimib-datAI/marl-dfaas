@@ -23,6 +23,8 @@ parser.add_argument("--rollout-workers",
 parser.add_argument("--no-gpu",
                     help="Disable GPU usage",
                     default=True, dest="gpu", action="store_false")
+parser.add_argument("--evaluation-checkpoint",
+                    help="Evaluation checkpoint", dest="from_checkpoint")
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -84,6 +86,50 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 
 
 assert args.workers <= 3, "Max 3 workers supported because each iteration runs 3 episodes"
+
+
+def from_checkpoint():
+    # TODO
+    env_config = {}
+
+    # Algorithm config.
+    ppo_config = (PPOConfig()
+                  .environment(env=DFaaS.__name__, env_config=env_config)
+                  .training(train_batch_size=4200)
+                  .framework("torch")
+                  .rollouts(num_rollout_workers=args.workers, create_env_on_local_worker=True)
+                  .evaluation(evaluation_interval=None, evaluation_duration=1)
+                  .debugging(seed=exp_config["seed"])
+                  .resources(num_gpus=1 if args.gpu else 0)
+                  .callbacks(dfaas_env.DFaaSCallbacks)
+                  .multi_agent(policies=policies,
+                               policy_mapping_fn=policy_mapping_fn)
+                  )
+
+    # Build the experiment.
+    ppo_algo = ppo_config.build()
+
+    ppo_algo.restore(args.from_checkpoint)
+
+    start = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+    logger.info("Evaluation start")
+    evaluation = ppo_algo.evaluate()
+    eval_file = Path(args.from_checkpoint).parent / f"evaluation_{start}.json"
+    dfaas_utils.dict_to_json(evaluation, eval_file)
+    logger.info(f"Evaluation saved to: {eval_file.as_posix()!r}")
+
+    # When running an evaluation, Ray automatically creates an experiment
+    # directory in "~/ray_results". Delete this directory because we saved the
+    # results of the evaluation in the original experiment directory.
+    logdir = Path(ppo_algo.logdir).resolve()
+    shutil.rmtree(logdir)
+
+    exit(0)
+
+
+if args.from_checkpoint is not None:
+    from_checkpoint()
 
 # Algorithm config.
 ppo_config = (PPOConfig()
