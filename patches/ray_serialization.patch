@@ -1,0 +1,16 @@
+--- .env/lib64/python3.10/site-packages/ray/_private/serialization.py	2024-09-18 08:32:54.382704686 +0200
++++ .env/lib64/python3.10/site-packages/ray/_private/serialization_new.py	2024-09-18 08:33:59.818609338 +0200
+@@ -207,6 +207,13 @@
+             )
+ 
+     def _deserialize_pickle5_data(self, data):
++        # It is required to load dfaas_env module otherwise pickle won't load
++        # any checkpoint. The module is located in the project root directory.
++        import os
++        import sys
++        sys.path.append(os.getcwd())
++        import dfaas_env
++
+         try:
+             in_band, buffers = unpack_pickle5_buffers(data)
+             if len(buffers) > 0:
