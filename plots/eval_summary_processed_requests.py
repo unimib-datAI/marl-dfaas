@@ -27,7 +27,9 @@ def _get_data(eval_dir):
 
     data = {}
     for agent in env.agent_ids:
-        data[agent] = {"processed_reqs_ratio": np.empty(episodes)}
+        data[agent] = {"local_reqs_ratio": np.empty(episodes),
+                       "forward_reqs_ratio": np.empty(episodes),
+                       "processed_reqs_ratio": np.empty(episodes)}
 
     data["steps"] = iter["episode_len_mean"]
     data["episodes"] = episodes
@@ -42,14 +44,21 @@ def _get_data(eval_dir):
             excess_local = np.sum(iter["hist_stats"]["excess_local"][epi_idx][agent], dtype=np.int32)
             forward_reject = np.sum(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
 
-            processed_reqs = (action_local - excess_local)
-            processed_reqs += (action_forward - forward_reject)
+            local_reqs = action_local - excess_local
+            local_ratio = local_reqs / input_reqs
 
-            processed_ratio = processed_reqs / input_reqs
+            forward_reqs = action_forward - forward_reject
+            forward_ratio = forward_reqs / input_reqs
 
+            processed_ratio = local_ratio + forward_ratio
+
+            data[agent]["local_reqs_ratio"][epi_idx] = local_ratio
+            data[agent]["forward_reqs_ratio"][epi_idx] = forward_ratio
             data[agent]["processed_reqs_ratio"][epi_idx] = processed_ratio
 
     for agent in env.agent_ids:
+        data[agent]["local_reqs_ratio_avg"] = np.average(data[agent]["local_reqs_ratio"])
+        data[agent]["forward_reqs_ratio_avg"] = np.average(data[agent]["forward_reqs_ratio"])
         data[agent]["processed_reqs_ratio_avg"] = np.average(data[agent]["processed_reqs_ratio"])
 
     return data
@@ -82,7 +91,15 @@ def make(eval_dir):
     idx = 0
     for agent in eval_env.agent_ids:
         # Note: the ratio is in [0, 1], must be converted to percentual.
-        axs[idx].bar(x=steps_x, height=data[agent]["processed_reqs_ratio"] * 100, label=agent)
+        axs[idx].bar(x=steps_x,
+                     height=data[agent]["local_reqs_ratio"] * 100,
+                     color="g",
+                     label="Local")
+        axs[idx].bar(x=steps_x,
+                     height=data[agent]["forward_reqs_ratio"] * 100,
+                     bottom=data[agent]["local_reqs_ratio"] * 100,
+                     color="b",
+                     label="Forward")
 
         avg_line = np.full(data["episodes"], data[agent]["processed_reqs_ratio_avg"] * 100)
         axs[idx].plot(avg_line, linewidth=2, color="r", label="Average")
