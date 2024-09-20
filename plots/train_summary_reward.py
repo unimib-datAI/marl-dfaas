@@ -1,5 +1,6 @@
 # This Python script generates a graph showing the metrics related to the reward
 # of the the training phase.
+from pathlib import Path
 import sys
 import os
 import argparse
@@ -7,19 +8,14 @@ import argparse
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.ticker
+import matplotlib.ticker as ticker
 
 # Add the current directory (where Python is called) to sys.path. This is
 # required to load modules in the project root directory (like dfaas_utils.py).
 sys.path.append(os.getcwd())
 
 import dfaas_utils
-
-
-def _get_agents():
-    """Returns the agent IDs from the given list of iterations. Assumes at least
-    one iteration and one episode for iteration."""
-    return ["node_0", "node_1"]
+import plot_utils
 
 
 def _get_num_episodes(iters):
@@ -37,7 +33,7 @@ def _get_data(exp_dir):
     # Read data from experiment directory.
     iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
     metrics = dfaas_utils.json_to_dict(exp_dir / "metrics-result.json")
-    agents = _get_agents()
+    agents = plot_utils.get_env(exp_dir).agent_ids
     episodes = _get_num_episodes(iters)
 
     # Average total reward per episode for each iteration.
@@ -75,7 +71,6 @@ def _get_data(exp_dir):
             reward_step_avg[agent][iter] = np.average(tmp)
 
     data["agents"] = agents
-    data["iterations"] = len(iters)
     data["reward_total_avg"] = reward_total_avg
     data["reward_step_avg"] = reward_step_avg
 
@@ -83,54 +78,43 @@ def _get_data(exp_dir):
 
 
 def make(exp_dir):
-    exp_dir = dfaas_utils.to_pathlib(exp_dir)
     plots_dir = exp_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(exist_ok=True)
 
     data = _get_data(exp_dir)
+    env = plot_utils.get_env(exp_dir)
 
     fig = plt.figure(figsize=(17, 5), dpi=600, layout="constrained")
     axs = fig.subplots(ncols=2)
 
-    # For the ylim, the total reward for one episode cannot exceed the possible
-    # max and min of one episode. The limits ensure a bit of space for both
-    # bottom and top.
-    #
-    # TODO: extract dynamically the values from the env.
-    bottom = 0.0 - 1
-    top = 100.0 + 1
+    # Limits for the y axis, both for total and single step.
+    bottom, top = env.reward_range
+    bottom_total = bottom * env.max_steps
+    top_total = top * env.max_steps
 
     for agent in data["agents"]:
         axs[0].plot(data["reward_total_avg"][agent], label=agent)
-    axs[0].set_ylim(bottom=bottom, top=top)
+    axs[0].set_ylim(bottom=bottom_total, top=top_total)
     axs[0].set_title("Average total reward per episode")
     axs[0].set_ylabel("Total reward")
-    # Show y-axis ticks every 10 reward points.
-    # TODO: make dynamic.
-    axs[0].set_yticks(np.arange(0, 100+1, 10))
-    axs[0].legend()
+    # Show y-axis ticks every 20 reward points.
+    axs[0].yaxis.set_major_locator(ticker.MultipleLocator(20))
 
     for agent in data["agents"]:
         axs[1].plot(data["reward_step_avg"][agent], label=agent)
-    # Reward range.
-    # TODO: make dynamic.
-    axs[1].set_ylim(bottom=.0-.1, top=1.0+.1)
+    axs[1].set_ylim(bottom=bottom, top=top)
     axs[1].set_title("Average reward per step in an episode")
     axs[1].set_ylabel("Average reward")
     # Show y-axis ticks every .1 reward point.
-    # TODO: make dynamic.
-    axs[1].set_yticks(np.arange(start=.0, stop=1.+.1, step=.1))
-    axs[1].legend()
+    axs[1].yaxis.set_major_locator(ticker.MultipleLocator(.1))
 
     # Common settings for the plots.
     for ax in axs.flat:
+        ax.legend()
+
         ax.set_xlabel("Iteration")
-        # Because the plots shares the x-axis, only the fourth plots will
-        # show the ticks, but I want to write the ticks also for the first
-        # three plots.
-        ax.tick_params(axis="x", labelbottom=True)
         # Show x-axis ticks every 10 iterations.
-        ax.set_xticks(np.arange(0, data["iterations"]+1, 10))
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
 
         ax.grid(axis="both")
         ax.set_axisbelow(True)  # By default the axis is over the content.
@@ -147,9 +131,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(dest="exp_dir",
+    parser.add_argument(dest="experiment_dir",
                         help="DFaaS experiment directory")
 
     args = parser.parse_args()
 
-    make(args.exp_dir)
+    make(Path(args.experiment_dir))
