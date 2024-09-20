@@ -121,9 +121,9 @@ eval_dir = Path(ppo_algo.logdir).resolve() / f"evaluation_{start}_{args.suffix}"
 eval_dir.mkdir()
 
 # Save exp and env configs.
-eval_config_path = eval_dir / "eval_config.json"
-dfaas_utils.dict_to_json(exp_config, eval_config_path)
-logger.info(f"Evaluation configuration saved to: {eval_config_path.as_posix()!r}")
+exp_config_path = eval_dir / "exp_config.json"
+dfaas_utils.dict_to_json(exp_config, exp_config_path)
+logger.info(f"Evaluation configuration saved to: {exp_config_path.as_posix()!r}")
 env_config_path = eval_dir / "env_config.json"
 dfaas_utils.dict_to_json(env_config, env_config_path)
 logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")

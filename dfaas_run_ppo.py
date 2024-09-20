@@ -156,7 +156,7 @@ logger.info(f"Iterations data saved to: {ppo_algo.logdir}/result.json")
 # Do a final evaluation.
 logger.info("Final evaluation start")
 evaluation = ppo_algo.evaluate()
-eval_file = logdir / "final_evaluation.json"
+eval_file = logdir / "evaluation.json"
 dfaas_utils.dict_to_json(evaluation, eval_file)
 logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json")
 
