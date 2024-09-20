@@ -9,12 +9,20 @@
 # This file may contain additional classes for specialized environments and
 # callbacks during experimentation.
 import gymnasium as gym
+import logging
+from pathlib import Path
+
+import pandas as pd
 import numpy as np
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
+
+# Initialize logger for this module.
+logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+_logger = logging.getLogger(Path(__file__).name)
 
 
 class DFaaS_ASYM(MultiAgentEnv):
@@ -100,6 +108,16 @@ class DFaaS_ASYM(MultiAgentEnv):
         # 5 minutes of a 24-hour day.
         self.max_steps = config.get("max_steps", 288)
 
+        # Type of input requests.
+        self.input_requests_type = config.get("input_requests_type", "synthetic")
+        match self.input_requests_type:
+            case "synthetic":
+                pass
+            case "real":
+                assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
+            case _:
+                assert False, f"Unsupported {self.input_requests_type = }"
+
         super().__init__()
 
     def get_config(self):
@@ -109,6 +127,7 @@ class DFaaS_ASYM(MultiAgentEnv):
         config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
         config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
         config["max_steps"] = self.max_steps
+        config["input_requests_type"] = self.input_requests_type
         return config
 
     def reset(self, *, seed=None, options=None):
@@ -142,7 +161,27 @@ class DFaaS_ASYM(MultiAgentEnv):
         self.np_random = self.rng  # Required by the Gymnasium API
 
         # Generate all input requests for the environment.
-        self.input_requests = self._get_input_requests()
+        limits = {}
+        for agent in self.agent_ids:
+            limits[agent] = {
+                    "min": self.observation_space[agent]["input_requests"].low.item(),
+                    "max": self.observation_space[agent]["input_requests"].high.item()
+                    }
+        if self.input_requests_type == "synthetic":
+            self.input_requests = _synthetic_input_requests(self.max_steps,
+                                                            self.agent_ids,
+                                                            limits,
+                                                            self.rng)
+        else:  # "real"
+            retval = _real_input_requests(self.max_steps, self.agent_ids,
+                                          limits, self.rng)
+
+            self.input_requests = retval[0]
+
+            # Special attribute, not returned in the observation: contains the
+            # hashes of the selected input requests. It is used by the
+            # callbacks.
+            self.input_requests_hashes = retval[1]
 
         # Queue state for each agent (number of requests to process locally).
         # The queues start empty (max capacity) and can be full.
@@ -630,43 +669,6 @@ class DFaaS_ASYM(MultiAgentEnv):
 
         return info
 
-    def _get_input_requests(self):
-        """Calculate the input requests for all agents for all steps.
-
-        Returns a dictionary whose keys are the agent IDs and whose value is an
-        np.ndarray containing the input requests for each step."""
-        average_requests = 80
-        amplitude_requests = 75
-        noise_ratio = .1
-        unique_periods = 3  # The periods changes 3 times for each episode.
-
-        input_requests = {}
-        steps = np.arange(self.max_steps)
-        for agent in self.agent_ids:
-            # Note: with default max_stes, the period changes every 96 steps
-            # (max_steps = 288). We first generate the periods and expand the
-            # array to match the max_steps.  If max_steps is not a multiple of
-            # 96, some elements must be appended at the end, hence the resize
-            # call.
-            repeats = self.max_steps // unique_periods
-            periods = self.rng.uniform(15, high=75, size=unique_periods)
-            periods = np.repeat(periods, repeats)  # Expand the single values.
-            periods = np.resize(periods, periods.size + self.max_steps - periods.size)
-
-            base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
-            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
-            requests = np.asarray(noisy_input, dtype=np.int32)
-
-            # Clip the excess values respecting the minimum and maximum values
-            # for the input requests observation.
-            min = self.observation_space[agent]["input_requests"].low.item()
-            max = self.observation_space[agent]["input_requests"].high.item()
-            np.clip(requests, min, max, out=requests)
-
-            input_requests[agent] = requests
-
-        return input_requests
-
     def _additional_info(self, obs, action=None, rewards=None, info_work=None):
         """Update the additional_info dictionary with the current step."""
         # Initialize the additional_info dictionary with all the NumPy arrays.
@@ -777,6 +779,16 @@ class DFaaS(MultiAgentEnv):
         # 5 minutes of a 24-hour day.
         self.max_steps = config.get("max_steps", 288)
 
+        # Type of input requests.
+        self.input_requests_type = config.get("input_requests_type", "synthetic")
+        match self.input_requests_type:
+            case "synthetic":
+                pass
+            case "real":
+                assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
+            case _:
+                assert False, f"Unsupported {self.input_requests_type = }"
+
         super().__init__()
 
     def get_config(self):
@@ -786,6 +798,7 @@ class DFaaS(MultiAgentEnv):
         config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
         config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
         config["max_steps"] = self.max_steps
+        config["input_requests_type"] = self.input_requests_type
         return config
 
     def reset(self, *, seed=None, options=None):
@@ -822,7 +835,27 @@ class DFaaS(MultiAgentEnv):
         self.np_random = self.rng  # Required by the Gymnasium API
 
         # Generate all input requests for the environment.
-        self.input_requests = self._get_input_requests()
+        limits = {}
+        for agent in self.agent_ids:
+            limits[agent] = {
+                    "min": self.observation_space[agent]["input_requests"].low.item(),
+                    "max": self.observation_space[agent]["input_requests"].high.item()
+                    }
+        if self.input_requests_type == "synthetic":
+            self.input_requests = _synthetic_input_requests(self.max_steps,
+                                                            self.agent_ids,
+                                                            limits,
+                                                            self.rng)
+        else:  # "real"
+            retval = _real_input_requests(self.max_steps, self.agent_ids,
+                                          limits, self.rng)
+
+            self.input_requests = retval[0]
+
+            # Special attribute, not returned in the observation: contains the
+            # hashes of the selected input requests. It is used by the
+            # callbacks.
+            self.input_requests_hashes = retval[1]
 
         # Queue state for each agent (number of requests to process locally).
         # The queues start empty (max capacity) and can be full.
@@ -1167,43 +1200,6 @@ class DFaaS(MultiAgentEnv):
 
         return info
 
-    def _get_input_requests(self):
-        """Calculate the input requests for all agents for all steps.
-
-        Returns a dictionary whose keys are the agent IDs and whose value is an
-        np.ndarray containing the input requests for each step."""
-        average_requests = 80
-        amplitude_requests = 75
-        noise_ratio = .1
-        unique_periods = 3  # The periods changes 3 times for each episode.
-
-        input_requests = {}
-        steps = np.arange(self.max_steps)
-        for agent in self.agent_ids:
-            # Note: with default max_stes, the period changes every 96 steps
-            # (max_steps = 288). We first generate the periods and expand the
-            # array to match the max_steps.  If max_steps is not a multiple of
-            # 96, some elements must be appended at the end, hence the resize
-            # call.
-            repeats = self.max_steps // unique_periods
-            periods = self.rng.uniform(15, high=75, size=unique_periods)
-            periods = np.repeat(periods, repeats)  # Expand the single values.
-            periods = np.resize(periods, periods.size + self.max_steps - periods.size)
-
-            base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
-            noisy_input = base_input + noise_ratio * self.rng.normal(0, amplitude_requests, size=self.max_steps)
-            requests = np.asarray(noisy_input, dtype=np.int32)
-
-            # Clip the excess values respecting the minimum and maximum values
-            # for the input requests observation.
-            min = self.observation_space[agent]["input_requests"].low.item()
-            max = self.observation_space[agent]["input_requests"].high.item()
-            np.clip(requests, min, max, out=requests)
-
-            input_requests[agent] = requests
-
-        return input_requests
-
     def _additional_info(self, obs, action=None, rewards=None, info_work=None):
         """Update the additional_info dictionary with the current step."""
         # Initialize the additional_info dictionary with all the NumPy arrays.
@@ -1239,6 +1235,137 @@ class DFaaS(MultiAgentEnv):
             self.additional_info["reward"][agent][self.current_step-1] = rewards[agent]
 
 
+def _synthetic_input_requests(max_steps, agent_ids, limits, rng):
+    """Generates the input requests for the given agents with the given length,
+    clipping the values within the given bounds and using the given rng to
+    generate the synthesized data.
+
+    limits must be a dictionary whose keys are the agent ids, and each agent has
+    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+
+    Returns a dictionary whose keys are the agent IDs and whose value is an
+    np.ndarray containing the input requests for each step."""
+    average_requests = 80
+    amplitude_requests = 75
+    noise_ratio = .1
+    unique_periods = 3  # The periods changes 3 times for each episode.
+
+    input_requests = {}
+    steps = np.arange(max_steps)
+    for agent in agent_ids:
+        # Note: with default max_stes, the period changes every 96 steps
+        # (max_steps = 288). We first generate the periods and expand the
+        # array to match the max_steps.  If max_steps is not a multiple of
+        # 96, some elements must be appended at the end, hence the resize
+        # call.
+        repeats = max_steps // unique_periods
+        periods = rng.uniform(15, high=75, size=unique_periods)
+        periods = np.repeat(periods, repeats)  # Expand the single values.
+        periods = np.resize(periods, periods.size + max_steps - periods.size)
+
+        base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
+        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
+        requests = np.asarray(noisy_input, dtype=np.int32)
+
+        # Clip the excess values respecting the minimum and maximum values
+        # for the input requests observation.
+        min = limits[agent]["min"]
+        max = limits[agent]["max"]
+        np.clip(requests, min, max, out=requests)
+
+        input_requests[agent] = requests
+
+    return input_requests
+
+
+# This list contains all fourteen real input request dataset files as Pandas
+# DataFrame. Each DataFrame has a special attribute "idx", a string that
+# indicates which file was read.
+_real_input_requests_pool = None
+
+
+def _init_real_input_requests_pool():
+    """Initializes the _real_input_requests_pool module variable and reads the
+    record files from a known path. It stops the application if a dataset file
+    cannot be found."""
+    # Generates the file names.
+    total_datasets = 14
+    datasets = []
+    for idx in range(1, total_datasets+1):
+        item = (f"d{idx:02}", f"invocations_per_function_md.anon.http.scaled.selected.d{idx:02}.csv")
+        datasets.append(item)
+
+    # Read each CSV file as a data frame.
+    pool = []
+    for (idx, dataset) in datasets:
+        # Prefer absolute paths.
+        path = (Path.cwd() / "dataset" / "data" / dataset).resolve()
+        if not path.exists():
+            _logger.critical(f"Dataset file not found: {path.as_posix()!r}")
+            raise FileNotFoundError(path)
+
+        frame = pd.read_csv(path)
+        frame.idx = idx  # Special metadata to know the original file.
+
+        pool.append(frame)
+
+    global _real_input_requests_pool
+    _real_input_requests_pool = np.array(pool, dtype=object)
+
+
+def _real_input_requests(max_steps, agent_ids, limits, rng):
+    """Randomly selects a real input request from the pool for each of the given
+    agents.
+
+    Since the steps and values of the real input requests are fixed, if the
+    given values don't respect the fixed values, there will be an assertion
+    error.
+
+    limits must be a dictionary whose keys are the agent ids, and each agent has
+    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+
+    Returns a tuple: the first element is a dictionary whose keys are the agent
+    ids and whose value is a NumPy array containing the input requests for each
+    step, the second element is a dictionary whose keys are the agent ids and
+    whose value is the hash string of the selected function from the pool."""
+    if _real_input_requests_pool is None:
+        _init_real_input_requests_pool()
+
+    # Randomly select a dataframe for each agent. Note: It is important to
+    # avoid choosing the same dataframe to avoid correlations between functions
+    # in one day.
+    dataframes = rng.choice(_real_input_requests_pool, size=len(agent_ids), replace=False)
+    agents = list(agent_ids)  # Make a copy because it will be modified.
+    functions = {}
+    for dataframe in dataframes:
+        row = dataframe.sample(random_state=rng)
+        functions[agents.pop()] = {"dataframe": row, "idx": dataframe.idx}
+
+    # Extract the input requests and function hashes from the dataframe.
+    input_requests, hashes = {}, {}
+    for agent in agent_ids:
+        dataframe = functions[agent]["dataframe"]
+
+        # The new hash is the concatenation of the function hash and the day
+        # (from 01 to 14).
+        hash = f"{dataframe['HashFunction'].item()}-{functions[agent]['idx']}"
+
+        # Get only the columns related to the input requests and convert to a
+        # NumPy array.
+        reqs = dataframe.loc[:, "0":].to_numpy(dtype=np.int32).flatten()
+
+        # Do some sanity checks to avoid nasty bugs.
+        assert reqs.size == max_steps, f"Unsupported given max_steps = {max_steps}"
+        min = limits[agent]["min"]
+        max = limits[agent]["max"]
+        assert np.all(reqs >= min) and np.all(reqs <= max), f"Unsupported limits: {limits[agent]}"
+
+        input_requests[agent] = reqs
+        hashes[agent] = hash
+
+    return input_requests, hashes
+
+
 # Register the environments with Ray so that they can be used automatically when
 # creating experiments.
 def register(env_class):
@@ -1268,6 +1395,12 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         # Save environment seed directly in hist_data.
         episode.hist_data["seed"] = [env.seed]
+
+        # If the environment has real input requests, we need to store the
+        # hashes of all the requests used in the episode (one for each agent) in
+        # order to identify the individual requests.
+        if env.input_requests_type == "real":
+            episode.hist_data["hashes"] = [env.input_requests_hashes]
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
