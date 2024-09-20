@@ -20,8 +20,6 @@ parser.add_argument(dest="suffix", help="A string to append to experiment direct
 parser.add_argument("--no-gpu",
                     help="Disable GPU usage",
                     default=True, dest="gpu", action="store_false")
-parser.add_argument("--evaluation-checkpoint",
-                    help="Evaluation checkpoint", dest="from_checkpoint")
 parser.add_argument("--env-config", help="Environment config file")
 args = parser.parse_args()
 
@@ -89,50 +87,6 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     this case, each agent has a fixed corresponding policy.'''
     return f"policy_{agent_id}"
 
-
-def from_checkpoint():
-    # TODO
-    env_config = {}
-
-    # Algorithm config.
-    ppo_config = (PPOConfig()
-                  .environment(env=DFaaS.__name__, env_config=env_config)
-                  .framework("torch")
-                  .rollouts(num_rollout_workers=0)  # Only evaluate.
-                  .evaluation(evaluation_interval=None,
-                              evaluation_duration=5,
-                              evaluation_num_workers=5)
-                  .debugging(seed=exp_config["seed"])
-                  .resources(num_gpus=1 if args.gpu else 0)
-                  .callbacks(dfaas_env.DFaaSCallbacks)
-                  .multi_agent(policies=policies,
-                               policy_mapping_fn=policy_mapping_fn)
-                  )
-
-    # Build the experiment.
-    ppo_algo = ppo_config.build()
-
-    ppo_algo.restore(args.from_checkpoint)
-
-    start = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
-    logger.info("Evaluation start")
-    evaluation = ppo_algo.evaluate()
-    eval_file = Path(args.from_checkpoint).parent / f"evaluation_{start}.json"
-    dfaas_utils.dict_to_json(evaluation, eval_file)
-    logger.info(f"Evaluation saved to: {eval_file.as_posix()!r}")
-
-    # When running an evaluation, Ray automatically creates an experiment
-    # directory in "~/ray_results". Delete this directory because we saved the
-    # results of the evaluation in the original experiment directory.
-    logdir = Path(ppo_algo.logdir).resolve()
-    shutil.rmtree(logdir)
-
-    exit(0)
-
-
-if args.from_checkpoint is not None:
-    from_checkpoint()
 
 assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
