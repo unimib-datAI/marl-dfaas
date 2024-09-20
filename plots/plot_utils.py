@@ -13,8 +13,9 @@ _matplotlib_logger.setLevel("WARNING")
 logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
 logger = logging.getLogger(Path(__file__).name)
 
-# This module-level variable holds the environment class.
-_env = None
+# This module-level variable holds the environment class. Supports multiple
+# environment.
+_env = dict()
 
 
 def _env_init(exp_dir):
@@ -40,12 +41,12 @@ def _env_init(exp_dir):
 
     # Create the environment with the given env config.
     global _env
-    _env = DFaaS(config=env_config)
+    _env[exp_dir] = DFaaS(config=env_config)
 
 
 def get_env(exp_dir):
     """Returns the environment from the given experiment directory."""
-    if _env is None:
+    if exp_dir not in _env:
         _env_init(exp_dir)
 
-    return _env
+    return _env[exp_dir]
