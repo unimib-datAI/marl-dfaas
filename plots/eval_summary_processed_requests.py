@@ -31,12 +31,19 @@ def _get_data(eval_dir):
                        "forward_reqs_ratio": np.empty(episodes),
                        "processed_reqs_ratio": np.empty(episodes)}
 
+    data["total"] = {"local_reqs_ratio": np.empty(episodes),
+                     "forward_reqs_ratio": np.empty(episodes),
+                     "processed_reqs_ratio": np.empty(episodes)}
+
     data["steps"] = iter["episode_len_mean"]
     data["episodes"] = episodes
 
     for epi_idx in range(episodes):
+        total_input_reqs = total_local_reqs = total_forward_reqs = 0
+
         for agent in env.agent_ids:
             input_reqs = np.sum(iter["hist_stats"]["observation_input_requests"][epi_idx][agent], dtype=np.int32)
+            total_input_reqs += input_reqs
 
             action_local = np.sum(iter["hist_stats"]["action_local"][epi_idx][agent], dtype=np.int32)
             action_forward = np.sum(iter["hist_stats"]["action_forward"][epi_idx][agent], dtype=np.int32)
@@ -45,9 +52,11 @@ def _get_data(eval_dir):
             forward_reject = np.sum(iter["hist_stats"]["excess_forward_reject"][epi_idx][agent], dtype=np.int32)
 
             local_reqs = action_local - excess_local
+            total_local_reqs += local_reqs
             local_ratio = local_reqs / input_reqs
 
             forward_reqs = action_forward - forward_reject
+            total_forward_reqs += forward_reqs
             forward_ratio = forward_reqs / input_reqs
 
             processed_ratio = local_ratio + forward_ratio
@@ -56,10 +65,18 @@ def _get_data(eval_dir):
             data[agent]["forward_reqs_ratio"][epi_idx] = forward_ratio
             data[agent]["processed_reqs_ratio"][epi_idx] = processed_ratio
 
+        data["total"]["local_reqs_ratio"][epi_idx] = total_local_reqs / total_input_reqs
+        data["total"]["forward_reqs_ratio"][epi_idx] = total_forward_reqs / total_input_reqs
+        data["total"]["processed_reqs_ratio"][epi_idx] = (total_local_reqs + total_forward_reqs) / total_input_reqs
+
     for agent in env.agent_ids:
         data[agent]["local_reqs_ratio_avg"] = np.average(data[agent]["local_reqs_ratio"])
         data[agent]["forward_reqs_ratio_avg"] = np.average(data[agent]["forward_reqs_ratio"])
         data[agent]["processed_reqs_ratio_avg"] = np.average(data[agent]["processed_reqs_ratio"])
+
+    data["total"]["local_reqs_ratio_avg"] = np.average(data["total"]["local_reqs_ratio"])
+    data["total"]["forward_reqs_ratio_avg"] = np.average(data["total"]["forward_reqs_ratio"])
+    data["total"]["processed_reqs_ratio_avg"] = np.average(data["total"]["processed_reqs_ratio"])
 
     return data
 
@@ -79,10 +96,10 @@ def make(eval_dir):
     else:
         train_env = plot_utils.get_env(eval_dir.parent)  # Experiment directory.
 
-    fig = plt.figure(figsize=(10, 10), dpi=600, layout="constrained")
+    fig = plt.figure(figsize=(20, 6), dpi=600, layout="constrained")
     title = f"Processed requests for evaluation (eval type {eval_env.input_requests_type}, train type {train_env.input_requests_type})"
     fig.suptitle(title)
-    axs = fig.subplots(nrows=2)
+    axs = fig.subplots(ncols=3)
 
     # Coordinates of the x-bar for the bar plots. Must be explicitly calculated
     # from the number of episodes.
@@ -112,6 +129,26 @@ def make(eval_dir):
         axs[idx].set_title(f"Total processed requests ({agent})")
 
         idx += 1
+
+    # Total (sum of the two nodes) plot.
+    axs[idx].bar(x=steps_x,
+                 height=data["total"]["local_reqs_ratio"] * 100,
+                 color="g",
+                 label="Local")
+    axs[idx].bar(x=steps_x,
+                 height=data["total"]["forward_reqs_ratio"] * 100,
+                 bottom=data["total"]["local_reqs_ratio"] * 100,
+                 color="b",
+                 label="Forward")
+
+    avg_line = np.full(data["episodes"], data["total"]["processed_reqs_ratio_avg"] * 100)
+    axs[idx].plot(avg_line, linewidth=2, color="r", label="Average")
+
+    axs[idx].annotate(f'{data["total"]["processed_reqs_ratio_avg"]:.2%}',
+                      (0, data["total"]["processed_reqs_ratio_avg"] * 100 + 1),
+                      bbox={"boxstyle": "square", "alpha": .7, "facecolor": "white"})
+
+    axs[idx].set_title("Total processed requests (all agents)")
 
     # Common settings for the plots.
     for ax in axs.flat:
