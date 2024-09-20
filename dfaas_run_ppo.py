@@ -22,6 +22,7 @@ parser.add_argument("--no-gpu",
                     default=True, dest="gpu", action="store_false")
 parser.add_argument("--evaluation-checkpoint",
                     help="Evaluation checkpoint", dest="from_checkpoint")
+parser.add_argument("--env-config", help="Environment config file")
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -43,7 +44,7 @@ rollout_workers = 5
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 1,  # Number of iterations.
+              "max_iterations": 200,  # Number of iterations.
               "env": DFaaS.__name__,  # Environment.
               "gpu": args.gpu,
               "workers": rollout_workers
@@ -51,7 +52,10 @@ exp_config = {"seed": 42,  # Seed of the experiment.
 logger.info(f"Experiment configuration = {exp_config}")
 
 # Env configuration.
-env_config = {}
+if args.env_config is not None:
+    env_config = dfaas_utils.json_to_dict(args.env_config)
+else:
+    env_config = {}
 logger.info(f"Environment configuration = {env_config}")
 
 # Create a dummy environment, used to get observation and action spaces.
@@ -142,7 +146,7 @@ ppo_config = (PPOConfig()
               .training(train_batch_size=train_batch_size)
               .framework("torch")
               .rollouts(num_rollout_workers=rollout_workers, create_env_on_local_worker=True)
-              .evaluation(evaluation_interval=None, evaluation_duration=5)
+              .evaluation(evaluation_interval=None, evaluation_duration=50)
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1 if args.gpu else 0)
               .callbacks(dfaas_env.DFaaSCallbacks)
