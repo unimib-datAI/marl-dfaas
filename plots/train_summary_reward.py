@@ -73,6 +73,7 @@ def _get_data(exp_dir):
     data["agents"] = agents
     data["reward_total_avg"] = reward_total_avg
     data["reward_step_avg"] = reward_step_avg
+    data["iterations"] = len(iters)
 
     return data
 
@@ -113,8 +114,9 @@ def make(exp_dir):
         ax.legend()
 
         ax.set_xlabel("Iteration")
-        # Show x-axis ticks every 10 iterations.
-        ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
+        # Show x-axis ticks every X iterations.
+        multiple = 50 if data["iterations"] > 200 else 10
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(multiple))
 
         ax.grid(axis="both")
         ax.set_axisbelow(True)  # By default the axis is over the content.
