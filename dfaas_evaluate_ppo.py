@@ -55,6 +55,7 @@ if args.env_config is not None:
     # Allow to update the original env config with a provided one.
     new_env_config = dfaas_utils.json_to_dict(args.env_config)
     env_config.update(new_env_config)
+env_config["evaluation"] = True  # Set by default the evaluation flag.
 logger.info(f"Environment configuration = {env_config}")
 
 # Create a dummy environment, used to get observation and action spaces.

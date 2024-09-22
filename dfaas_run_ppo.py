@@ -56,6 +56,11 @@ else:
     env_config = {}
 logger.info(f"Environment configuration = {env_config}")
 
+# For the evaluation phase at the end, the env_config is different than the
+# training one.
+env_eval_config = env_config.copy()
+env_eval_config["evaluation"] = True
+
 # Create a dummy environment, used to get observation and action spaces.
 dummy_env = DFaaS(config=env_config)
 
@@ -99,8 +104,10 @@ ppo_config = (PPOConfig()
               .environment(env=DFaaS.__name__, env_config=env_config)
               .training(train_batch_size=train_batch_size)
               .framework("torch")
-              .rollouts(num_rollout_workers=rollout_workers, create_env_on_local_worker=True)
-              .evaluation(evaluation_interval=None, evaluation_duration=50)
+              .rollouts(num_rollout_workers=rollout_workers)
+              .evaluation(evaluation_interval=None, evaluation_duration=50,
+                          evaluation_num_workers=1,
+                          evaluation_config={"env_config": env_eval_config})
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1 if args.gpu else 0)
               .callbacks(dfaas_env.DFaaSCallbacks)

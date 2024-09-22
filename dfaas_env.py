@@ -118,6 +118,10 @@ class DFaaS_ASYM(MultiAgentEnv):
             case _:
                 assert False, f"Unsupported {self.input_requests_type = }"
 
+        # Is the env created for evaluation only? If so, the input requests may
+        # differ from the training ones.
+        self.evaluation = config.get("evaluation", False)
+
         super().__init__()
 
     def get_config(self):
@@ -174,7 +178,7 @@ class DFaaS_ASYM(MultiAgentEnv):
                                                             self.rng)
         else:  # "real"
             retval = _real_input_requests(self.max_steps, self.agent_ids,
-                                          limits, self.rng)
+                                          limits, self.rng, self.evaluation)
 
             self.input_requests = retval[0]
 
@@ -789,6 +793,10 @@ class DFaaS(MultiAgentEnv):
             case _:
                 assert False, f"Unsupported {self.input_requests_type = }"
 
+        # Is the env created for evaluation only? If so, the input requests may
+        # differ from the training ones.
+        self.evaluation = config.get("evaluation", False)
+
         super().__init__()
 
     def get_config(self):
@@ -848,7 +856,7 @@ class DFaaS(MultiAgentEnv):
                                                             self.rng)
         else:  # "real"
             retval = _real_input_requests(self.max_steps, self.agent_ids,
-                                          limits, self.rng)
+                                          limits, self.rng, self.evaluation)
 
             self.input_requests = retval[0]
 
@@ -1313,7 +1321,7 @@ def _init_real_input_requests_pool():
     _real_input_requests_pool = np.array(pool, dtype=object)
 
 
-def _real_input_requests(max_steps, agent_ids, limits, rng):
+def _real_input_requests(max_steps, agent_ids, limits, rng, evaluation):
     """Randomly selects a real input request from the pool for each of the given
     agents.
 
@@ -1324,6 +1332,10 @@ def _real_input_requests(max_steps, agent_ids, limits, rng):
     limits must be a dictionary whose keys are the agent ids, and each agent has
     two sub-keys: "min" for the minimum value and "max" for the maximum value.
 
+    The boolean evaluation parameter can be used to select the subpool from
+    which input requests are selected. Note that the evaluation pool is smaller
+    than the training pool.
+
     Returns a tuple: the first element is a dictionary whose keys are the agent
     ids and whose value is a NumPy array containing the input requests for each
     step, the second element is a dictionary whose keys are the agent ids and
@@ -1331,10 +1343,16 @@ def _real_input_requests(max_steps, agent_ids, limits, rng):
     if _real_input_requests_pool is None:
         _init_real_input_requests_pool()
 
+    # Separate the evaluation pool (two dataframes) from the training pool.
+    if evaluation:
+        pool = _real_input_requests_pool[-2:]
+    else:
+        pool = _real_input_requests_pool[:-2]
+
     # Randomly select a dataframe for each agent. Note: It is important to
     # avoid choosing the same dataframe to avoid correlations between functions
     # in one day.
-    dataframes = rng.choice(_real_input_requests_pool, size=len(agent_ids), replace=False)
+    dataframes = rng.choice(pool, size=len(agent_ids), replace=False)
     agents = list(agent_ids)  # Make a copy because it will be modified.
     functions = {}
     for dataframe in dataframes:
