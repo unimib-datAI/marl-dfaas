@@ -18,13 +18,15 @@ import dfaas_utils
 import plot_utils
 
 
-def _get_num_episodes(iters):
-    """Returns the number of episodes in each iteration.
+def _average_reward_step(iter, agent):
+    """Returns the average reward per step for the given iteration and agent."""
+    episodes = iter["episodes_this_iter"]
 
-    The value is extracted from the given iter data. It is assumed that each
-    iteration has the same number of episodes and that there is at least one
-    iteration in the given data."""
-    return iters[0]["episodes_this_iter"]
+    tmp = np.empty(episodes, dtype=np.float32)
+    for epi_idx in range(episodes):
+        tmp[epi_idx] = np.average(iter["hist_stats"]["reward"][epi_idx][agent])
+
+    return np.average(tmp)
 
 
 def _get_data(exp_dir):
@@ -32,48 +34,31 @@ def _get_data(exp_dir):
 
     # Read data from experiment directory.
     iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
-    metrics = dfaas_utils.json_to_dict(exp_dir / "metrics-result.json")
     agents = plot_utils.get_env(exp_dir).agent_ids
-    episodes = _get_num_episodes(iters)
-
-    # Average total reward per episode for each iteration.
-    reward_total_avg = {}
-
-    # Average reward per step in an episode (average across episodes in each
-    # iteration).
-    reward_step_avg = {}
-
-    # Average percent of rejected requests per iteration.
-    percent_reject_reqs_excess = {}
-
-    # Percentage of local requests exceeding local buffer per step (average
-    # across steps for each episode and episodes for each iteration)
-    percent_local_reqs_excess = {}
-
-    percent_forward_reqs_excess = {}
-
-    # The data is grouped in agents.
-    for agent in agents:
-        reward_total_avg[agent] = np.empty(len(iters), dtype=np.float32)
-        reward_step_avg[agent] = np.empty(len(iters), dtype=np.float32)
-        percent_reject_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
-        percent_local_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
-        percent_forward_reqs_excess[agent] = np.empty(len(iters), dtype=np.float32)
-
-    for iter in range(len(iters)):
-        for agent in agents:
-            reward_total_avg[agent][iter] = np.average(iters[iter]["hist_stats"][f"policy_policy_{agent}_reward"])
-
-            tmp = np.empty(episodes, dtype=np.float32)
-            for epi_id in range(episodes):
-                tmp[epi_id] = metrics["reward_average_per_step"][iter][epi_id][agent]
-
-            reward_step_avg[agent][iter] = np.average(tmp)
 
     data["agents"] = agents
+    data["iterations"] = len(iters)
+    data["episodes"] = iters[0]["episodes_this_iter"]
+
+    reward_total_avg = {}  # Average total reward per episode.
+    reward_step_avg = {}  # Average reward per step.
+
+    reward_total_avg["all"] = np.empty(data["iterations"], dtype=np.float32)
+    for agent in data["agents"]:
+        reward_total_avg[agent] = np.empty(data["iterations"], dtype=np.float32)
+        reward_step_avg[agent] = np.empty(data["iterations"], dtype=np.float32)
+
+    for iter in iters:
+        iter_idx = iter["training_iteration"] - 1  # Indexes start from zero.
+
+        reward_total_avg["all"][iter_idx] = np.average(iter["hist_stats"]["episode_reward"])
+
+        for agent in data["agents"]:
+            reward_total_avg[agent][iter_idx] = np.average(iter["hist_stats"][f"policy_policy_{agent}_reward"])
+            reward_step_avg[agent][iter_idx] = _average_reward_step(iter, agent)
+
     data["reward_total_avg"] = reward_total_avg
     data["reward_step_avg"] = reward_step_avg
-    data["iterations"] = len(iters)
 
     return data
 
@@ -85,8 +70,10 @@ def make(exp_dir):
     data = _get_data(exp_dir)
     env = plot_utils.get_env(exp_dir)
 
-    fig = plt.figure(figsize=(17, 5), dpi=600, layout="constrained")
-    axs = fig.subplots(ncols=2)
+    fig = plt.figure(figsize=(25, 5), dpi=600, layout="constrained")
+    title = f"Training reward ({data['episodes']} episodes for each iteration)"
+    fig.suptitle(title)
+    axs = fig.subplots(ncols=3)
 
     # Limits for the y axis, both for total and single step.
     bottom, top = env.reward_range
@@ -104,10 +91,16 @@ def make(exp_dir):
     for agent in data["agents"]:
         axs[1].plot(data["reward_step_avg"][agent], label=agent)
     axs[1].set_ylim(bottom=bottom, top=top)
-    axs[1].set_title("Average reward per step in an episode")
+    axs[1].set_title("Average reward per step")
     axs[1].set_ylabel("Average reward")
     # Show y-axis ticks every .1 reward point.
     axs[1].yaxis.set_major_locator(ticker.MultipleLocator(.1))
+
+    axs[2].plot(data["reward_total_avg"]["all"], label="All agents")
+    axs[2].set_ylim(bottom=bottom_total, top=top_total*len(data["agents"]))
+    axs[2].set_title("Average total reward per episode")
+    axs[2].set_ylabel("Total reward (all agents)")
+    axs[2].yaxis.set_major_locator(ticker.MultipleLocator(50))
 
     # Common settings for the plots.
     for ax in axs.flat:
