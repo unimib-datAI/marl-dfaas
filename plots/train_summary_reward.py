@@ -84,27 +84,26 @@ def make(exp_dir):
         axs[0].plot(data["reward_total_avg"][agent], label=agent)
     axs[0].set_ylim(bottom=bottom_total, top=top_total)
     axs[0].set_title("Average total reward per episode")
-    axs[0].set_ylabel("Total reward")
     # Show y-axis ticks every 20 reward points.
     axs[0].yaxis.set_major_locator(ticker.MultipleLocator(20))
+    axs[0].legend()
 
     for agent in data["agents"]:
         axs[1].plot(data["reward_step_avg"][agent], label=agent)
     axs[1].set_ylim(bottom=bottom, top=top)
     axs[1].set_title("Average reward per step")
-    axs[1].set_ylabel("Average reward")
     # Show y-axis ticks every .1 reward point.
     axs[1].yaxis.set_major_locator(ticker.MultipleLocator(.1))
+    axs[1].legend()
 
-    axs[2].plot(data["reward_total_avg"]["all"], label="All agents")
+    axs[2].plot(data["reward_total_avg"]["all"])
     axs[2].set_ylim(bottom=bottom_total, top=top_total*len(data["agents"]))
-    axs[2].set_title("Average total reward per episode")
-    axs[2].set_ylabel("Total reward (all agents)")
+    axs[2].set_title("Average total reward per episode (all agents)")
     axs[2].yaxis.set_major_locator(ticker.MultipleLocator(50))
 
     # Common settings for the plots.
     for ax in axs.flat:
-        ax.legend()
+        ax.set_ylabel("Reward")
 
         ax.set_xlabel("Iteration")
         # Show x-axis ticks every X iterations.
