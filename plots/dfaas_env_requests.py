@@ -7,16 +7,15 @@ import sys
 import os
 import argparse
 
-import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 # Add the current directory (where Python is called) to sys.path. This is
 # required to load modules in the project root directory (like dfaas_utils.py).
 sys.path.append(os.getcwd())
 
-import dfaas_env
-import dfaas_utils
+import plot_utils
 
 ''' Old code
 def _get_data(env_config):
@@ -137,26 +136,29 @@ def make(plots_dir, env_config):
 
 
 def _get_data(exp_dir, seed):
-    # Get the environment class.
-    exp_config = dfaas_utils.json_to_dict(exp_dir / "exp_config.json")
-    env_name = exp_config["env"]
-    DFaaS = getattr(dfaas_env, env_name)
+    env = plot_utils.get_env(exp_dir)
 
-    # Get the environment config.
-    env_config = dfaas_utils.json_to_dict(exp_dir / "env_config.json")
-
-    env = DFaaS(config=env_config)
     # Note that the seed argument is ignored because of "override_seed".
     env.reset(seed=seed, options={"override_seed": seed})
 
     data = {}
-
-    input_reqs = {}
-    for agent in env.agent_ids:
-        input_reqs[agent] = np.zeros(env.max_steps, dtype=np.int32)
-
     data["env"] = env
-    data["input_reqs"] = input_reqs
+    data["input_reqs"] = env.input_requests
+
+    low, high = [], []
+    for agent in env.agent_ids:
+        low.append(env.observation_space[agent]["input_requests"].low[0])
+        high.append(env.observation_space[agent]["input_requests"].high[0])
+
+    data["input_reqs_min"] = min(low)
+    data["input_reqs_max"] = max(high)
+
+    if (hashes := getattr(env, "input_requests_hashes", None)) is not None:
+        # Real traces.
+        data["hashes"] = hashes
+    else:
+        # Syntethic traces.
+        data["seed"] = env.seed
 
     return data
 
@@ -166,29 +168,23 @@ def make(exp_dir, seed):
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     data = _get_data(exp_dir, seed)
+    env = data["env"]
+
+    if "hashes" in data:
+        hashes = [data["hashes"][agent][-10:] for agent in env.agent_ids]
+        hash_str = ", ".join(hashes)
+        title = f"Input requests (function hashes {hash_str})"
+    else:
+        title = f"Input requests (env seed {data['seed']})"
 
     # Make the plot.
     fig = plt.figure(figsize=(25, 10), dpi=600, layout="constrained")
-    fig.suptitle(f"DFaaS seed {seed}")
+    fig.suptitle(title)
     axs = fig.subplots(nrows=2)
-
-    env = data["env"]
-
-    # Get the upper and lower limits for the y-axis.
-    bottom, top = +np.inf, -np.inf
-    for agent in env.agent_ids:
-        tmp_bottom = env.observation_space[agent]["input_requests"].low[0]
-        if tmp_bottom < bottom:
-            bottom = tmp_bottom
-        tmp_top = env.observation_space[agent]["input_requests"].high[0]
-        if tmp_top > top:
-            top = tmp_top
-    bottom -= 10  # Add a bit of space.
-    top += 10
 
     idx = 0
     for agent in env.agent_ids:
-        axs[idx].plot(env.input_requests[agent], label=agent)
+        axs[idx].plot(data["input_reqs"][agent], label=agent)
         idx += 1
 
     # Common settings for the plots.
@@ -196,16 +192,14 @@ def make(exp_dir, seed):
         ax.set_title("Input requests")
 
         ax.set_xlabel("Step")
-        ax.set_xticks(np.arange(stop=env.max_steps+1, step=50))
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
 
         ax.set_ylabel("Requests")
-        ax.set_ylim(bottom=bottom, top=top)
-        ax.set_yticks(np.arange(start=bottom, stop=top+1, step=10))
+        ax.set_ylim(bottom=data["input_reqs_min"]-1, top=data["input_reqs_max"]+1)
+        ax.yaxis.set_major_locator(ticker.MultipleLocator(10))
 
         ax.grid(axis="both")
         ax.set_axisbelow(True)  # By default the axis is over the content.
-
-        ax.legend()
 
     # Save the plot.
     path = plots_dir / f"dfaas_env_requests_{seed}.pdf"
@@ -218,14 +212,15 @@ if __name__ == "__main__":
     matplotlib.use("pdf", force=True)
 
     # Create parser and parse arguments.
-    parser = argparse.ArgumentParser(prog="dfaas_env")
+    parser = argparse.ArgumentParser(prog="dfaas_env_requests")
 
     parser.add_argument(dest="experiment_directory",
-                        help="DFaaS experiment directory")
+                        help="DFaaS experiment directory",
+                        type=Path)
     parser.add_argument(dest="seed",
                         help="Seed of the environment",
                         type=int)
 
     args = parser.parse_args()
 
-    make(Path(args.experiment_directory), args.seed)
+    make(args.experiment_directory.resolve(), args.seed)
