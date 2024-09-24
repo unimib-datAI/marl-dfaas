@@ -5,24 +5,19 @@
 import sys
 import os
 import argparse
+from pathlib import Path
 
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.ticker
+import matplotlib.ticker as ticker
 
 # Add the current directory (where Python is called) to sys.path. This is
 # required to load modules in the project root directory (like dfaas_utils.py).
 sys.path.append(os.getcwd())
 
 import dfaas_utils
-import dfaas_env
-
-
-def _get_agents():
-    """Returns the agent IDs from the given list of iterations. Assumes at least
-    one iteration and one episode for iteration."""
-    return ["node_0", "node_1"]
+import plot_utils
 
 
 def _calc_excess_reject_step(action, excess, queue_capacity):
@@ -70,9 +65,7 @@ def calc_excess_reject(episode_data, agent, epi_idx):
     been forwarded or processed locally) for each step.
 
     The number is calculated for the given agent in each step.
-
-    TODO: This function should not exist, the environment should provide this
-    value."""
+    """
     input_reqs = episode_data["observation_input_requests"][epi_idx][agent]
     queue_capacity = episode_data["observation_queue_capacity"][epi_idx][agent]
     local_reqs = episode_data["action_local"][epi_idx][agent]
@@ -99,130 +92,160 @@ def calc_excess_reject(episode_data, agent, epi_idx):
     return excess_reject
 
 
-def _get_excess_reject(iter, epi_idx):
-    excess = {}
-    excess["node_0"] = calc_excess_reject(iter["hist_stats"], "node_0", epi_idx)
-    excess["node_1"] = calc_excess_reject(iter["hist_stats"], "node_1", epi_idx)
+def _get_excess_reject(iter, epi_idx, env, forward_capacity):
+    result = {}
+    for agent in env.agent_ids:
+        queue_capacity = iter["hist_stats"]["observation_queue_capacity"][epi_idx][agent]
+        local_reqs = iter["hist_stats"]["action_local"][epi_idx][agent]
+        reject_reqs = iter["hist_stats"]["action_reject"][epi_idx][agent]
+        excess_local = iter["hist_stats"]["excess_local"][epi_idx][agent]
 
-    return excess
+        if env.type == "ASYM" and agent == "node_1":
+            forward_reqs = np.zeros(env.max_steps, dtype=np.int32)
+        else:
+            forward_reqs = iter["hist_stats"]["action_forward"][epi_idx][agent]
+
+        excess_reject = np.zeros(env.max_steps, dtype=np.int32)
+        for step in range(env.max_steps):
+            free_slots = queue_capacity[step] - local_reqs[step]
+            if free_slots < 0:
+                # There is a over-local processing.
+                assert excess_local[step] == -free_slots, f"Expected equal, found {excess_local[step]} != {-free_slots}"
+                excess = 0
+            elif free_slots >= reject_reqs[step]:
+                # All rejected requests could have been processed locally.
+                excess = reject_reqs[step]
+            else:
+                # Some rejected requests could have been processed locally.
+                excess = reject_reqs[step] - (reject_reqs[step] - free_slots)
+
+            excess_reject[step] = excess
+
+            if env.type == "ASYM" and agent == "node_1":
+                continue
+
+            free_slots = forward_capacity[agent][step] - forward_reqs[step]
+            reject_reqs_left = reject_reqs[step] - excess
+            if free_slots < 0:
+                # There is a over-forwarding.
+                pass
+            elif free_slots >= reject_reqs_left:
+                # All rejected requests could have been forwarded.
+                excess += reject_reqs_left
+            else:
+                # Some rejected requests could have been processed locally.
+                excess += reject_reqs_left - (reject_reqs_left - free_slots)
+
+            excess_reject[step] = excess
+
+        result[agent] = excess_reject
+
+    return result
 
 
-def _get_forward_capacity(iter, epi_idx):
-    """Returns the forward capacity for each step in the given episode id for
-    both agents. Data is read from the given iter dictionary.
+def _get_forward_capacity(iter, episode_idx, env):
+    """Returns the theoretical forward capacity for all agents from the given
+    episode of the given iteration data.
 
-    TODO: This function should not exist."""
-    steps = int(iter["episode_len_mean"])  # TODO: Get exact value.
-    forward_capacity = {agent: np.zeros(steps, dtype=np.int32) for agent in _get_agents()}
+    Note that this function is specialized for environments with only two
+    agents."""
+    assert env.agents == 2, "Only two agents are supported for this function"
 
-    input_reqs = {
-            agent: np.array(iter["hist_stats"]["observation_input_requests"][epi_idx][agent], dtype=np.int32) for agent in _get_agents()
-            }
-    queue_capacity = {
-            agent: np.array(iter["hist_stats"]["observation_queue_capacity"][epi_idx][agent], dtype=np.int32) for agent in _get_agents()
-            }
+    forward_capacity, input_reqs, queue_capacity = {}, {}, {}
 
-    # Forward capacity for node_0.
-    raw_fw_cap = queue_capacity["node_1"] - input_reqs["node_1"]
-    forward_capacity["node_0"] = np.clip(raw_fw_cap, 0, np.inf)
+    # node_0
+    input_reqs = np.array(iter["hist_stats"]["observation_input_requests"][episode_idx]["node_1"], dtype=np.int32)
+    queue_capacity = np.array(iter["hist_stats"]["observation_queue_capacity"][episode_idx]["node_1"], dtype=np.int32)
+    forward_capacity["node_0"] = queue_capacity - input_reqs
 
-    # Forward capacity for node_1.
-    raw_fw_cap = queue_capacity["node_0"] - input_reqs["node_0"]
-    forward_capacity["node_1"] = np.clip(raw_fw_cap, 0, np.inf)
+    # node_1
+    input_reqs = np.array(iter["hist_stats"]["observation_input_requests"][episode_idx]["node_0"], dtype=np.int32)
+    queue_capacity = np.array(iter["hist_stats"]["observation_queue_capacity"][episode_idx]["node_0"], dtype=np.int32)
+    forward_capacity["node_1"] = queue_capacity - input_reqs
+
+    for agent in env.agent_ids:
+        # The difference may be negative if there is not enough space in the
+        # queue.
+        np.clip(forward_capacity[agent], 0, None, out=forward_capacity[agent])
 
     return forward_capacity
 
 
-def _get_data(exp_dir, episode_idx):
-    data = {}
+def _get_data(eval_dir, episode_idx):
+    # Read data from the evaluation directory.
+    iters = dfaas_utils.parse_result_file(eval_dir / "evaluation.json")
+    iter = iters[0]["evaluation"]  # There is only one iteration.
+    env = plot_utils.get_env(eval_dir)
 
-    # Read data from experiment directory.
-    iters = dfaas_utils.parse_result_file(exp_dir / "final_evaluation.json")
-
-    # Commented because it is not ready. The reject_excess_per_step is
-    # calculated on the fly.
-    # metrics = dfaas_utils.json_to_dict(exp_dir / "metrics-final_evaluation.json")
-
-    agents = _get_agents()
-
-    # Get only a specific iteration (the only one).
-    iter = iters[0]["evaluation"]
+    assert env.agents == 2, "Only two agents are supported for this plot"
 
     # Get the data from the specified episode index.
-    seed = iter["hist_stats"]["seed"][episode_idx]
     input_requests = iter["hist_stats"]["observation_input_requests"][episode_idx]
     queue_capacity = iter["hist_stats"]["observation_queue_capacity"][episode_idx]
-    forward_capacity = _get_forward_capacity(iter, episode_idx)
+    forward_capacity = _get_forward_capacity(iter, episode_idx, env)
     action_local = iter["hist_stats"]["action_local"][episode_idx]
     action_forward = iter["hist_stats"]["action_forward"][episode_idx]
     action_reject = iter["hist_stats"]["action_reject"][episode_idx]
     excess_local = iter["hist_stats"]["excess_local"][episode_idx]
     forward_reject = iter["hist_stats"]["excess_forward_reject"][episode_idx]
-    excess_reject = _get_excess_reject(iter, episode_idx)
+    excess_reject = _get_excess_reject(iter, episode_idx, env, forward_capacity)
     reward = iter["hist_stats"]["reward"][episode_idx]
-    steps = iter["hist_stats"]["episode_lengths"][0]
 
-    for agent in agents:
-        if len(action_forward[agent]) == 0:
-            # The data given is from an asymmetric environment. Fix the values
-            # by setting an array of zero values.
-            action_forward[agent] = np.zeros(steps, dtype=np.int32)
-            forward_reject[agent] = np.zeros(steps, dtype=np.int32)
+    data = {}
 
-    # Get the environment class.
-    exp_config = dfaas_utils.json_to_dict(exp_dir / "exp_config.json")
-    env_name = exp_config["env"]
-    DFaaS = getattr(dfaas_env, env_name)
+    if "hashes" in iter["hist_stats"]:
+        # This evaluation was done with real traces, so I need to save the hases
+        # for reproducibility.
+        data["hashes"] = iter["hist_stats"]["hashes"][episode_idx]
+    else:
+        data["seed"] = iter["hist_stats"]["seed"][episode_idx]
 
-    # Get the reward range from the environment.
-    reward_range = DFaaS().reward_range
-
-    input_reqs_max = DFaaS().observation_space["node_0"]["input_requests"].high[0]
-
-    data["agents"] = agents
-    data["steps"] = steps
-    data["seed"] = seed
     data["input_requests"] = input_requests
-    data["input_requests_max"] = input_reqs_max
     data["queue_capacity"] = queue_capacity
     data["forward_capacity"] = forward_capacity
 
     data["action_local"], data["action_reject"], data["action_forward"] = {}, {}, {}
     data["excess_local"], data["forward_reject"], data["excess_reject"] = {}, {}, {}
-    for agent in agents:
+    for agent in env.agent_ids:
         data["action_local"][agent] = np.array(action_local[agent], dtype=np.int32)
         data["action_reject"][agent] = np.array(action_reject[agent], dtype=np.int32)
+        data["action_forward"][agent] = np.array(action_forward[agent], dtype=np.int32)
 
         data["excess_local"][agent] = np.array(excess_local[agent], dtype=np.int32)
-        data["excess_reject"][agent] = np.array(excess_reject[agent], dtype=np.int32)
-
-        data["action_forward"][agent] = np.array(action_forward[agent], dtype=np.int32)
         data["forward_reject"][agent] = np.array(forward_reject[agent], dtype=np.int32)
-
+        data["excess_reject"][agent] = np.array(excess_reject[agent], dtype=np.int32)
     data["reward"] = reward
-    data["reward_range"] = reward_range
 
     return data
 
 
-def make(exp_dir, episode_idx):
-    exp_dir = dfaas_utils.to_pathlib(exp_dir)
-    plots_dir = exp_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
+def make(eval_dir, episode_idx):
+    plots_dir = eval_dir / "plots"
+    plots_dir.mkdir(exist_ok=True)
 
-    data = _get_data(exp_dir, episode_idx)
+    data = _get_data(eval_dir, episode_idx)
+    env = plot_utils.get_env(eval_dir)
 
     # Coordinates of the x-bar for the bar plots. Must be explicitly calculated
     # from the number of steps for each agent.
-    steps_x = np.arange(stop=data["steps"])
+    steps_x = np.arange(stop=env.max_steps)
 
-    fig = plt.figure(figsize=(20, 27), dpi=600, layout="constrained")
-    fig.suptitle(f"Episode {episode_idx} of evaluation (env seed {data['seed']})")
-    axs = fig.subplots(nrows=5, ncols=2)
+    if "hashes" in data:
+        hashes = [data["hashes"][agent][-10:] for agent in env.agent_ids]
+        hash_str = ", ".join(hashes)
+        title = f"Episode {episode_idx} of evaluation (function hashes {hash_str})"
+    else:
+        title = f"Episode {episode_idx} of evaluation (env seed {data['seed']})"
+
+    fig = plt.figure(figsize=(32, 38), dpi=600, layout="constrained")
+    fig.suptitle(title)
+    # Set the reward plot to be smaller than the other ones.
+    axs = fig.subplots(nrows=6, ncols=2,
+                       gridspec_kw={"height_ratios": [2, 2, 2, 2, 2, 1]})
 
     # Make the same three plots for each agents.
     idx = 0
-    for agent in data["agents"]:
+    for agent in env.agent_ids:
         local = data["action_local"][agent]
         reject = data["action_reject"][agent]
         forward = data["action_forward"][agent]
@@ -230,44 +253,52 @@ def make(exp_dir, episode_idx):
         axs[0, idx].bar(x=steps_x, height=local, label="Local")
         axs[0, idx].bar(x=steps_x, height=reject, label="Reject", bottom=local)
         axs[0, idx].bar(x=steps_x, height=forward, label="Forward", bottom=local+reject)
-        axs[0, idx].plot(data["input_requests"][agent], linewidth=3, color="r", label="Input requests")
+        axs[0, idx].plot(data["input_requests"][agent], linewidth=2, color="r", label="Input requests")
         axs[0, idx].set_title(f"Action ({agent})")
         axs[0, idx].set_ylabel("Requests")
-
-        axs[1, idx].plot(data["reward"][agent], label="Reward")
-        axs[1, idx].set_title(f"Reward ({agent})")
-        axs[1, idx].set_ylabel("Reward")
-        # Set the y-ticks for the y-axis. Enforce a little space around the
-        # borders.
-        bottom, top = data["reward_range"]
-        axs[1, idx].set_ylim(bottom=bottom-0.1, top=top+.1)
-        axs[1, idx].set_yticks(np.arange(start=bottom, stop=top+.1, step=.1))
+        axs[0, idx].legend()
 
         excess_local = data["excess_local"][agent]
         real_local = local - excess_local
-        axs[2, idx].bar(x=steps_x, height=real_local, color="g", label="Local")
-        axs[2, idx].bar(x=steps_x, height=excess_local, color="r", label="Local excess", bottom=real_local)
-        axs[2, idx].plot(data["queue_capacity"][agent], linewidth=3, color="b", label="Queue capacity")
-        axs[2, idx].set_title(f"Local action ({agent})")
-        axs[2, idx].set_ylabel("Requests")
-        axs[2, idx].set_ylim(top=data["input_requests_max"])
+        axs[1, idx].bar(x=steps_x, height=real_local, color="g", label="Local")
+        axs[1, idx].bar(x=steps_x, height=excess_local, color="r", label="Local excess", bottom=real_local)
+        axs[1, idx].plot(data["queue_capacity"][agent], linewidth=2, color="b", label="Queue capacity")
+        axs[1, idx].set_title(f"Local action ({agent})")
+        axs[1, idx].set_ylabel("Requests")
+        axs[1, idx].legend()
 
         forward_reject = data["forward_reject"][agent]
         real_forward = forward - forward_reject
-        axs[3, idx].bar(x=steps_x, height=real_forward, color="g", label="Forward")
-        axs[3, idx].bar(x=steps_x, height=forward_reject, color="r", label="Forward rejects", bottom=real_forward)
-        axs[3, idx].plot(data["forward_capacity"][agent], linewidth=3, color="b", label="Forward capacity")
-        axs[3, idx].set_title(f"Forward action ({agent})")
-        axs[3, idx].set_ylabel("Requests")
-        axs[3, idx].set_ylim(top=data["input_requests_max"])
+        axs[2, idx].bar(x=steps_x, height=real_forward, color="g", label="Forward")
+        axs[2, idx].bar(x=steps_x, height=forward_reject, color="r", label="Forward rejects", bottom=real_forward)
+        axs[2, idx].plot(data["forward_capacity"][agent], linewidth=2, color="b", label="Forward capacity")
+        axs[2, idx].set_title(f"Forward action ({agent})")
+        axs[2, idx].set_ylabel("Requests")
+        axs[2, idx].legend()
 
         excess_reject = data["excess_reject"][agent]
         good_reject = reject - excess_reject
-        axs[4, idx].bar(x=steps_x, height=good_reject, color="g", label="Reject")
-        axs[4, idx].bar(x=steps_x, height=excess_reject, color="r", label="Reject excess", bottom=good_reject)
-        axs[4, idx].set_title(f"Reject action ({agent})")
+        axs[3, idx].bar(x=steps_x, height=good_reject, color="g", label="Reject")
+        axs[3, idx].bar(x=steps_x, height=excess_reject, color="r", label="Reject excess", bottom=good_reject)
+        axs[3, idx].set_title(f"Reject action ({agent})")
+        axs[3, idx].set_ylabel("Requests")
+        axs[3, idx].legend()
+
+        axs[4, idx].bar(x=steps_x, height=excess_local, label="Excess local")
+        axs[4, idx].bar(x=steps_x, height=forward_reject, label="Forward reject", bottom=excess_local)
+        axs[4, idx].bar(x=steps_x, height=excess_reject, label="Excess reject", bottom=excess_local+forward_reject)
+        axs[4, idx].set_title(f"Total excess ({agent})")
         axs[4, idx].set_ylabel("Requests")
-        axs[4, idx].set_ylim(top=data["input_requests_max"])
+        axs[4, idx].legend()
+
+        axs[5, idx].plot(data["reward"][agent], linewidth=2, label="Reward")
+        axs[5, idx].set_title(f"Reward ({agent}) (max, min) = {env.reward_range}")
+        axs[5, idx].set_ylabel("Reward")
+        bottom, top = env.reward_range
+        # Enforce a bit of space up and down, because if the reward is the
+        # maximum or minimum, the line won't show up in the plot.
+        axs[5, idx].set_ylim(bottom=bottom-.1, top=top+.1)
+        axs[5, idx].yaxis.set_major_locator(ticker.MultipleLocator(.1))
 
         idx += 1
 
@@ -276,12 +307,10 @@ def make(exp_dir, episode_idx):
         ax.set_xlabel("Step")
 
         # Show x-axis ticks every 10 steps.
-        ax.set_xticks(np.arange(0, data["steps"]+1, 10))
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
 
         ax.grid(axis="both")
         ax.set_axisbelow(True)  # By default the axis is over the content.
-
-        ax.legend()
 
     # Save the plot.
     path = plots_dir / f"eval_episode_{episode_idx}.pdf"
@@ -295,12 +324,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(dest="exp_dir",
-                        help="DFaaS experiment directory")
+    parser.add_argument(dest="evaluation_dir",
+                        help="Evaluation directory (for the default evaluation, give the experiment directory",
+                        type=Path)
     parser.add_argument(dest="episode",
-                        help="Plot the given episode (the index).",
+                        help="Plot the given episode (an integer index).",
                         type=int)
 
     args = parser.parse_args()
 
-    make(args.exp_dir, args.episode)
+    make(args.evaluation_dir.resolve(), args.episode)
