@@ -9,12 +9,13 @@ import dfaas_env
 import numpy as np
 
 
-def main(seed, episodes):
+def main(seed, episodes, requests_type):
     # Master seed used to generate the seeds for each episode.
     master_rng = np.random.default_rng(seed=seed)
 
     # Create a dummy env from which some info are extracted.
-    dummy_env = dfaas_env.DFaaS()
+    env_config = {"input_requests_type": requests_type}
+    dummy_env = dfaas_env.DFaaS(config=env_config)
     limits = {}  # Used by _synthetic_input_requests().
     for agent in dummy_env.agent_ids:
         limits[agent] = {
@@ -70,7 +71,9 @@ if __name__ == "__main__":
     parser.add_argument(dest="episodes",
                         help="How many episodes to generate",
                         type=int)
+    parser.add_argument(dest="type",
+                        help="Type of the input requests to generate")
 
     args = parser.parse_args()
 
-    main(args.seed, args.episodes)
+    main(args.seed, args.episodes, args.type)
