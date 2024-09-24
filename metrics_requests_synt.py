@@ -36,10 +36,16 @@ def main(seed, episodes, requests_type):
 
         rng = np.random.default_rng(seed=seed)
 
-        input_reqs = dfaas_env._synthetic_input_requests(dummy_env.max_steps,
-                                                         dummy_env.agent_ids,
-                                                         limits,
-                                                         rng)
+        if requests_type == "synthetic-sinusoidal":
+            input_reqs = dfaas_env._synthetic_sinusoidal_input_requests(dummy_env.max_steps,
+                                                                        dummy_env.agent_ids,
+                                                                        limits,
+                                                                        rng)
+        else:
+            input_reqs = dfaas_env._synthetic_normal_input_requests(dummy_env.max_steps,
+                                                                    dummy_env.agent_ids,
+                                                                    limits,
+                                                                    rng)
 
         # Save each input request to the right global slot in the arrays.
         agent_offset = 0

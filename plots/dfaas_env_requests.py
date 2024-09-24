@@ -175,7 +175,7 @@ def make(exp_dir, seed):
         hash_str = ", ".join(hashes)
         title = f"Input requests (function hashes {hash_str})"
     else:
-        title = f"Input requests (env seed {data['seed']})"
+        title = f"Input requests (reqs type {env.input_requests_type!r}, seed {data['seed']})"
 
     # Make the plot.
     fig = plt.figure(figsize=(25, 10), dpi=600, layout="constrained")

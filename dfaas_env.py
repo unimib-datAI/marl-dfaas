@@ -109,9 +109,14 @@ class DFaaS_ASYM(MultiAgentEnv):
         self.max_steps = config.get("max_steps", 288)
 
         # Type of input requests.
-        self.input_requests_type = config.get("input_requests_type", "synthetic")
+        self.input_requests_type = config.get("input_requests_type", "synthetic-sinusoidal")
         match self.input_requests_type:
             case "synthetic":
+                print("WARN: 'synthetic' type deprecated, use 'synthetic-sinusoidal'")
+                pass
+            case "synthetic-sinusoidal":
+                pass
+            case "synthetic-normal":
                 pass
             case "real":
                 assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
@@ -171,11 +176,16 @@ class DFaaS_ASYM(MultiAgentEnv):
                     "min": self.observation_space[agent]["input_requests"].low.item(),
                     "max": self.observation_space[agent]["input_requests"].high.item()
                     }
-        if self.input_requests_type == "synthetic":
-            self.input_requests = _synthetic_input_requests(self.max_steps,
-                                                            self.agent_ids,
-                                                            limits,
-                                                            self.rng)
+        if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
+            self.input_requests = _synthetic_sinusoidal_input_requests(self.max_steps,
+                                                                       self.agent_ids,
+                                                                       limits,
+                                                                       self.rng)
+        elif self.input_requests_type == "syntethic-normal":
+            self.input_requests = _synthetic_normal_input_requests(self.max_steps,
+                                                                   self.agent_ids,
+                                                                   limits,
+                                                                   self.rng)
         else:  # "real"
             retval = _real_input_requests(self.max_steps, self.agent_ids,
                                           limits, self.rng, self.evaluation)
@@ -784,9 +794,14 @@ class DFaaS(MultiAgentEnv):
         self.max_steps = config.get("max_steps", 288)
 
         # Type of input requests.
-        self.input_requests_type = config.get("input_requests_type", "synthetic")
+        self.input_requests_type = config.get("input_requests_type", "synthetic-sinusoidal")
         match self.input_requests_type:
             case "synthetic":
+                print("WARN: 'synthetic' type deprecated, use 'synthetic-sinusoidal'")
+                pass
+            case "synthetic-sinusoidal":
+                pass
+            case "synthetic-normal":
                 pass
             case "real":
                 assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
@@ -849,12 +864,17 @@ class DFaaS(MultiAgentEnv):
                     "min": self.observation_space[agent]["input_requests"].low.item(),
                     "max": self.observation_space[agent]["input_requests"].high.item()
                     }
-        if self.input_requests_type == "synthetic":
-            self.input_requests = _synthetic_input_requests(self.max_steps,
-                                                            self.agent_ids,
-                                                            limits,
-                                                            self.rng)
-        else:  # "real"
+        if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
+            self.input_requests = _synthetic_sinusoidal_input_requests(self.max_steps,
+                                                                       self.agent_ids,
+                                                                       limits,
+                                                                       self.rng)
+        elif self.input_requests_type == "synthetic-normal":
+            self.input_requests = _synthetic_normal_input_requests(self.max_steps,
+                                                                   self.agent_ids,
+                                                                   limits,
+                                                                   self.rng)
+        else:  # real
             retval = _real_input_requests(self.max_steps, self.agent_ids,
                                           limits, self.rng, self.evaluation)
 
@@ -1243,7 +1263,34 @@ class DFaaS(MultiAgentEnv):
             self.additional_info["reward"][agent][self.current_step-1] = rewards[agent]
 
 
-def _synthetic_input_requests(max_steps, agent_ids, limits, rng):
+def _synthetic_normal_input_requests(max_steps, agent_ids, limits, rng):
+    """Generates the input requests for the given agents with the given length,
+    clipping the values within the given bounds and using the given rng to
+    generate the synthesized data.
+
+    limits must be a dictionary whose keys are the agent ids, and each agent has
+    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+
+    Returns a dictionary whose keys are the agent IDs and whose value is an
+    np.ndarray containing the input requests for each step."""
+    mean = 61
+    std = 32
+
+    input_requests = {}
+    for agent in agent_ids:
+        requests = rng.normal(loc=mean, scale=std, size=max_steps)
+        input_requests[agent] = np.asarray(requests, dtype=np.int32)
+
+        # Clip the excess values respecting the minimum and maximum values
+        # for the input requests observation.
+        min = limits[agent]["min"]
+        max = limits[agent]["max"]
+        np.clip(input_requests[agent], min, max, out=input_requests[agent])
+
+    return input_requests
+
+
+def _synthetic_sinusoidal_input_requests(max_steps, agent_ids, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
     generate the synthesized data.
