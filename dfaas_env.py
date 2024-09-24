@@ -1253,8 +1253,10 @@ def _synthetic_input_requests(max_steps, agent_ids, limits, rng):
 
     Returns a dictionary whose keys are the agent IDs and whose value is an
     np.ndarray containing the input requests for each step."""
-    average_requests = 80
-    amplitude_requests = 75
+    # These two values are calculated to match the average mean of the real
+    # traces.
+    average_requests = 50
+    amplitude_requests = 100
     noise_ratio = .1
     unique_periods = 3  # The periods changes 3 times for each episode.
 
@@ -1262,12 +1264,11 @@ def _synthetic_input_requests(max_steps, agent_ids, limits, rng):
     steps = np.arange(max_steps)
     for agent in agent_ids:
         # Note: with default max_stes, the period changes every 96 steps
-        # (max_steps = 288). We first generate the periods and expand the
-        # array to match the max_steps.  If max_steps is not a multiple of
-        # 96, some elements must be appended at the end, hence the resize
-        # call.
+        # (max_steps = 288). We first generate the periods and expand the array
+        # to match the max_steps. If max_steps is not a multiple of 96, some
+        # elements must be appended at the end, hence the resize call.
         repeats = max_steps // unique_periods
-        periods = rng.uniform(15, high=75, size=unique_periods)
+        periods = rng.uniform(15, high=100, size=unique_periods)
         periods = np.repeat(periods, repeats)  # Expand the single values.
         periods = np.resize(periods, periods.size + max_steps - periods.size)
 
