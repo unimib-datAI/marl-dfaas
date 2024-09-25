@@ -112,7 +112,7 @@ def main(checkpoint_path=None):
     logger.info(f"Experiment directory created at {sac_algo.logdir!r}")
 
     # Run the training phase.
-    for iteration in range(10):
+    for iteration in range(100):
         logger.info(f"Iteration {iteration}")
         sac_algo.train()
     logger.info("Training terminated")
