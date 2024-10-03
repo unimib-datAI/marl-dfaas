@@ -14,13 +14,16 @@ import dfaas_env
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-parser = argparse.ArgumentParser(prog="dfaas_run_ppo")
+parser = argparse.ArgumentParser(prog="dfaas_run_ppo",
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument(dest="env", help="DFaaS environment to train")
 parser.add_argument(dest="suffix", help="A string to append to experiment directory")
 parser.add_argument("--no-gpu",
                     help="Disable GPU usage",
                     default=True, dest="gpu", action="store_false")
 parser.add_argument("--env-config", help="Environment config file")
+parser.add_argument("--iterations", default=500, type=int,
+                    help="Number of iterations to run (non-negative integer)")
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -42,7 +45,7 @@ rollout_workers = 5
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 200,  # Number of iterations.
+              "max_iterations": args.iterations,  # Number of iterations.
               "env": DFaaS.__name__,  # Environment.
               "gpu": args.gpu,
               "workers": rollout_workers
