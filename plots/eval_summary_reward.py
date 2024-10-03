@@ -114,9 +114,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("evaluation_dir",
+    parser.add_argument("evaluation_dir", nargs="+", type=Path,
                         help="Evaluation directory (for the default evaluation, give the experiment directory")
 
     args = parser.parse_args()
 
-    make(Path(args.evaluation_dir))
+    for eval_dir in args.evaluation_dir:
+        make(eval_dir.resolve())

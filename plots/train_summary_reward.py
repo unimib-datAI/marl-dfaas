@@ -125,9 +125,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(dest="experiment_dir",
+    parser.add_argument(dest="experiment_dir", nargs="+", type=Path,
                         help="DFaaS experiment directory")
 
     args = parser.parse_args()
 
-    make(Path(args.experiment_dir))
+    for exp_dir in args.experiment_dir:
+        make(exp_dir.resolve())
