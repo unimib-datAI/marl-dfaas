@@ -322,15 +322,14 @@ def make(eval_dir, episode_idx):
 if __name__ == "__main__":
     matplotlib.use("pdf", force=True)
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument(dest="evaluation_dir",
-                        help="Evaluation directory (for the default evaluation, give the experiment directory",
-                        type=Path)
-    parser.add_argument(dest="episode",
-                        help="Plot the given episode (an integer index).",
-                        type=int)
+    parser.add_argument(dest="evaluation_dir", nargs="+", type=Path,
+                        help="Evaluation directory (for the default evaluation, give the experiment directory")
+    parser.add_argument("--episode", default=0, type=int,
+                        help="Plot the given episode (a non-negative integer index)")
 
     args = parser.parse_args()
 
-    make(args.evaluation_dir.resolve(), args.episode)
+    for eval_dir in args.evaluation_dir:
+        make(eval_dir.resolve(), args.episode)
