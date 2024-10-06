@@ -13,15 +13,22 @@ def _get_data(data_file, function_hash):
     invocations = pd.read_csv(data_file)
 
     # Select the row with a specified function.
-    fn_hash = function_hash
-    fn = invocations[invocations["HashFunction"] == fn_hash]
+    fn = invocations[invocations["HashFunction"].str.contains(function_hash)]
 
-    # Drop the first 3 columns (HashOwner, HashApp and HashFunction).
-    fn = fn.iloc[:, 4:]
+    # Only and only 1 trace can be selected.
+    if (rows := fn.shape[0]) > 1:
+        print(f"Given hash {function_hash!r} is ambiguous, {rows} traces are selected in {data_file.as_posix()!r}")
+        exit(1)
+    elif rows == 0:
+        print(f"Given hash {function_hash!r} not found in {data_file.as_posix()!r}")
+        exit(1)
+
+    # Select only the columns from "1" to "1440" (drop the initial columns).
+    fn = fn.loc[:, "1":]
 
     data = {}
     data["invocations"] = fn.to_numpy(dtype=np.int32).flatten()
-    data["function"] = fn_hash
+    data["function"] = function_hash
 
     return data
 
@@ -38,9 +45,8 @@ def make(output_dir, data_file, function_hash):
 
     ax.plot(data["invocations"])
 
-    ax.set_title(f"Invocation (HTTP trigger) for function {data['function']}")
-    ax.set_xlabel("Minute")
-    ax.set_ylabel("Invocations")
+    ax.set_xlabel("Minuti")
+    ax.set_ylabel("Invocazioni")
 
     ax.grid(axis="both")
     ax.set_axisbelow(True)  # By default the axis is over the content.
@@ -58,13 +64,14 @@ if __name__ == "__main__":
     # Create parser and parse arguments.
     parser = argparse.ArgumentParser(prog="experiment_duration")
 
-    parser.add_argument(dest="output_dir",
+    parser.add_argument(dest="output_dir", type=Path,
                         help="Where to save the plot")
-    parser.add_argument(dest="data_file",
+    parser.add_argument(dest="data_file", type=Path,
                         help="CSV file with function invocations")
-    parser.add_argument(dest="function_hash",
-                        help="Hash of the function to select in the file")
+    parser.add_argument(dest="function_hash", nargs="+",
+                        help="Hash (full or partial) of the function to select in the file")
 
     args = parser.parse_args()
 
-    make(Path(args.output_dir), Path(args.data_file), args.function_hash)
+    for hash in args.function_hash:
+        make(args.output_dir.resolve(), args.data_file.resolve(), hash)
