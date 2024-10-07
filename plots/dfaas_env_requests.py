@@ -54,7 +54,7 @@ def make(output_dir, type, seed):
     data = _get_data(type, seed)
 
     # Make the plot.
-    fig = plt.figure(figsize=(15, 7), dpi=600, layout="constrained")
+    fig = plt.figure(figsize=(17, 7), dpi=600, layout="constrained")
     axs = fig.subplots(ncols=2)
 
     row = 0
