@@ -1,7 +1,5 @@
 # This Python script generates a plot of the DFaaS environment showing the
-# curves of input requests, forward capacity, and queue capacity.
-#
-# The environment config is retrieved from the specified experiment directory.
+# curves of input requests for a given experiment.
 from pathlib import Path
 import sys
 import os
@@ -95,7 +93,7 @@ if __name__ == "__main__":
     matplotlib.use("pdf", force=True)
 
     # Create parser and parse arguments.
-    parser = argparse.ArgumentParser(prog="dfaas_env_requests")
+    parser = argparse.ArgumentParser(prog="train_env_requests")
 
     parser.add_argument(dest="experiment_directory",
                         help="DFaaS experiment directory",
