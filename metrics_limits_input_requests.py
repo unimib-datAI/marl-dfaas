@@ -60,10 +60,10 @@ def main(type, seed):
 
         r_in += input_reqs_step
 
-        if input_reqs_step < total_capacity:
+        if input_reqs_step <= total_capacity:
             p_max += input_reqs_step
         else:
-            p_max += input_reqs_step - queue_capacity * env.agents
+            p_max += queue_capacity * env.agents
 
     p_max = p_max.item()  # Unwrap np.array to a single value.
 
