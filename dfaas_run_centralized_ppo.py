@@ -51,7 +51,7 @@ rollout_workers = 5
 # Experiment configuration.
 # TODO: make this configurable!
 exp_config = {"seed": 42,  # Seed of the experiment.
-              "max_iterations": 200,  # Number of iterations.
+              "max_iterations": 500,  # Number of iterations.
               "env": DFaaS.__name__,  # Environment.
               "gpu": args.gpu,
               "workers": rollout_workers
