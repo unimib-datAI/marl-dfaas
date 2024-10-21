@@ -12,6 +12,7 @@ import numpy as np
 def main(type, seed, episodes):
     # Create a dummy env to generate the requests.
     env = dfaas_env.DFaaS(config={"input_requests_type": type})
+    env.reset(seed=seed)  # Set the initial seed.
 
     # Each episode generates two input requests (if the env has two agents), so
     # the total number of input requests is greater.
@@ -21,8 +22,8 @@ def main(type, seed, episodes):
     mean = np.empty(length)
     std = np.empty(length)
     for episode in range(episodes):
-        # Seed used only for this episode.
-        env.reset(seed=seed)
+        # Generate new requests.
+        env.reset()
 
         # Save each input request to the right global slot in the arrays.
         agent_offset = 0
