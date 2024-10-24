@@ -1785,8 +1785,8 @@ class DFaaSCallbacks(DefaultCallbacks):
         for key in env.info_keys:
             episode.hist_data[key] = [info[key]]
 
-    def on_train_result(self, *, algorithm, result, **kwargs):
-        """Called at the end of Algorithm.train()."""
+    def _end_trigger(self, result):
+        """Called by the two next methods."""
         # Final checker to verify the callbacks are executed.
         result["callbacks_ok"] = True
 
@@ -1800,3 +1800,12 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         # Because they are repeated by Ray within the result dictionary.
         del result["sampler_results"]
+
+    def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
+        """Called at the end of Algorithm.evaluate()."""
+        # By default RLlib saves the evaluation data under "evaluation" sub-dict.
+        self._end_trigger(evaluation_metrics["evaluation"])
+
+    def on_train_result(self, *, algorithm, result, **kwargs):
+        """Called at the end of Algorithm.train()."""
+        self._end_trigger(result)
