@@ -32,6 +32,9 @@ parser.add_argument("--env-config",
 parser.add_argument("--seed",
                     help="Use given seed instead of experiment original one",
                     type=int)
+parser.add_argument("--workers",
+                    help="Number of evaluation workers (non-negative integer)",
+                    type=int, default=5)
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -203,7 +206,7 @@ ppo_config = (PPOConfig()
               .rollouts(num_rollout_workers=0)  # Only evaluate.
               .evaluation(evaluation_interval=None,
                           evaluation_duration=50,
-                          evaluation_num_workers=5)
+                          evaluation_num_workers=args.workers)
               .debugging(seed=exp_config["seed"])
               .resources(num_gpus=1)
               .callbacks(dfaas_env.DFaaSCallbacks)
