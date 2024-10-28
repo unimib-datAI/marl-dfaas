@@ -130,8 +130,8 @@ def make(env_type, exps, out):
     ax.axhline(y=max_reward, color=max_reward_line_color, linewidth=2)
 
     # Set label for both axis.
-    ax.set_ylabel("Ricompensa media", fontsize="large")
-    ax.set_xlabel("Scenario di addestramento", fontsize="large")
+    ax.set_ylabel("Ricompensa media", fontsize="x-large")
+    ax.set_xlabel("Scenario di addestramento", fontsize="x-large")
 
     # In the Y axis show ticks with interval of 50 reward points.
     ax.yaxis.set_major_locator(ticker.MultipleLocator(20))
@@ -143,7 +143,7 @@ def make(env_type, exps, out):
     labels = ["Reale",
               "Sintetico sinusoidale",
               "Sintetico gaussiano"]
-    ax.set_xticks(x_ticks, labels=labels, fontsize='medium', fontstretch='condensed')
+    ax.set_xticks(x_ticks, labels=labels, fontsize='x-large', fontstretch='condensed')
 
     # Set background.
     ax.grid(axis="both")
@@ -200,7 +200,7 @@ def make_specific(env_type, exps, out):
     data_ppo_cc = _get_data_specific(exps[1])
     env = dfaas_env.DFaaS()  # Dummy env.
 
-    fig = plt.figure(figsize=(7, 5), dpi=600, layout="constrained")
+    fig = plt.figure(figsize=(12, 7), dpi=600, layout="constrained")
     ax = fig.subplots()
 
     # Limits for the y axis, both for total and single step.
@@ -246,7 +246,7 @@ def make_specific(env_type, exps, out):
     labels = ["Sintetico sinusoidale",
               "Sintetico gaussiano",
               "Reale"]
-    ax.set_xticks(x_ticks, labels=labels, fontsize='medium', fontstretch='condensed')
+    ax.set_xticks(x_ticks, labels=labels, fontsize='large', fontstretch='condensed')
 
     # Set background.
     ax.grid(axis="both")
@@ -287,8 +287,8 @@ if __name__ == "__main__":
 
     out = Path("results/final/plots")
 
-    #for env_type in ["BASE", "ASYM", "SYM"]:
-    #    make(env_type, exps[env_type], out)
+    for env_type in ["BASE", "ASYM", "SYM"]:
+        make(env_type, exps[env_type], out)
 
     base_norm = [Path(f"results/final/DFAAS-MA_BASE_500_synt_norm"),
                  Path(f"results/final/DFAAS-MA_BASE_500_cc_synt_norm")]
