@@ -2,6 +2,15 @@
 
 This repository is in a working in progress state.
 
+If you are looking for the source code of the experiments of Emanuele
+Petriglia's master's thesis, discussed in October 2024, see the
+[`petriglia-thesis-2024`](https://github.com/unimib-datAI/marl-dfaas/tree/petriglia-thesis-2024)
+branch.
+
+The thesis, a summary and the presentation slides are available in another
+[repository hosted on GitLab](https://gitlab.com/ema-pe/master-degree-thesis),
+but they are written in Italian.
+
 # Configuration setup
 
 Minimal `requirements.txt` file:
