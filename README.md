@@ -71,3 +71,15 @@ The patches are created using the standard
     diff -Naru .env/.../rllib/example.py .env/.../rllib/example_new.py > patches/NAME.patch
 
 See [this reply](https://unix.stackexchange.com/a/162146) on StackExchange for more information.
+
+## License
+
+Copyright 2024 Emanuele Petriglia
+
+The source code in this repository is licensed under the Apache License,
+version 2.0. See the [LICENSE](LICENSE) file for more information.
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations under the License.
