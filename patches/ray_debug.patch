@@ -1,5 +1,5 @@
---- .env/lib64/python3.10/site-packages/ray/rllib/utils/debug/deterministic.py	2024-08-05 19:13:56.881303163 +0200
-+++ .env/lib64/python3.10/site-packages/ray/rllib/utils/debug/deterministic_new.py	2024-08-05 19:15:26.761182729 +0200
+--- .env/lib64/python3.12/site-packages/ray/rllib/utils/debug/deterministic.py	2024-12-04 08:56:08.352374276 +0000
++++ .env/lib64/python3.12/site-packages/ray/rllib/utils/debug/deterministic_new.py	2024-12-04 17:48:43.779013597 +0000
 @@ -35,7 +35,7 @@
          # See https://github.com/pytorch/pytorch/issues/47672.
          cuda_version = torch.version.cuda

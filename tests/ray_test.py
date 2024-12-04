@@ -1,9 +1,9 @@
 # This is a test file to run Ray in a multi-agent environment with PPO
 # algorithm. If it runs, Ray is installed correctly.
-from ray.rllib.examples.env.multi_agent import GuessTheNumberGame
+from ray.rllib.examples.envs.classes.multi_agent import GuessTheNumberGame
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
-from ray.rllib.examples.policy.random_policy import RandomPolicy
+from ray.rllib.examples._old_api_stack.policy.random_policy import RandomPolicy
 from ray.tune.logger import pretty_print
 from ray.tune.registry import register_env
 
@@ -36,9 +36,11 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 
 # Experiment config.
 ppo_config = (PPOConfig()
+              # By default RLlib uses the new API stack, but I use the old one.
+              .api_stack(enable_rl_module_and_learner=False,enable_env_runner_and_connector_v2=False)
               .environment(env="GuessTheNumberGame", env_config=env_config, disable_env_checking=True)
               .framework("torch")
-              .rollouts(num_rollout_workers=0)
+              .env_runners(num_env_runners=0)  # Sample experiences from the main process.
               .evaluation(evaluation_interval=None)
               .debugging(seed=seed)
               .resources(num_gpus=1)

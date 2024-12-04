@@ -1,6 +1,6 @@
 # Multi-Agent RL for DFaaS by Emanuele Petriglia
 
-This repository is in a working in progress state.
+This repository is in a **working in progress** state.
 
 If you are looking for the source code of the experiments of Emanuele
 Petriglia's master's thesis, discussed in October 2024, see the
@@ -11,14 +11,48 @@ The thesis, a summary and the presentation slides are available in another
 [repository hosted on GitLab](https://gitlab.com/ema-pe/master-degree-thesis),
 but they are written in Italian.
 
-# Configuration setup
+## How to set up the environment
 
-Minimal `requirements.txt` file:
+The experiments are run and tested on Ubuntu 24.04 using Python 3.12. For a
+reproducible development environment, it is preferable to install the
+dependencies in a virtual environment (see the
+[`venv`](https://docs.python.org/3.12/library/venv.html) module). The `venv`
+module is not installed by default in Ubuntu, it must be installed using `sudo
+apt install python3.12-venv`.
+
+The complete list of Python dependencies can be found in the requirements.txt
+file. However, the most important dependencies are:
+
+* [Ray RLlib](https://docs.ray.io/en/releases-2.40.0/rllib/) (version 2.40):
+  this is a reinforcement learning library used to define the DFaaS custom
+  environment, run the experiments by training the models with the implemented
+  algorithms.
+
+* [PyTorch](https://pytorch.org/docs/2.5/) (version 2.5.1): PyTorch is a
+  library for deep learning on GPUs and CPUs. It is used by Ray RLlib when
+  training models with deep learning reinforcement learning algorithms.
+
+* Gymnasium
+
+* Matplotlib
+
+* Flake8
+
+When installing Ray RLlib, `pip` automatically installs its dependencies, which
+are also used by the experiment scripts (like NumPy or Gymnasium). This means
+that the environment can be easily set up by installing the following packages:
+
+```
+ray[rllib]==2.40.0
+torch==2.5.1
+gputil==1.4.0  # Required by RLlib (GPU system monitoring).
+```
+
+(OLD, WIP) Minimal `requirements.txt` file:
 
 ```
 numpy==1.26.4
 gputil
-ray[rrlib]==2.10.0
 torch
 gymnasium
 dm_tree
@@ -31,55 +65,55 @@ flake8
 matplotlib
 ```
 
-Ray (specifically RRLib) must be bound to version 2.10.0, otherwise the code
-(and RL4CC) may not work properly. Also, NumPy 2.x is not yet supported, only
-the latest 1.x version.
-
-To set up the development environment with Fedora:
+Run the following commands to set up the development environment with Ubuntu:
 
 ```
-$ dnf install python3.10
-$ mkdir dfaas-rl-petriglia
-$ cd dfaas-rl-petriglia
-$ python3.10 -m venv .env
+$ sudo apt install python3.12-venv
+$ git clone https://github.com/unimib-datAI/marl-dfaas.git
+$ cd marl-dfaas
+$ python3.12 -m venv .env
 $ source .env/bin/activate
-$ pip install --requirement requirements.txt
+$ pip install ray[rllib]==2.39.0 torch==2.5.1 gpuutil==1.4.0
 ```
 
-## RL4CC
+For perfect reproducibility, there is a [`requirements.txt`](requirements.txt)
+file that can be used instead of the previous command:
 
-The RL4CC module is optional and is only required for single agent experiments.
-It must be installed in the `dfaas-rl-petriglia/RL4CC` directory:
+    $ pip install --requirement requirements.txt
 
-    $ git clone https://github.com/FFede0/RL4CC.git
+Please note that both the requirements file and the command line suggestions
+expect a machine with an NVIDIA GPU and CUDA (at least 12.4) installed for
+PyTorch. PyTorch can also be used with a CPU, in this case follow the
+[instructions](https://pytorch.org/get-started/locally/) on the official
+website.
 
-This git repository must be on the test branch, it has been tested with the
-b9146c1 commit and some additional custom patches.
+## How to run the experiments
 
-The `single-agent` directory contains the code for the single agent version of
-DFaaS workload distribution using reinforcement learning, loosely based on
-Giacomo Pracucci's thesis and code.
+WIP
 
 ## Patching Ray
 
-The selected Ray version needs to be patched to fix some unwanted behaviour. The
-patches are collected in the `patches` directory and can be applied using the
+The selected version of Ray RLlib needs to be patched to fix some bugs or
+undesirable behaviour that has not yet been addressed upstream. The patches are
+collected in the [`patches`](patches) directory and can be applied using the
 [`patch`](https://www.man7.org/linux/man-pages/man1/patch.1.html) command:
 
     patch -p0 < patches/NAME.patch
 
-The patches have only been tested with Ray 2.10. They only work if the virtual
-environment is named `.env` and the Python version is 3.10.
+The patches have only been tested with Ray 2.40.0. They will only work if the
+virtual environment is named `.env` and the Python version is 3.12, as the file
+path is hardcoded into the patch file.
 
-Note: the `patch` binary is required and is not installed by default in Fedora,
-it can be installed with `dnf install patch`.
+Note: The `patch` binary is required and preinstalled on Ubuntu. If not
+available, it can be installed with `apt install patch`.
 
 The patches are created using the standard
 [`diff`](https://www.man7.org/linux/man-pages/man1/diff.1.html) tool:
 
     diff -Naru .env/.../rllib/example.py .env/.../rllib/example_new.py > patches/NAME.patch
 
-See [this reply](https://unix.stackexchange.com/a/162146) on StackExchange for more information.
+See [this reply](https://unix.stackexchange.com/a/162146) on StackExchange for
+more information.
 
 ## License
 
