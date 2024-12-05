@@ -87,6 +87,9 @@ PyTorch. PyTorch can also be used with a CPU, in this case follow the
 [instructions](https://pytorch.org/get-started/locally/) on the official
 website.
 
+The requirements file also contains the [`black`](https://black.readthedocs.io)
+package, a development tool for automatically formatting source code.
+
 ## How to run the experiments
 
 WIP
