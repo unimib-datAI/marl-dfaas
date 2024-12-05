@@ -1,5 +1,6 @@
-# This script tests Ray with the SAC algorithm using an environment with Simplex
-# as the action space.
+# This script tests Ray RLlib with the SAC algorithm using an environment with
+# Simplex as the action space. It has the same problem with
+# "ray_test_sac_ma.py".
 from pathlib import Path
 import logging
 
@@ -11,10 +12,14 @@ from ray.tune.registry import register_env
 
 # Disable Ray's warnings.
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Initialize logger for this module.
-logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
+    level=logging.DEBUG,
+)
 logger = logging.getLogger(Path(__file__).name)
 
 
@@ -44,13 +49,21 @@ register_env("SimplexTest", lambda env_config: SimplexTest(config=env_config))
 
 def main(checkpoint_path=None):
     # Algorithm config.
-    sac_config = (SACConfig()
-                  .environment(env="SimplexTest")
-                  .framework("torch")
-                  .rollouts(num_rollout_workers=0)  # Only a local worker.
-                  .evaluation(evaluation_interval=None)
-                  .resources(num_gpus=1)
-                  )
+    sac_config = (
+        SACConfig()
+        # By default RLlib uses the new API stack, but I use the old one.
+        .api_stack(
+            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
+        )
+        .environment(env="SimplexTest")
+        .training(
+            replay_buffer_config={"type": "MultiAgentPrioritizedReplayBuffer"}
+        )  # Buffer using default parameters.
+        .env_runners(num_env_runners=0)
+        .framework("torch")
+        .evaluation(evaluation_interval=None)
+        .resources(num_gpus=1)
+    )
 
     # Build the experiment.
     sac_algo = sac_config.build()
@@ -58,7 +71,7 @@ def main(checkpoint_path=None):
     logger.info(f"Experiment directory created at {sac_algo.logdir!r}")
 
     # Run the training phase.
-    for iteration in range(10):
+    for iteration in range(20):
         logger.info(f"Iteration {iteration}")
         sac_algo.train()
     logger.info("Training terminated")

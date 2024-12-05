@@ -1,5 +1,10 @@
-# This script tests Ray with the SAC algorithm using a multi-agent environment
-# with Simplex as action space for both agents.
+# This script tests Ray RLlib with the SAC algorithm using a demo multi-agent
+# environment.
+#
+# When reaching the 11° iteration (or one more or less), the training breaks
+# because there is an error with the tensor, I suspect because there is an
+# explosion of the gradient. I think the solution is to do a hyperparameter
+# tuning, but I have not tried it.
 from pathlib import Path
 import logging
 
@@ -14,10 +19,14 @@ from ray.tune.registry import register_env
 
 # Disable Ray's warnings.
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Initialize logger for this module.
-logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
+    level=logging.DEBUG,
+)
 logger = logging.getLogger(Path(__file__).name)
 
 
@@ -28,20 +37,23 @@ class MultiEnvTest(MultiAgentEnv):
 
         # Each agent has a different action space.
         self._action_space_in_preferred_format = True
-        self.action_space = gym.spaces.Dict({
-            "agent_0": Simplex(shape=(3,)),
-            "agent_1": Simplex(shape=(2,))
-            })
+        self.action_space = gym.spaces.Dict(
+            {"agent_0": Simplex(shape=(3,)), "agent_1": Simplex(shape=(2,))}
+        )
 
         # Each agent has a different observation space.
         self._obs_space_in_preferred_format = True
-        self.observation_space = gym.spaces.Dict({
-            "agent_0": gym.spaces.Dict({
-                "random_0": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-                "random_1": gym.spaces.Box(low=50, high=150, dtype=np.int32),
-                 }),
-            "agent_1": gym.spaces.Box(low=0, high=1, dtype=np.int32)
-            })
+        self.observation_space = gym.spaces.Dict(
+            {
+                "agent_0": gym.spaces.Dict(
+                    {
+                        "random_0": gym.spaces.Box(low=50, high=150, dtype=np.int32),
+                        "random_1": gym.spaces.Box(low=50, high=150, dtype=np.int32),
+                    }
+                ),
+                "agent_1": gym.spaces.Box(low=0, high=1, dtype=np.int32),
+            }
+        )
 
         self.max_steps = 100
 
@@ -58,8 +70,10 @@ class MultiEnvTest(MultiAgentEnv):
 
         obs = self.observation_space.sample()
 
-        rewards = {"agent_0": self.np_random.random(),
-                   "agent_1": self.np_random.random()}
+        rewards = {
+            "agent_0": self.np_random.random(),
+            "agent_1": self.np_random.random(),
+        }
 
         finished = self.current_step == self.max_steps
         terminated = {agent: finished for agent in self._agent_ids}
@@ -81,30 +95,43 @@ def main(checkpoint_path=None):
     # policy to be trained. In this case, each agent has an associated fixed
     # policy (also because each agent has a different action and observation
     # space).
-    policies = {"policy_agent_0": PolicySpec(policy_class=None,
-                                             observation_space=dummy_env.observation_space["agent_0"],
-                                             action_space=dummy_env.action_space["agent_0"],
-                                             config=None),
-                "policy_agent_1": PolicySpec(policy_class=None,
-                                             observation_space=dummy_env.observation_space["agent_1"],
-                                             action_space=dummy_env.action_space["agent_1"],
-                                             config=None)
-                }
+    policies = {
+        "policy_agent_0": PolicySpec(
+            policy_class=None,
+            observation_space=dummy_env.observation_space["agent_0"],
+            action_space=dummy_env.action_space["agent_0"],
+            config=None,
+        ),
+        "policy_agent_1": PolicySpec(
+            policy_class=None,
+            observation_space=dummy_env.observation_space["agent_1"],
+            action_space=dummy_env.action_space["agent_1"],
+            config=None,
+        ),
+    }
 
     def policy_mapping_fn(agent_id, episode, worker, **kwargs):
-        '''This function is called at each step to assign the agent to a policy.
-        In this case, each agent has a fixed corresponding policy.'''
+        """This function is called at each step to assign the agent to a policy.
+        In this case, each agent has a fixed corresponding policy."""
         return f"policy_{agent_id}"
 
     # Algorithm config.
-    sac_config = (SACConfig()
-                  .environment(env="MultiEnvTest")
-                  .framework("torch")
-                  .rollouts(num_rollout_workers=0)  # Only a local worker.
-                  .evaluation(evaluation_interval=None)
-                  .resources(num_gpus=1)
-                  .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
-                  )
+    sac_config = (
+        SACConfig()
+        # By default RLlib uses the new API stack, but I use the old one.
+        .api_stack(
+            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
+        )
+        .environment(env="MultiEnvTest")
+        .framework("torch")
+        .training(
+            replay_buffer_config={"type": "MultiAgentPrioritizedReplayBuffer"}
+        )  # Buffer using default parameters.
+        .env_runners(num_env_runners=0)
+        .evaluation(evaluation_interval=None)
+        .resources(num_gpus=1)
+        .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
+    )
 
     # Build the experiment.
     sac_algo = sac_config.build()

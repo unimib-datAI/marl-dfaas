@@ -1,5 +1,8 @@
-# This script tests the Ray's ability to save and load model checkpoints using
-# the Simplex space as the action or observation space.
+# This script tests RLlib's ability to save and load model checkpoints using
+# the simplex space as the action or observation space.
+#
+# This test was written because there was a bug in RLlib when loading a
+# checkpoint with a model using the simplex space.
 from pathlib import Path
 import shutil
 import logging
@@ -13,10 +16,14 @@ from ray.tune.registry import register_env
 
 # Disable Ray's warnings.
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Initialize logger for this module.
-logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
+    level=logging.DEBUG,
+)
 logger = logging.getLogger(Path(__file__).name)
 
 
@@ -46,13 +53,18 @@ register_env("SimplexTest", lambda env_config: SimplexTest(config=env_config))
 
 def create_and_save(checkpoint_path=None):
     # Algorithm config.
-    ppo_config = (PPOConfig()
-                  .environment(env="SimplexTest")
-                  .framework("torch")
-                  .rollouts(num_rollout_workers=0)  # Only a local worker.
-                  .evaluation(evaluation_interval=None)
-                  .resources(num_gpus=1)
-                  )
+    ppo_config = (
+        PPOConfig()
+        # By default RLlib uses the new API stack, but I use the old one.
+        .api_stack(
+            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
+        )
+        .environment(env="SimplexTest")
+        .framework("torch")
+        .env_runners(num_env_runners=0)  # Sample experiences from the main process.
+        .evaluation(evaluation_interval=None)
+        .resources(num_gpus=1)
+    )
 
     # Build the experiment.
     ppo_algo = ppo_config.build()
@@ -79,7 +91,7 @@ def load_and_train(checkpoint_path):
     logger.info(f"Algorithm restored from {checkpoint_path!r}")
 
     checkpoint_iter = ppo_algo.iteration
-    for iteration in range(checkpoint_iter+1, checkpoint_iter+3):
+    for iteration in range(checkpoint_iter + 1, checkpoint_iter + 3):
         logger.info(f"Iteration {iteration}")
         ppo_algo.train()
     logger.info("Training terminated")
