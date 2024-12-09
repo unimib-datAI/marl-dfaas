@@ -12,7 +12,10 @@ from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 
 # Initialize logger for this module.
-logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
+    level=logging.DEBUG,
+)
 _logger = logging.getLogger(Path(__file__).name)
 
 
@@ -42,7 +45,7 @@ def _reward_fw(action, excess, queue):
     queue_status, queue_max = queue
 
     if reqs_total == 0:
-        return 1.
+        return 1.0
 
     free_slots = queue_max - queue_status
     assert free_slots >= 0
@@ -78,83 +81,108 @@ def _reward_fw(action, excess, queue):
         reject_excess += valid_reject
         valid_reject = 0
 
-    assert local_excess >= 0 \
-        and forward_reject >= 0 \
-        and forward_excess >= 0 \
+    assert (
+        local_excess >= 0
+        and forward_reject >= 0
+        and forward_excess >= 0
         and reject_excess >= 0
+    )
     wrong_reqs = local_excess + forward_reject + forward_excess + reject_excess
-    assert wrong_reqs <= reqs_total, f"({local_excess = } + {forward_reject = } + {forward_excess = } + {reject_excess = }) <= {reqs_total}"
+    assert (
+        wrong_reqs <= reqs_total
+    ), f"({local_excess = } + {forward_reject = } + {forward_excess = } + {reject_excess = }) <= {reqs_total}"
 
     return 1 - (wrong_reqs / reqs_total)
 
 
 class DFaaS(MultiAgentEnv):
     # Keys contained in the additional_info dictionary.
-    info_keys = {"observation_input_requests": np.int32,
-                 "observation_queue_capacity": np.int32,
-                 "action_local": np.int32,
-                 "action_forward": np.int32,
-                 "action_reject": np.int32,
-                 "excess_local": np.int32,
-                 "excess_forward_reject": np.int32,
-                 "queue_status_pre_forward": np.int32,
-                 "queue_status_post_forward": np.int32,
-                 "reward": np.float32}
+    info_keys = {
+        "observation_input_requests": np.int32,
+        "observation_queue_capacity": np.int32,
+        "action_local": np.int32,
+        "action_forward": np.int32,
+        "action_reject": np.int32,
+        "excess_local": np.int32,
+        "excess_forward_reject": np.int32,
+        "queue_status_pre_forward": np.int32,
+        "queue_status_post_forward": np.int32,
+        "reward": np.float32,
+    }
 
     def __init__(self, config={}):
         # Number and IDs of the agents in the DFaaS network.
-        self.agents = 2
-        self.agent_ids = ["node_0", "node_1"]
+        # self.agents = 2
+        # self.agent_ids = ["node_0", "node_1"]
 
         # This attribute is required by Ray and must be a set. I use the list
         # version instead in this environment.
-        self._agent_ids = set(self.agent_ids)
+        # self._agent_ids = set(self.agent_ids)
+
+        self.agents = ["node_0", "node_1"]
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
-        self.reward_range = (.0, 1.)
+        self.reward_range = (0.0, 1.0)
 
         # The size of each agent's local queue. The queue can be filled with
         # requests to be processed locally.
         self.queue_capacity_max = {
-                "node_0": config.get("queue_capacity_max_node_0", 100),
-                "node_1": config.get("queue_capacity_max_node_1", 100),
-                }
+            "node_0": config.get("queue_capacity_max_node_0", 100),
+            "node_1": config.get("queue_capacity_max_node_1", 100),
+        }
 
         # Provide full (preferred format) observation- and action-spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
         self._action_space_in_preferred_format = True
-        self.action_space = gym.spaces.Dict({
-            # Distribution of how many requests are processed locally, forwarded
-            # and rejected.
-            agent: Simplex(shape=(3,)) for agent in self.agent_ids
-            })
+        self.action_space = gym.spaces.Dict(
+            {
+                # Distribution of how many requests are processed locally, forwarded
+                # and rejected.
+                agent: Simplex(shape=(3,))
+                for agent in self.agents
+            }
+        )
 
         self._obs_space_in_preferred_format = True
-        self.observation_space = gym.spaces.Dict({
-            agent: gym.spaces.Dict({
-                # Number of input requests to process for a single step.
-                "input_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
-
-                # Queue capacity (currently a constant).
-                "queue_capacity": gym.spaces.Box(low=0, high=self.queue_capacity_max["node_0"], dtype=np.int32),
-
-                # Forwarded requests in the previous step.
-                "last_forward_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
-
-                # Forwarded but rejected requests in the previous step. Note
-                # that last_forward_rejects <= last_forward_requests.
-                "last_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32)
-                }) for agent in self.agent_ids
-            })
+        self.observation_space = gym.spaces.Dict(
+            {
+                agent: gym.spaces.Dict(
+                    {
+                        # Number of input requests to process for a single step.
+                        "input_requests": gym.spaces.Box(
+                            low=0, high=150, dtype=np.int32
+                        ),
+                        # Queue capacity (currently a constant).
+                        "queue_capacity": gym.spaces.Box(
+                            low=0,
+                            high=self.queue_capacity_max["node_0"],
+                            dtype=np.int32,
+                        ),
+                        # Forwarded requests in the previous step.
+                        "last_forward_requests": gym.spaces.Box(
+                            low=0, high=150, dtype=np.int32
+                        ),
+                        # Forwarded but rejected requests in the previous step. Note
+                        # that last_forward_rejects <= last_forward_requests.
+                        "last_forward_rejects": gym.spaces.Box(
+                            low=0, high=150, dtype=np.int32
+                        ),
+                    }
+                )
+                for agent in self.agents
+            }
+        )
 
         # Number of steps in the environment. The default is one step for every
         # 5 minutes of a 24-hour day.
         self.max_steps = config.get("max_steps", 288)
 
         # Type of input requests.
-        self.input_requests_type = config.get("input_requests_type", "synthetic-sinusoidal")
+        self.input_requests_type = config.get(
+            "input_requests_type", "synthetic-sinusoidal"
+        )
         match self.input_requests_type:
             case "synthetic":
                 print("WARN: 'synthetic' type deprecated, use 'synthetic-sinusoidal'")
@@ -164,7 +192,9 @@ class DFaaS(MultiAgentEnv):
             case "synthetic-normal":
                 pass
             case "real":
-                assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
+                assert (
+                    self.max_steps == 288
+                ), f"With {self.input_requests_type = } only 288 max_steps are supported"
             case _:
                 assert False, f"Unsupported {self.input_requests_type = }"
 
@@ -219,24 +249,26 @@ class DFaaS(MultiAgentEnv):
 
         # Generate all input requests for the environment.
         limits = {}
-        for agent in self.agent_ids:
+        for agent in self.agents:
             limits[agent] = {
-                    "min": self.observation_space[agent]["input_requests"].low.item(),
-                    "max": self.observation_space[agent]["input_requests"].high.item()
-                    }
-        if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
-            self.input_requests = _synthetic_sinusoidal_input_requests(self.max_steps,
-                                                                       self.agent_ids,
-                                                                       limits,
-                                                                       self.rng)
+                "min": self.observation_space[agent]["input_requests"].low.item(),
+                "max": self.observation_space[agent]["input_requests"].high.item(),
+            }
+        if (
+            self.input_requests_type == "synthetic-sinusoidal"
+            or self.input_requests_type == "synthetic"
+        ):
+            self.input_requests = _synthetic_sinusoidal_input_requests(
+                self.max_steps, self.agents, limits, self.rng
+            )
         elif self.input_requests_type == "synthetic-normal":
-            self.input_requests = _synthetic_normal_input_requests(self.max_steps,
-                                                                   self.agent_ids,
-                                                                   limits,
-                                                                   self.rng)
+            self.input_requests = _synthetic_normal_input_requests(
+                self.max_steps, self.agents, limits, self.rng
+            )
         else:  # real
-            retval = _real_input_requests(self.max_steps, self.agent_ids,
-                                          limits, self.rng, self.evaluation)
+            retval = _real_input_requests(
+                self.max_steps, self.agents, limits, self.rng, self.evaluation
+            )
 
             self.input_requests = retval[0]
 
@@ -247,7 +279,7 @@ class DFaaS(MultiAgentEnv):
 
         # Queue state for each agent (number of requests to process locally).
         # The queues start empty (max capacity) and can be full.
-        self.queue = {agent: 0 for agent in self.agent_ids}
+        self.queue = {agent: 0 for agent in self.agents}
 
         self.last_info = None  # Required by _build_observation().
         obs = self._build_observation()
@@ -265,7 +297,7 @@ class DFaaS(MultiAgentEnv):
 
     def step(self, action_dict):
         action = {}  # Absolute number of requests for each action.
-        for agent in self.agent_ids:
+        for agent in self.agents:
             # Get input requests.
             input_requests = self.input_requests[agent][self.current_step]
 
@@ -279,44 +311,45 @@ class DFaaS(MultiAgentEnv):
 
         # Calculate the reward for both agents.
         rewards = {}
-        for agent in self.agent_ids:
-            rewards[agent] = _reward_fw(action[agent],
-                                        (info_work[agent]["local_excess"], info_work[agent]["forward_rejects"]),
-                                        (info_work[agent]["queue_status_pre_forward"], self.queue_capacity_max[agent]))
+        for agent in self.agents:
+            rewards[agent] = _reward_fw(
+                action[agent],
+                (info_work[agent]["local_excess"], info_work[agent]["forward_rejects"]),
+                (
+                    info_work[agent]["queue_status_pre_forward"],
+                    self.queue_capacity_max[agent],
+                ),
+            )
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
 
         # Required by _build_observation().
-        self.last_info = {
-                "action": action,
-                "rewards": rewards,
-                "workload": info_work
-                }
+        self.last_info = {"action": action, "rewards": rewards, "workload": info_work}
 
         # Go to the next step.
         self.current_step += 1
 
         # Free the queues (for now...).
-        self.queue = {agent: 0 for agent in self.agent_ids}
+        self.queue = {agent: 0 for agent in self.agents}
 
         # Each key in the terminated dictionary indicates whether an individual
         # agent has terminated. There is a special key "__all__" which is true
         # only if all agents have terminated.
-        terminated = {agent: False for agent in self.agent_ids}
+        terminated = {agent: False for agent in self.agents}
         if self.current_step == self.max_steps:
             # We are past the last step: nothing more to do.
-            terminated = {agent: True for agent in self.agent_ids}
+            terminated = {agent: True for agent in self.agents}
         terminated["__all__"] = all(terminated.values())
 
         # Truncated is always set to False because it is not used.
-        truncated = {agent: False for agent in self.agent_ids}
+        truncated = {agent: False for agent in self.agents}
         truncated["__all__"] = False
 
         if self.current_step < self.max_steps:
             obs = self._build_observation()
         else:
             # Return a dummy observation because this is the last step.
-            obs = self.observation_space_sample()
+            obs = self.observation_space.sample()
 
         # Update the additional_info dictionary.
         self._additional_info(obs, action, rewards, info_work)
@@ -328,12 +361,14 @@ class DFaaS(MultiAgentEnv):
         assert self.current_step < self.max_steps
 
         # Initialize the observation dictionary.
-        obs = {agent: {} for agent in self.agent_ids}
+        obs = {agent: {} for agent in self.agents}
 
         # Set common observation values for the agents.
-        for agent in self.agent_ids:
+        for agent in self.agents:
             # The queue capacity is always a fixed value for now.
-            obs[agent]["queue_capacity"] = np.array([self.queue_capacity_max[agent]], dtype=np.int32)
+            obs[agent]["queue_capacity"] = np.array(
+                [self.queue_capacity_max[agent]], dtype=np.int32
+            )
 
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
@@ -344,10 +379,16 @@ class DFaaS(MultiAgentEnv):
                 last_forward_reqs = last_forward_rejects = 0
             else:
                 last_forward_reqs = self.last_info["action"][agent][1]
-                last_forward_rejects = self.last_info["workload"][agent]["forward_rejects"]
+                last_forward_rejects = self.last_info["workload"][agent][
+                    "forward_rejects"
+                ]
 
-            obs[agent]["last_forward_requests"] = np.array([last_forward_reqs], dtype=np.int32)
-            obs[agent]["last_forward_rejects"] = np.array([last_forward_rejects], dtype=np.int32)
+            obs[agent]["last_forward_requests"] = np.array(
+                [last_forward_reqs], dtype=np.int32
+            )
+            obs[agent]["last_forward_rejects"] = np.array(
+                [last_forward_rejects], dtype=np.int32
+            )
 
         return obs
 
@@ -360,11 +401,13 @@ class DFaaS(MultiAgentEnv):
             - The queue status before and after processing the forwarded
               requests from the other agent.
         """
-        assert len(action) == self.agents, f"Expected {self.agents} entries, found {len(action)}"
+        assert len(action) == len(
+            self.agents
+        ), f"Expected {len(self.agents)} entries, found {len(action)}"
         local_0, forward_0, reject_0 = action["node_0"]
         local_1, forward_1, reject_1 = action["node_1"]
 
-        info = {agent: {} for agent in self.agent_ids}
+        info = {agent: {} for agent in self.agents}
 
         # Helper function.
         def fill_queue(agent, requests):
@@ -411,35 +454,57 @@ class DFaaS(MultiAgentEnv):
             self.additional_info = {}
             for key in self.info_keys:
                 self.additional_info[key] = {}
-                for agent in self.agent_ids:
-                    self.additional_info[key][agent] = np.empty(self.max_steps, dtype=self.info_keys[key])
+                for agent in self.agents:
+                    self.additional_info[key][agent] = np.empty(
+                        self.max_steps, dtype=self.info_keys[key]
+                    )
 
         # Update the additional_info dictionary.
-        for agent in self.agent_ids:
+        for agent in self.agents:
             # In the last step, do not write the observation out of bounds.
             if self.current_step < self.max_steps:
-                self.additional_info["observation_input_requests"][agent][self.current_step] = obs[agent]["input_requests"]
-                self.additional_info["observation_queue_capacity"][agent][self.current_step] = obs[agent]["queue_capacity"]
+                self.additional_info["observation_input_requests"][agent][
+                    self.current_step
+                ] = obs[agent]["input_requests"]
+                self.additional_info["observation_queue_capacity"][agent][
+                    self.current_step
+                ] = obs[agent]["queue_capacity"]
 
             if self.current_step == 0:
                 # After reset() there is no action, reward and info_work.
                 continue
 
             # These values refer to the previous step, so there is -1.
-            self.additional_info["action_local"][agent][self.current_step-1] = action[agent][0]
-            self.additional_info["action_forward"][agent][self.current_step-1] = action[agent][1]
-            self.additional_info["action_reject"][agent][self.current_step-1] = action[agent][2]
+            self.additional_info["action_local"][agent][self.current_step - 1] = action[
+                agent
+            ][0]
+            self.additional_info["action_forward"][agent][self.current_step - 1] = (
+                action[agent][1]
+            )
+            self.additional_info["action_reject"][agent][self.current_step - 1] = (
+                action[agent][2]
+            )
 
-            self.additional_info["excess_local"][agent][self.current_step-1] = info_work[agent]["local_excess"]
-            self.additional_info["excess_forward_reject"][agent][self.current_step-1] = info_work[agent]["forward_rejects"]
+            self.additional_info["excess_local"][agent][self.current_step - 1] = (
+                info_work[agent]["local_excess"]
+            )
+            self.additional_info["excess_forward_reject"][agent][
+                self.current_step - 1
+            ] = info_work[agent]["forward_rejects"]
 
-            self.additional_info["queue_status_pre_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_pre_forward"]
-            self.additional_info["queue_status_post_forward"][agent][self.current_step-1] = info_work[agent]["queue_status_post_forward"]
+            self.additional_info["queue_status_pre_forward"][agent][
+                self.current_step - 1
+            ] = info_work[agent]["queue_status_pre_forward"]
+            self.additional_info["queue_status_post_forward"][agent][
+                self.current_step - 1
+            ] = info_work[agent]["queue_status_post_forward"]
 
-            self.additional_info["reward"][agent][self.current_step-1] = rewards[agent]
+            self.additional_info["reward"][agent][self.current_step - 1] = rewards[
+                agent
+            ]
 
 
-def _synthetic_normal_input_requests(max_steps, agent_ids, limits, rng):
+def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
     generate the synthesized data.
@@ -453,7 +518,7 @@ def _synthetic_normal_input_requests(max_steps, agent_ids, limits, rng):
     std = 32
 
     input_requests = {}
-    for agent in agent_ids:
+    for agent in agents:
         requests = rng.normal(loc=mean, scale=std, size=max_steps)
         input_requests[agent] = np.asarray(requests, dtype=np.int32)
 
@@ -466,7 +531,7 @@ def _synthetic_normal_input_requests(max_steps, agent_ids, limits, rng):
     return input_requests
 
 
-def _synthetic_sinusoidal_input_requests(max_steps, agent_ids, limits, rng):
+def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
     generate the synthesized data.
@@ -480,12 +545,12 @@ def _synthetic_sinusoidal_input_requests(max_steps, agent_ids, limits, rng):
     # traces.
     average_requests = 50
     amplitude_requests = 100
-    noise_ratio = .1
+    noise_ratio = 0.1
     unique_periods = 3  # The periods changes 3 times for each episode.
 
     input_requests = {}
     steps = np.arange(max_steps)
-    for agent in agent_ids:
+    for agent in agents:
         # Note: with default max_stes, the period changes every 96 steps
         # (max_steps = 288). We first generate the periods and expand the array
         # to match the max_steps. If max_steps is not a multiple of 96, some
@@ -495,8 +560,12 @@ def _synthetic_sinusoidal_input_requests(max_steps, agent_ids, limits, rng):
         periods = np.repeat(periods, repeats)  # Expand the single values.
         periods = np.resize(periods, periods.size + max_steps - periods.size)
 
-        base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
-        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
+        base_input = average_requests + amplitude_requests * np.sin(
+            2 * np.pi * steps / periods
+        )
+        noisy_input = base_input + noise_ratio * rng.normal(
+            0, amplitude_requests, size=max_steps
+        )
         requests = np.asarray(noisy_input, dtype=np.int32)
 
         # Clip the excess values respecting the minimum and maximum values
@@ -523,13 +592,16 @@ def _init_real_input_requests_pool():
     # Generates the file names.
     total_datasets = 14
     datasets = []
-    for idx in range(1, total_datasets+1):
-        item = (f"d{idx:02}", f"invocations_per_function_md.anon.http.scaled.selected.d{idx:02}.csv")
+    for idx in range(1, total_datasets + 1):
+        item = (
+            f"d{idx:02}",
+            f"invocations_per_function_md.anon.http.scaled.selected.d{idx:02}.csv",
+        )
         datasets.append(item)
 
     # Read each CSV file as a data frame.
     pool = []
-    for (idx, dataset) in datasets:
+    for idx, dataset in datasets:
         # Prefer absolute paths.
         path = (Path.cwd() / "dataset" / "data" / dataset).resolve()
         if not path.exists():
@@ -545,7 +617,7 @@ def _init_real_input_requests_pool():
     _real_input_requests_pool = np.array(pool, dtype=object)
 
 
-def _real_input_requests(max_steps, agent_ids, limits, rng, evaluation):
+def _real_input_requests(max_steps, agents, limits, rng, evaluation):
     """Randomly selects a real input request from the pool for each of the given
     agents.
 
@@ -576,8 +648,8 @@ def _real_input_requests(max_steps, agent_ids, limits, rng, evaluation):
     # Randomly select a dataframe for each agent. Note: It is important to
     # avoid choosing the same dataframe to avoid correlations between functions
     # in one day.
-    dataframes = rng.choice(pool, size=len(agent_ids), replace=False)
-    agents = list(agent_ids)  # Make a copy because it will be modified.
+    dataframes = rng.choice(pool, size=len(agents), replace=False)
+    agents = list(agents)  # Make a copy because it will be modified.
     functions = {}
     for dataframe in dataframes:
         row = dataframe.sample(random_state=rng)
@@ -585,7 +657,7 @@ def _real_input_requests(max_steps, agent_ids, limits, rng, evaluation):
 
     # Extract the input requests and function hashes from the dataframe.
     input_requests, hashes = {}, {}
-    for agent in agent_ids:
+    for agent in agents:
         dataframe = functions[agent]["dataframe"]
 
         # The new hash is the concatenation of the function hash and the day
@@ -600,7 +672,9 @@ def _real_input_requests(max_steps, agent_ids, limits, rng, evaluation):
         assert reqs.size == max_steps, f"Unsupported given max_steps = {max_steps}"
         min = limits[agent]["min"]
         max = limits[agent]["max"]
-        assert np.all(reqs >= min) and np.all(reqs <= max), f"Unsupported limits: {limits[agent]}"
+        assert np.all(reqs >= min) and np.all(
+            reqs <= max
+        ), f"Unsupported limits: {limits[agent]}"
 
         input_requests[agent] = reqs
         hashes[agent] = hash
@@ -621,9 +695,10 @@ def _convert_distribution_fw(input_requests, action_dist):
     # of requests is a discrete number, so there is a fraction of the action
     # probabilities that is left out of the calculation.
     actions = [
-            int(prob_local * input_requests),  # local requests
-            int(prob_forwarded * input_requests),  # forwarded requests
-            int(prob_rejected * input_requests)]  # rejected requests
+        int(prob_local * input_requests),  # local requests
+        int(prob_forwarded * input_requests),  # forwarded requests
+        int(prob_rejected * input_requests),
+    ]  # rejected requests
 
     processed_requests = sum(actions)
 
@@ -633,9 +708,11 @@ def _convert_distribution_fw(input_requests, action_dist):
     # most.
     if processed_requests < input_requests:
         # Extract the fraction for each action probability.
-        fractions = [prob_local * input_requests - actions[0],
-                     prob_forwarded * input_requests - actions[1],
-                     prob_rejected * input_requests - actions[2]]
+        fractions = [
+            prob_local * input_requests - actions[0],
+            prob_forwarded * input_requests - actions[1],
+            prob_rejected * input_requests - actions[2],
+        ]
 
         # Get the highest fraction index and and assign remaining requests to
         # that action.
@@ -668,7 +745,9 @@ class DFaaSCallbacks(DefaultCallbacks):
         arguments are ignored."""
         # Make sure this episode has just been started (only initial obs logged
         # so far).
-        assert episode.length <= 0, f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+        assert (
+            episode.length <= 0
+        ), f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
 
         env = base_env.envs[0]
 
@@ -697,25 +776,13 @@ class DFaaSCallbacks(DefaultCallbacks):
             episode.hist_data[key] = [info[key]]
 
     def _end_trigger(self, result):
-        """Called by the two next methods."""
+        """Called by on_evaluate_end and on_train_result."""
         # Final checker to verify the callbacks are executed.
         result["callbacks_ok"] = True
 
-        # The problem here is that Ray cumulates the values of the keys under
-        # hist_stats across iterations, but I do not want this behavior.
-        # Solution: keep only the values generated by episodes in this
-        # iteration.
-        episodes = result["episodes_this_iter"]
-        for key in result["hist_stats"]:
-            result["hist_stats"][key] = result["hist_stats"][key][-episodes:]
-
-        # Because they are repeated by Ray within the result dictionary.
-        del result["sampler_results"]
-
     def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
         """Called at the end of Algorithm.evaluate()."""
-        # By default RLlib saves the evaluation data under "evaluation" sub-dict.
-        self._end_trigger(evaluation_metrics["evaluation"])
+        self._end_trigger(evaluation_metrics)
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
