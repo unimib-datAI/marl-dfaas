@@ -28,15 +28,12 @@ file. However, the most important dependencies are:
   environment, run the experiments by training the models with the implemented
   algorithms.
 
-* [PyTorch](https://pytorch.org/docs/2.5/) (version 2.5.1): PyTorch is a
-  library for deep learning on GPUs and CPUs. It is used by Ray RLlib when
-  training models with deep learning reinforcement learning algorithms.
+* [PyTorch](https://pytorch.org/docs/2.5/) (version 2.5.1): is a library for
+  deep learning on GPUs and CPUs. It is used by Ray RLlib when training models
+  with deep learning reinforcement learning algorithms.
 
-* Gymnasium
-
-* Matplotlib
-
-* Flake8
+* [Matplotlib](https://matplotlib.org/) (version 3.9.3): is a plot generation
+  library used in the scripts in the [`plots`](plots) directory.
 
 When installing Ray RLlib, `pip` automatically installs its dependencies, which
 are also used by the experiment scripts (like NumPy or Gymnasium). This means
@@ -46,23 +43,7 @@ that the environment can be easily set up by installing the following packages:
 ray[rllib]==2.40.0
 torch==2.5.1
 gputil==1.4.0  # Required by RLlib (GPU system monitoring).
-```
-
-(OLD, WIP) Minimal `requirements.txt` file:
-
-```
-numpy==1.26.4
-gputil
-torch
-gymnasium
-dm_tree
-pyarrow
-pandas
-typer
-scikit-image
-lz4
-flake8
-matplotlib
+matplotlib==3.9.3
 ```
 
 Run the following commands to set up the development environment with Ubuntu:

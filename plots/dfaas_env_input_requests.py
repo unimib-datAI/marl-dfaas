@@ -1,15 +1,11 @@
 # This Python script generates a plot of all types of input requests for on
 # agent using the seeds specified on the command line.
-#
-# # Note: this script assumes that the experiment directories are located in
-# "results/final".
 from pathlib import Path
 import sys
 import os
 import argparse
 
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
@@ -18,7 +14,7 @@ import matplotlib.ticker as ticker
 sys.path.append(os.getcwd())
 
 import dfaas_env
-import plot_utils  # noqa: F401 (disables matplotlib debug messages)
+import plot_utils
 
 
 def _get_data(type, seed):
@@ -35,11 +31,11 @@ def _get_data(type, seed):
     # Set function arguments to fixed generic values.
     env = dfaas_env.DFaaS()
     limits = {}
-    for agent in env.agent_ids:
+    for agent in env.agents:
         limits[agent] = {
-                "min": env.observation_space[agent]["input_requests"].low.item(),
-                "max": env.observation_space[agent]["input_requests"].high.item()
-                }
+            "min": env.observation_space[agent]["input_requests"].low.item(),
+            "max": env.observation_space[agent]["input_requests"].high.item(),
+        }
 
     # Create the RNG used to generate input requests.
     rng = np.random.default_rng(seed=seed)
@@ -47,10 +43,10 @@ def _get_data(type, seed):
     data = {}
     if type == "real":
         # Select only the input requests, not the hashes.
-        data["requests"] = generate(env.max_steps, env.agent_ids, limits, rng, False)[0]
+        data["requests"] = generate(env.max_steps, env.agents, limits, rng, False)[0]
     else:
-        data["requests"] = generate(env.max_steps, env.agent_ids, limits, rng)
-    data["agents"] = env.agent_ids
+        data["requests"] = generate(env.max_steps, env.agents, limits, rng)
+    data["agents"] = env.agents
     data["limits"] = limits
 
     return data
@@ -58,7 +54,7 @@ def _get_data(type, seed):
 
 def make(output_dir, type, seed):
     plots_dir = output_dir / "plots"
-    plots_dir.mkdir(exist_ok=True)
+    plots_dir.mkdir(exist_ok=True, parents=True)
 
     data = _get_data(type, seed)
 
@@ -72,44 +68,54 @@ def make(output_dir, type, seed):
     bottom, top = data["limits"][agent]["min"], data["limits"][agent]["max"]
     ax.set_ylim(bottom=bottom, top=top)
 
-    ax.set_xlabel("Passi", fontsize="large")
+    ax.set_xlabel("Steps", fontsize="large")
     ax.xaxis.set_major_locator(ticker.MultipleLocator(50))
 
-    ax.set_ylabel("Richieste", fontsize="large")
+    ax.set_ylabel("Requests", fontsize="large")
     ax.yaxis.set_major_locator(ticker.MultipleLocator(10))
 
     ax.grid(axis="both")
     ax.set_axisbelow(True)  # By default the axis is over the content.
 
     # Save the plot.
-    path = plots_dir / f"requests_{type}_{seed}_single_agent.pdf"
+    path = plots_dir / f"input_requests_{type}_{seed}.pdf"
     fig.savefig(path)
     plt.close(fig)
     print(f"{path.as_posix()!r}")
 
 
 if __name__ == "__main__":
-    matplotlib.use("pdf", force=True)
-
-    # Default size is too small.
-    font = {"family": "serif", "size": 20}
-    matplotlib.rc('font', **font)
-
-    epilog = """This script assumes that the experiment directories are stored
-    under the "results/final" directories with the evaluations. Produces a plot
-    for each type of scenario and seed."""
+    types = ["real", "sinusoidal", "normal"]
 
     # Create parser and parse command line arguments.
-    parser = argparse.ArgumentParser(epilog=epilog)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
-    parser.add_argument(dest="seed", nargs="+", type=int,
-                        help="Seed used to generate synthetic requests")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path("results/generic_plots"),
+        help="A directory path here to save the generated plots",
+    )
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=[42],
+        help="Seeds used to generate (synthetic) or select (real) requests",
+    )
+    parser.add_argument(
+        "--types",
+        nargs="+",
+        type=str,
+        choices=types,
+        default=types,
+        help="Which type of input requests to consider",
+    )
 
     args = parser.parse_args()
 
-    out = Path("results/final")
-    types = ["real", "sinusoidal", "normal"]
-
-    for seed in args.seed:
-        for type in types:
-            make(out, type, seed)
+    for seed in args.seeds:
+        for type in args.types:
+            make(args.out, type, seed)
