@@ -649,11 +649,10 @@ def _real_input_requests(max_steps, agents, limits, rng, evaluation):
     # avoid choosing the same dataframe to avoid correlations between functions
     # in one day.
     dataframes = rng.choice(pool, size=len(agents), replace=False)
-    agents = list(agents)  # Make a copy because it will be modified.
     functions = {}
-    for dataframe in dataframes:
+    for agent, dataframe in zip(agents, dataframes):
         row = dataframe.sample(random_state=rng)
-        functions[agents.pop()] = {"dataframe": row, "idx": dataframe.idx}
+        functions[agent] = {"dataframe": row, "idx": dataframe.idx}
 
     # Extract the input requests and function hashes from the dataframe.
     input_requests, hashes = {}, {}

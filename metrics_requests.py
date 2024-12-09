@@ -16,7 +16,7 @@ def main(type, seed, episodes):
 
     # Each episode generates two input requests (if the env has two agents), so
     # the total number of input requests is greater.
-    length = episodes * env.agents
+    length = episodes * len(env.agents)
 
     sum = np.empty(length, dtype=np.int32)
     mean = np.empty(length)
@@ -27,8 +27,8 @@ def main(type, seed, episodes):
 
         # Save each input request to the right global slot in the arrays.
         agent_offset = 0
-        for agent in env.agent_ids:
-            idx = episode * env.agents + agent_offset
+        for agent in env.agents:
+            idx = episode * len(env.agents) + agent_offset
 
             sum[idx] = np.sum(env.input_requests[agent])
             mean[idx] = np.average(env.input_requests[agent])
@@ -37,7 +37,7 @@ def main(type, seed, episodes):
             agent_offset += 1
 
     print(f"Input requests of {type = } with {seed = } for {episodes = }")
-    for (metric, data) in {"sum": sum, "mean": mean, "std": std}.items():
+    for metric, data in {"sum": sum, "mean": mean, "std": std}.items():
         # Show the result on the standard output. Maybe in the future can be
         # saved to a CSV file.
         print(f"Metrics for {metric!r} column")
@@ -48,16 +48,21 @@ def main(type, seed, episodes):
 
 if __name__ == "__main__":
     # Create parser and parse arguments from the command line.
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
-    parser.add_argument("type", choices=["synthetic-sinusoidal",
-                                         "synthetic-normal",
-                                         "real"],
-                        help="Type of input requests to generate")
-    parser.add_argument("--seed", default=0, type=int,
-                        help="Seed used to generated synthetic requests")
-    parser.add_argument("--episodes", default=10000, type=int,
-                        help="Number of episodes to generate")
+    parser.add_argument(
+        "type",
+        choices=["synthetic-sinusoidal", "synthetic-normal", "real"],
+        help="Type of input requests to generate",
+    )
+    parser.add_argument(
+        "--seed", default=0, type=int, help="Seed used to generated synthetic requests"
+    )
+    parser.add_argument(
+        "--episodes", default=10000, type=int, help="Number of episodes to generate"
+    )
 
     args = parser.parse_args()
 
