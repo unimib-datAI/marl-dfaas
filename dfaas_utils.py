@@ -24,8 +24,10 @@ def dict_to_json(data, file_path):
         with open(file_path, "w") as file:
             json.dump(data, file, cls=NumpyEncoder, sort_keys=True)
     except IOError as e:
-        print(f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}",
-              file=sys.stderr)
+        print(
+            f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -36,8 +38,10 @@ def json_to_dict(file_path):
         with open(file_path, "r") as file:
             return json.load(file)
     except IOError as e:
-        print(f"Failed to read json file from {file_path.as_posix()!r}: {e}",
-              file=sys.stderr)
+        print(
+            f"Failed to read json file from {file_path.as_posix()!r}: {e}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 
@@ -60,5 +64,3 @@ def parse_result_file(result_path):
             iters.append(json.loads(raw_iter))
 
     return iters
-
-
