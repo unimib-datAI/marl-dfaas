@@ -37,10 +37,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="metrics_requests")
 
     # A list of possible arguments, but must be at least of size one.
-    parser.add_argument("csv_files",
-                        help="One or more CSV files from which metrics are calculated",
-                        type=Path,
-                        nargs="+")
+    parser.add_argument(
+        "csv_files",
+        help="One or more CSV files from which metrics are calculated",
+        type=Path,
+        nargs="+",
+    )
 
     args = parser.parse_args()
 
