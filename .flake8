@@ -1,4 +1,0 @@
-[flake8]
-# Ignore E501 line too long
-# Ignore E402 module import not at top of file
-extend-ignore = E501, E402
