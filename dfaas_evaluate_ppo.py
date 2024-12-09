@@ -25,8 +25,8 @@ parser.add_argument(
     "--seed", help="Use given seed instead of experiment original one", type=int
 )
 parser.add_argument(
-    "--workers",
-    help="Number of evaluation workers (non-negative integer)",
+    "--runners",
+    help="Number of evaluation runners (non-negative integer)",
     type=int,
     default=5,
 )
@@ -99,7 +99,7 @@ policies = {
 
 # This function is called by Ray to determine which policy to use for an agent
 # returned in the observation dictionary by step() or reset().
-def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+def policy_mapping_fn(agent_id, episode, runner, **kwargs):
     """This function is called at each step to assign the agent to a policy. In
     this case, each agent has a fixed corresponding policy."""
     return f"policy_{agent_id}"
@@ -120,7 +120,7 @@ ppo_config = (
     .evaluation(
         evaluation_interval=None,
         evaluation_duration=50,
-        evaluation_num_env_runners=args.workers,
+        evaluation_num_env_runners=args.runners,
         evaluation_config={"env_config": env_config},
     )
     .debugging(seed=exp_config["seed"])

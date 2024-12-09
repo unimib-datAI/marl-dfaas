@@ -38,9 +38,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).name)
 
-# The number of rollout workers is fixed to five. This is because 4320 steps are
-# collected in each iteration, 864 from each worker (3 episodes).
-rollout_workers = 5
+# The number of runners is fixed to five. This is because 4320 steps are
+# collected in each iteration, 864 from each runner (3 episodes).
+runners = 5
 
 # Experiment configuration.
 # TODO: make this configurable!
@@ -49,7 +49,7 @@ exp_config = {
     "max_iterations": args.iterations,  # Number of iterations.
     "env": dfaas_env.DFaaS.__name__,  # Environment.
     "gpu": args.gpu,
-    "workers": rollout_workers,
+    "runners": runners,
 }
 logger.info(f"Experiment configuration = {exp_config}")
 
@@ -96,7 +96,7 @@ policies = {
 
 # This function is called by Ray to determine which policy to use for an agent
 # returned in the observation dictionary by step() or reset().
-def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+def policy_mapping_fn(agent_id, episode, runner, **kwargs):
     """This function is called at each step to assign the agent to a policy. In
     this case, each agent has a fixed corresponding policy."""
     return f"policy_{agent_id}"
@@ -107,8 +107,8 @@ assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment
 # To have exactly 3 episodes played by each runner, we need to set the
 # train_batch_size parameter (the total number of tuples to collect for each
 # iteration across all runners) to the correct value. Since max_steps (288) and
-# rollout_workers (5) are fixed, the result is 4320 tuples.
-episodes_iter = 3 * rollout_workers
+# runners (5) are fixed, the result is 4320 tuples.
+episodes_iter = 3 * runners
 train_batch_size = dummy_env.max_steps * episodes_iter
 
 # Algorithm config.
@@ -124,7 +124,7 @@ ppo_config = (
     .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
     .training(train_batch_size=train_batch_size)
     .framework("torch")
-    .env_runners(num_env_runners=rollout_workers)
+    .env_runners(num_env_runners=runners)
     .evaluation(
         evaluation_interval=None,
         evaluation_duration=50,

@@ -219,8 +219,8 @@ class DFaaS(MultiAgentEnv):
         self.current_step = 0
 
         # If seed is given, overwrite the master seed. Ray will give the seed in
-        # reset() only when it creates the environment for each rollout worker
-        # (and local worker). Each worker has a specific seed.
+        # reset() only when it creates the environment for each runner (and
+        # local runner). Each runner has a specific seed.
         if seed is not None:
             # The master seed for the RNG. This is used in each episode (each
             # "reset()") to create a new RNG that will be used for generating
