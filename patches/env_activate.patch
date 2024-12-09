@@ -1,6 +1,6 @@
---- .env/bin/activate	2024-07-31 19:18:14.813772103 +0200
-+++ .env/bin/activate_new	2024-09-18 14:48:18.208830744 +0200
-@@ -27,6 +27,8 @@
+--- .env/bin/activate	2024-12-09 12:32:43.283045021 +0100
++++ .env/bin/activate_new	2024-12-09 12:33:31.268960301 +0100
+@@ -24,6 +24,8 @@
          unset _OLD_VIRTUAL_PS1
      fi
  
@@ -9,10 +9,12 @@
      unset VIRTUAL_ENV
      unset VIRTUAL_ENV_PROMPT
      if [ ! "${1:-}" = "nondestructive" ] ; then
-@@ -67,3 +69,7 @@
- if [ -n "${BASH:-}" -o -n "${ZSH_VERSION:-}" ] ; then
-     hash -r 2> /dev/null
- fi
+@@ -67,4 +69,8 @@
+ 
+ # Call hash to forget past commands. Without forgetting
+ # past commands the $PATH changes we made may not be respected
+-hash -r 2> /dev/null
++hash -r 2> /dev/nullG
 +
 +# Disable Ray log deduplication: I want to see the output of each worker
 +# uniquely.

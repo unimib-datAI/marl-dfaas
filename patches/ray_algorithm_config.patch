@@ -1,18 +1,18 @@
---- .env/lib64/python3.10/site-packages/ray/rllib/algorithms/algorithm_config.py	2024-07-31 19:21:17.559560844 +0200
-+++ .env/lib64/python3.10/site-packages/ray/rllib/algorithms/algorithm_config_new.py	2024-09-18 14:26:43.209930517 +0200
-@@ -3821,14 +3821,7 @@
-         # If `evaluation_num_workers` > 0, warn if `evaluation_interval` is
+--- .env/lib64/python3.12/site-packages/ray/rllib/algorithms/algorithm_config.py	2024-12-04 09:56:08.215374535 +0100
++++ .env/lib64/python3.12/site-packages/ray/rllib/algorithms/algorithm_config_new.py	2024-12-09 12:38:21.850533422 +0100
+@@ -4352,14 +4352,7 @@
+         # If `evaluation_num_env_runners` > 0, warn if `evaluation_interval` is 0 or
          # None.
-         if self.evaluation_num_workers > 0 and not self.evaluation_interval:
+         if self.evaluation_num_env_runners > 0 and not self.evaluation_interval:
 -            logger.warning(
--                f"You have specified {self.evaluation_num_workers} "
--                "evaluation workers, but your `evaluation_interval` is None! "
--                "Therefore, evaluation will not occur automatically with each"
--                " call to `Algorithm.train()`. Instead, you will have to call "
+-                f"You have specified {self.evaluation_num_env_runners} "
+-                "evaluation workers, but your `evaluation_interval` is 0 or None! "
+-                "Therefore, evaluation doesn't occur automatically with each"
+-                " call to `Algorithm.train()`. Instead, you have to call "
 -                "`Algorithm.evaluate()` manually in order to trigger an "
 -                "evaluation run."
 -            )
 +            pass
-         # If `evaluation_num_workers=0` and
+         # If `evaluation_num_env_runners=0` and
          # `evaluation_parallel_to_training=True`, warn that you need
          # at least one remote eval worker for parallel training and
