@@ -12,24 +12,31 @@ import dfaas_env
 
 # Disable Ray's warnings.
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 parser = argparse.ArgumentParser(prog="dfaas_evaluate_ppo")
 parser.add_argument("experiment_dir", help="Existing experiment directory")
-parser.add_argument("suffix",
-                    help="A string to append to the evaluation directory")
-parser.add_argument("--env-config",
-                    help="Use this env config file to update the original env config")
-parser.add_argument("--seed",
-                    help="Use given seed instead of experiment original one",
-                    type=int)
-parser.add_argument("--workers",
-                    help="Number of evaluation workers (non-negative integer)",
-                    type=int, default=5)
+parser.add_argument("suffix", help="A string to append to the evaluation directory")
+parser.add_argument(
+    "--env-config", help="Use this env config file to update the original env config"
+)
+parser.add_argument(
+    "--seed", help="Use given seed instead of experiment original one", type=int
+)
+parser.add_argument(
+    "--workers",
+    help="Number of evaluation workers (non-negative integer)",
+    type=int,
+    default=5,
+)
 args = parser.parse_args()
 
 # Initialize logger for this module.
-logging.basicConfig(format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s", level=logging.DEBUG)
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
+    level=logging.DEBUG,
+)
 logger = logging.getLogger(Path(__file__).name)
 
 exp_dir = Path(args.experiment_dir).resolve()
@@ -74,41 +81,53 @@ dummy_env = DFaaS(config=env_config)
 #
 # Note that if no option is given to PolicySpec, it will inherit the
 # configuration/algorithm from the main configuration.
-policies = {"policy_node_0": PolicySpec(policy_class=None,
-                                        observation_space=dummy_env.observation_space["node_0"],
-                                        action_space=dummy_env.action_space["node_0"],
-                                        config=None),
-            "policy_node_1": PolicySpec(policy_class=None,
-                                        observation_space=dummy_env.observation_space["node_1"],
-                                        action_space=dummy_env.action_space["node_1"],
-                                        config=None)
-            }
+policies = {
+    "policy_node_0": PolicySpec(
+        policy_class=None,
+        observation_space=dummy_env.observation_space["node_0"],
+        action_space=dummy_env.action_space["node_0"],
+        config=None,
+    ),
+    "policy_node_1": PolicySpec(
+        policy_class=None,
+        observation_space=dummy_env.observation_space["node_1"],
+        action_space=dummy_env.action_space["node_1"],
+        config=None,
+    ),
+}
 
 
 # This function is called by Ray to determine which policy to use for an agent
 # returned in the observation dictionary by step() or reset().
 def policy_mapping_fn(agent_id, episode, worker, **kwargs):
-    '''This function is called at each step to assign the agent to a policy. In
-    this case, each agent has a fixed corresponding policy.'''
+    """This function is called at each step to assign the agent to a policy. In
+    this case, each agent has a fixed corresponding policy."""
     return f"policy_{agent_id}"
 
 
 assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
 # Algorithm config.
-ppo_config = (PPOConfig()
-              .environment(env=DFaaS.__name__, env_config=env_config)
-              .framework("torch")
-              .rollouts(num_rollout_workers=0)  # Only evaluate.
-              .evaluation(evaluation_interval=None,
-                          evaluation_duration=50,
-                          evaluation_num_workers=args.workers)
-              .debugging(seed=exp_config["seed"])
-              .resources(num_gpus=1)
-              .callbacks(dfaas_env.DFaaSCallbacks)
-              .multi_agent(policies=policies,
-                           policy_mapping_fn=policy_mapping_fn)
-              )
+ppo_config = (
+    PPOConfig()
+    # By default RLlib uses the new API stack, but I use the old one.
+    .api_stack(
+        enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
+    )
+    .environment(env=DFaaS.__name__, env_config=env_config)
+    .framework("torch")
+    .env_runners(num_env_runners=0)  # Only evaluate.
+    .evaluation(
+        evaluation_interval=None,
+        evaluation_duration=50,
+        evaluation_num_env_runners=args.workers,
+        evaluation_config={"env_config": env_config},
+    )
+    .debugging(seed=exp_config["seed"])
+    .resources(num_gpus=1)
+    .callbacks(dfaas_env.DFaaSCallbacks)
+    .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
+)
 
 # Build the experiment.
 ppo_algo = ppo_config.build()
@@ -120,7 +139,7 @@ ppo_algo.restore(checkpoint_path.as_posix())
 logger.info(f"Algorithm restored from {checkpoint_path.name!r}")
 
 # Get the timestamp and create evaluation sub-directory
-start = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+start = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 eval_dir = Path(ppo_algo.logdir).resolve() / f"evaluation_{start}_{args.suffix}"
 eval_dir.mkdir()
 
