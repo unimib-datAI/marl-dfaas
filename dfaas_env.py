@@ -2,6 +2,7 @@
 import gymnasium as gym
 import logging
 from pathlib import Path
+from collections import deque, namedtuple
 
 import pandas as pd
 import numpy as np
@@ -111,39 +112,28 @@ class DFaaS(MultiAgentEnv):
     }
 
     def __init__(self, config={}):
-        # Number and IDs of the agents in the DFaaS network.
-        # self.agents = 2
-        # self.agent_ids = ["node_0", "node_1"]
-
-        # This attribute is required by Ray and must be a set. I use the list
-        # version instead in this environment.
-        # self._agent_ids = set(self.agent_ids)
-
+        # IDs of the agents in the DFaaS environment.
         self.agents = ["node_0", "node_1"]
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
         self.reward_range = (0.0, 1.0)
 
-        # The size of each agent's local queue. The queue can be filled with
-        # requests to be processed locally.
-        self.queue_capacity_max = {
-            "node_0": config.get("queue_capacity_max_node_0", 100),
-            "node_1": config.get("queue_capacity_max_node_1", 100),
-        }
-
-        # Provide full (preferred format) observation- and action-spaces as
+        # Provide full (preferred format) observation and action spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
         self._action_space_in_preferred_format = True
         self.action_space = gym.spaces.Dict(
             {
-                # Distribution of how many requests are processed locally, forwarded
-                # and rejected.
+                # Distribution of how many requests are processed locally,
+                # forwarded and rejected.
                 agent: Simplex(shape=(3,))
                 for agent in self.agents
             }
         )
+
+        # Request queue capacity for each agent.
+        self.queue_capacity = config.get("queue_capacity", 100)
 
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict(
@@ -154,18 +144,19 @@ class DFaaS(MultiAgentEnv):
                         "input_requests": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
-                        # Queue capacity (currently a constant).
-                        "queue_capacity": gym.spaces.Box(
+                        # Queue current size.
+                        "queue_size": gym.spaces.Box(
                             low=0,
-                            high=self.queue_capacity_max["node_0"],
+                            high=self.queue_capacity,
                             dtype=np.int32,
                         ),
                         # Forwarded requests in the previous step.
                         "last_forward_requests": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
-                        # Forwarded but rejected requests in the previous step. Note
-                        # that last_forward_rejects <= last_forward_requests.
+                        # Forwarded but rejected requests in the previous step.
+                        # Note that last_forward_rejects <=
+                        # last_forward_requests.
                         "last_forward_rejects": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
@@ -184,9 +175,6 @@ class DFaaS(MultiAgentEnv):
             "input_requests_type", "synthetic-sinusoidal"
         )
         match self.input_requests_type:
-            case "synthetic":
-                print("WARN: 'synthetic' type deprecated, use 'synthetic-sinusoidal'")
-                pass
             case "synthetic-sinusoidal":
                 pass
             case "synthetic-normal":
@@ -203,16 +191,6 @@ class DFaaS(MultiAgentEnv):
         self.evaluation = config.get("evaluation", False)
 
         super().__init__()
-
-    def get_config(self):
-        """Returns a dictionary with the current configuration of the
-        environment."""
-        config = {}
-        config["queue_capacity_max_node_0"] = self.queue_capacity_max["node_0"]
-        config["queue_capacity_max_node_1"] = self.queue_capacity_max["node_1"]
-        config["max_steps"] = self.max_steps
-        config["input_requests_type"] = self.input_requests_type
-        return config
 
     def reset(self, *, seed=None, options=None):
         # Current step.
@@ -231,8 +209,9 @@ class DFaaS(MultiAgentEnv):
             self.master_seed = seed
             self.master_rng = np.random.default_rng(seed=self.master_seed)
 
-        # At least one time the reset() method must be called with a seed.
-        assert getattr(self, "master_seed", None) is not None
+        assert (
+            getattr(self, "master_seed", None) is not None
+        ), "reset() must be called the first time with a seed"
 
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
@@ -277,9 +256,10 @@ class DFaaS(MultiAgentEnv):
             # callbacks.
             self.input_requests_hashes = retval[1]
 
-        # Queue state for each agent (number of requests to process locally).
-        # The queues start empty (max capacity) and can be full.
-        self.queue = {agent: 0 for agent in self.agents}
+        # Waiting queue of requests for each agent to process locally. The queue
+        # has a limited capacity (self.queue_capacity) and the requests are
+        # served in FIFO order (left -> first, right -> last).
+        self.queues = {agent: deque() for agent in self.agents}
 
         self.last_info = None  # Required by _build_observation().
         obs = self._build_observation()
@@ -290,13 +270,15 @@ class DFaaS(MultiAgentEnv):
         #
         # To update the dictionary, a private function is called at the end of
         # reset() and call().
-        self.additional_info = None
-        self._additional_info(obs)
+        # TODO
+        # self.additional_info = None
+        # self._additional_info(obs)
 
         return obs, {}
 
     def step(self, action_dict):
-        action = {}  # Absolute number of requests for each action.
+        # 1. Convert the action distribution to absolute number of requests.
+        action = {}
         for agent in self.agents:
             # Get input requests.
             input_requests = self.input_requests[agent][self.current_step]
@@ -306,10 +288,13 @@ class DFaaS(MultiAgentEnv):
             # reject.
             action[agent] = _convert_distribution_fw(input_requests, action_dict[agent])
 
-        # We have the actions, now update the environment state.
+        # 2. Manage the workload.
         info_work = self._manage_workload(action)
 
-        # Calculate the reward for both agents.
+        # 3. Calculate the reward for both agents.
+        # TODO
+        rewards = {agent: 1 for agent in self.agents}
+        """
         rewards = {}
         for agent in self.agents:
             rewards[agent] = _reward_fw(
@@ -317,11 +302,12 @@ class DFaaS(MultiAgentEnv):
                 (info_work[agent]["local_excess"], info_work[agent]["forward_rejects"]),
                 (
                     info_work[agent]["queue_status_pre_forward"],
-                    self.queue_capacity_max[agent],
+                    self.queue_capacity,
                 ),
             )
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
+        """
 
         # Required by _build_observation().
         self.last_info = {"action": action, "rewards": rewards, "workload": info_work}
@@ -329,9 +315,7 @@ class DFaaS(MultiAgentEnv):
         # Go to the next step.
         self.current_step += 1
 
-        # Free the queues (for now...).
-        self.queue = {agent: 0 for agent in self.agents}
-
+        # 4. Update environment state and prepare return values.
         # Each key in the terminated dictionary indicates whether an individual
         # agent has terminated. There is a special key "__all__" which is true
         # only if all agents have terminated.
@@ -352,7 +336,8 @@ class DFaaS(MultiAgentEnv):
             obs = self.observation_space.sample()
 
         # Update the additional_info dictionary.
-        self._additional_info(obs, action, rewards, info_work)
+        # TODO
+        # self._additional_info(obs, action, rewards, info_work)
 
         return obs, rewards, terminated, truncated, {}
 
@@ -366,9 +351,7 @@ class DFaaS(MultiAgentEnv):
         # Set common observation values for the agents.
         for agent in self.agents:
             # The queue capacity is always a fixed value for now.
-            obs[agent]["queue_capacity"] = np.array(
-                [self.queue_capacity_max[agent]], dtype=np.int32
-            )
+            obs[agent]["queue_size"] = np.array([self.queue_capacity], dtype=np.int32)
 
             input_requests = self.input_requests[agent][self.current_step]
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
@@ -379,9 +362,13 @@ class DFaaS(MultiAgentEnv):
                 last_forward_reqs = last_forward_rejects = 0
             else:
                 last_forward_reqs = self.last_info["action"][agent][1]
+                # TODO
+                last_forward_rejects = 0
+                """
                 last_forward_rejects = self.last_info["workload"][agent][
                     "forward_rejects"
                 ]
+                """
 
             obs[agent]["last_forward_requests"] = np.array(
                 [last_forward_reqs], dtype=np.int32
@@ -393,60 +380,88 @@ class DFaaS(MultiAgentEnv):
         return obs
 
     def _manage_workload(self, action):
-        """Fills the agent queues with the requests provided by the actions and
-        returns a dictionary containing the same information for all agents:
+        """Manages the workload for the agents in the current step. It takes as
+        input the actions for each agent, and returns the number of rejected
+        requests for each agent.
 
-            - The number of excess local requests,
-            - The number of rejected forwarded requests,
-            - The queue status before and after processing the forwarded
-              requests from the other agent.
-        """
+        The rejected requests for an agent is the sum of: rejected requests
+        indicated by the action, the number of local requests that could not be
+        processed or added to the queue, the number of forwarded requests to the
+        other agent that could not be processed or added to the queue."""
         assert len(action) == len(
             self.agents
         ), f"Expected {len(self.agents)} entries, found {len(action)}"
-        local_0, forward_0, reject_0 = action["node_0"]
-        local_1, forward_1, reject_1 = action["node_1"]
+        assert self.agents == ["node_0", "node_1"], "Expected only two agents"
 
-        info = {agent: {} for agent in self.agents}
+        # CPU shares and RAM available for all requests in a single step.
+        cpu_capacity = {agent: 1000 for agent in self.agents}
+        ram_capacity = {agent: 8000 for agent in self.agents}
 
-        # Helper function.
-        def fill_queue(agent, requests):
-            """Fill the queue of the specified agent with the specified number
-            of requests. Returns the number of excess requests (requests that
-            cannot be added to the queue)."""
-            excess = 0
+        # Extract absolute number of requests.
+        local = {agent: action[agent][0] for agent in self.agents}
+        forward = {agent: action[agent][1] for agent in self.agents}
+        reject = {agent: action[agent][2] for agent in self.agents}
 
-            free_slots = self.queue_capacity_max[agent] - self.queue[agent]
-            if free_slots >= requests:
-                # There are enough slots in the queue to handle the number of
-                # requests specified by the action.
-                self.queue[agent] += requests
-            else:
-                # The requests specified by the action do not have enough slots
-                # in the queue to be processed locally. So we have a number of
-                # requests that are overflowing.
-                excess = requests - free_slots
+        def process_request(agent, request):
+            """Process the specified request for the specified agent. Returns
+            True if the request has been processed in the current step,
+            otherwise returns False."""
+            if (
+                cpu_capacity[agent] >= request.cpu_shares
+                and ram_capacity[agent] >= request.ram_mb
+            ):
+                cpu_capacity[agent] -= request.cpu_shares
+                ram_capacity[agent] -= request.ram_mb
+                return True  # Simulate the processing of the request.
 
-                # However, use the available slots.
-                self.queue[agent] += requests - excess
+            return False
 
-            return excess
+        def append_queue(agent, request):
+            """Appends the specified requests to the queue of the specified
+            agent. Returns True if the request was appended, otherwise False
+            (the queue is full)."""
+            if len(self.queues[agent]) < self.queue_capacity:
+                self.queues[agent].append(request)
+                return True
 
-        # Fill both local queues with local requests first.
-        info["node_0"]["local_excess"] = fill_queue("node_0", local_0)
-        info["node_1"]["local_excess"] = fill_queue("node_1", local_1)
-        info["node_0"]["queue_status_pre_forward"] = self.queue["node_0"]
-        info["node_1"]["queue_status_pre_forward"] = self.queue["node_1"]
+            return False  # No available space.
 
-        # Try to fill the local queues with the forwarded requests provided by
-        # the opposing agent.
-        info["node_0"]["forward_rejects"] = fill_queue("node_1", forward_0)
-        info["node_1"]["forward_rejects"] = fill_queue("node_0", forward_1)
-        info["node_0"]["queue_status_post_forward"] = self.queue["node_0"]
-        info["node_1"]["queue_status_post_forward"] = self.queue["node_1"]
+        # 1. First, process the requests in the queue from the previous step.
+        for agent in self.agents:
+            for request in self.queues[agent].copy():
+                if not process_request(agent, request):
+                    append_queue(agent, request)
 
-        return info
+        # 2. Try processing incoming requests. Append the surplus to the queue.
+        for agent in self.agents:
+            for request in _sample_workload(local[agent], self.rng):
+                if process_request(agent, request):
+                    continue
+                if append_queue(agent, request):
+                    continue
 
+                # This request must be rejected: no CPU/RAM available and queue
+                # is full.
+                reject[agent] += 1
+
+        # 3. Try processing forwarded requests from the opposite agent. Append
+        # the surplus to the queue.
+        for agent in self.agents:
+            opposite_agent = "node_0" if agent == "node_1" else "node_1"
+            for request in _sample_workload(forward[opposite_agent], self.rng):
+                request = request._replace(forwarded=True)  # Mark the request.
+                if process_request(agent, request):
+                    continue
+                if append_queue(agent, request):
+                    continue
+
+                # This request must be rejected: no CPU/RAM available and queue
+                # is full.
+                reject[opposite_agent] += 1
+
+        return reject
+
+    '''
     def _additional_info(self, obs, action=None, rewards=None, info_work=None):
         """Update the additional_info dictionary with the current step."""
         # Initialize the additional_info dictionary with all the NumPy arrays.
@@ -468,7 +483,7 @@ class DFaaS(MultiAgentEnv):
                 ] = obs[agent]["input_requests"]
                 self.additional_info["observation_queue_capacity"][agent][
                     self.current_step
-                ] = obs[agent]["queue_capacity"]
+                ] = obs[agent]["queue_size"]
 
             if self.current_step == 0:
                 # After reset() there is no action, reward and info_work.
@@ -502,6 +517,7 @@ class DFaaS(MultiAgentEnv):
             self.additional_info["reward"][agent][self.current_step - 1] = rewards[
                 agent
             ]
+    '''
 
 
 def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
@@ -720,6 +736,49 @@ def _convert_distribution_fw(input_requests, action_dist):
 
     assert sum(actions) == input_requests
     return tuple(actions)
+
+
+def _sample_workload(num_requests, rng):
+    """Samples the given number of requests using the given NumPy RNG generator.
+
+    Returns a deque, each element of which is a namedtuple with the following
+    fields:
+
+        * "type": the class type of the request ("A", "B", or "C"),
+        * "forwarded": True if the request was forwarded by the opposite node,
+        * "cpu_shares": CPU shares used by the request,
+        * "ram_mb": RAM used by the request in megabytes.
+    """
+    workload = deque()
+
+    request_tuple = namedtuple("Request", "type, forwarded, cpu_shares, ram_mb")
+
+    for request_class in rng.choice(["A", "B", "C"], num_requests):
+        # The distribution values are taken from the code of the original
+        # article, see here: https://github.com/unimib-datAI/rl-dfaas-seated24
+        match request_class:
+            case "A":
+                cpu_min, cpu_mean, cpu_max = 1, 5.5, 10
+                ram_min, ram_mean, ram_max = 1, 13, 25
+            case "B":
+                cpu_min, cpu_mean, cpu_max = 11, 15.5, 20
+                ram_min, ram_mean, ram_max = 26, 38, 50
+            case "C":
+                cpu_min, cpu_mean, cpu_max = 21, 25.5, 30
+                ram_min, ram_mean, ram_max = 51, 63, 75
+            case _:
+                assert False, "Unreachable code"
+
+        # TODO: Rewrite the distribution to use only integers.
+        # See here: https://stackoverflow.com/a/50004451
+
+        std_dev = 2.5  # Fixed standard deviation for both CPU and RAM.
+        cpu_shares = np.clip(rng.normal(cpu_mean, std_dev), cpu_min, cpu_max)
+        ram_mb = np.clip(rng.normal(ram_mean, std_dev), ram_min, ram_max)
+
+        workload.append(request_tuple(request_class, False, cpu_shares, ram_mb))
+
+    return workload
 
 
 # Register the environments with Ray so that they can be used automatically when
