@@ -69,9 +69,10 @@ PyTorch. PyTorch can also be used with a CPU, in this case follow the
 website.
 
 The requirements file also contains [`black`](https://black.readthedocs.io) (a
-development tool for automatically formatting source code) and
+development tool for automatically formatting source code),
 [`pylint`](https://pylint.readthedocs.io/en/latest/index.html) (a static code
-analyser) packages.
+analyser) and [`pre-commit`](https://pre-commit.com) packages. The latter run
+automatically `black` when doing commits.
 
 ## How to run the experiments
 
