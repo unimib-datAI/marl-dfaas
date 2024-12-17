@@ -78,6 +78,12 @@ automatically `black` when doing commits.
 
 WIP
 
+**Important**: always run Python scripts from the project root directory to
+allow loading of commonly used modules (`dfaas_env.py`...). As example, if you
+need to run a test script:
+
+    $ python tests/env/local_strategy.py
+
 ## Patching Ray
 
 The selected version of Ray RLlib needs to be patched to fix some bugs or

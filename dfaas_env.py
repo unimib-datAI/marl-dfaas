@@ -2,7 +2,7 @@
 import gymnasium as gym
 import logging
 from pathlib import Path
-from collections import deque, namedtuple
+from collections import deque, namedtuple, defaultdict
 
 import pandas as pd
 import numpy as np
@@ -151,13 +151,12 @@ class DFaaS(MultiAgentEnv):
                             dtype=np.int32,
                         ),
                         # Forwarded requests in the previous step.
-                        "last_forward_requests": gym.spaces.Box(
+                        "prev_forward_requests": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
                         # Forwarded but rejected requests in the previous step.
-                        # Note that last_forward_rejects <=
-                        # last_forward_requests.
-                        "last_forward_rejects": gym.spaces.Box(
+                        # Note last_forward_rejects <= last_forward_requests.
+                        "prev_forward_rejects": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
                     }
@@ -261,18 +260,25 @@ class DFaaS(MultiAgentEnv):
         # served in FIFO order (left -> first, right -> last).
         self.queues = {agent: deque() for agent in self.agents}
 
-        self.last_info = None  # Required by _build_observation().
-        obs = self._build_observation()
+        def info_init_key():
+            """Helper function to automatically initialize the keys in the info
+            dictionary."""
+            value = {}
+            for agent in self.agents:
+                value[agent] = [0 for _ in range(self.max_steps)]
 
-        # For each reset() and step() call, the info dictionary is stored in an
-        # attribute and is not returned. The caller can access this attribute
-        # directly (usually at the end of the episode).
+            return value
+
+        # This dictionary contains the entire history of observations, rewards,
+        # metrics, and logs for a single episode. It is updated step by step,
+        # each value being a list with one entry for each step. It can be
+        # accessed at any time, usually at the end of the episode.
         #
-        # To update the dictionary, a private function is called at the end of
-        # reset() and call().
-        # TODO
-        # self.additional_info = None
-        # self._additional_info(obs)
+        # It is of type defaultdict to allow missing keys to be initialized
+        # automatically.
+        self.info = defaultdict(info_init_key)
+
+        obs = self._build_observation()
 
         return obs, {}
 
@@ -288,12 +294,21 @@ class DFaaS(MultiAgentEnv):
             # reject.
             action[agent] = _convert_distribution_fw(input_requests, action_dict[agent])
 
+            # Log the absolute number of requests in the info dict.
+            self.info["action_local"][agent][self.current_step] = action[agent][0]
+            self.info["action_forward"][agent][self.current_step] = action[agent][1]
+            self.info["action_reject"][agent][self.current_step] = action[agent][2]
+
         # 2. Manage the workload.
         info_work = self._manage_workload(action)
 
         # 3. Calculate the reward for both agents.
         # TODO
-        rewards = {agent: 1 for agent in self.agents}
+        rewards = {}
+        for agent in self.agents:
+            reward = 1
+
+            self.info["reward"][agent][self.current_step] = reward
         """
         rewards = {}
         for agent in self.agents:
@@ -308,9 +323,6 @@ class DFaaS(MultiAgentEnv):
             # Make sure the reward is of type float.
             rewards[agent] = float(rewards[agent])
         """
-
-        # Required by _build_observation().
-        self.last_info = {"action": action, "rewards": rewards, "workload": info_work}
 
         # Go to the next step.
         self.current_step += 1
@@ -335,9 +347,20 @@ class DFaaS(MultiAgentEnv):
             # Return a dummy observation because this is the last step.
             obs = self.observation_space.sample()
 
-        # Update the additional_info dictionary.
-        # TODO
-        # self._additional_info(obs, action, rewards, info_work)
+        # Postprocess the info dictionary by converting all NumPy arrays to
+        # Python types. Note that this is done on the current and previous step
+        # to avoid copying this code into the reset() method.
+        #
+        # TODO: This is not very efficient, but it works.
+        for key in self.info:
+            for agent in self.agents:
+                value = self.info[key][agent][self.current_step]
+                if isinstance(value, np.ndarray):
+                    self.info[key][agent][self.current_step] = value.item()
+
+                value = self.info[key][agent][self.current_step - 1]
+                if isinstance(value, np.ndarray):
+                    self.info[key][agent][self.current_step - 1] = value.item()
 
         return obs, rewards, terminated, truncated, {}
 
@@ -348,35 +371,52 @@ class DFaaS(MultiAgentEnv):
         # Initialize the observation dictionary.
         obs = {agent: {} for agent in self.agents}
 
-        # Set common observation values for the agents.
+        def update_info(obs):
+            """Helper function that populates the info dictionary for the
+            current step only for the observation keys."""
+            for agent in self.agents:
+                for key in obs[agent].keys():
+                    info_key = "observation_" + key
+
+                    for agent in self.agents:
+                        self.info[info_key][agent][self.current_step] = obs[agent][key]
+
+        # Special case: there is no data from the previous step at the start.
+        if self.current_step == 0:
+            for agent in self.agents:
+                input_requests = self.input_requests[agent][self.current_step]
+                obs[agent] = {
+                    "queue_size": 0,
+                    "input_requests": np.array([input_requests], dtype=np.int32),
+                    "prev_forward_requests": 0,
+                    "prev_forward_rejects": 0,
+                }
+
+            update_info(obs)
+
+            return obs
+
+        # Normal case.
         for agent in self.agents:
-            # The queue capacity is always a fixed value for now.
-            obs[agent]["queue_size"] = np.array([self.queue_capacity], dtype=np.int32)
-
+            queue_size = self.info["queue_size"][agent][self.current_step - 1]
             input_requests = self.input_requests[agent][self.current_step]
+            prev_forward_reqs = self.info["action_forward"][agent][
+                self.current_step - 1
+            ]
+            prev_forward_rejects = self.info["forward_rejects"][agent][
+                self.current_step - 1
+            ]
+
+            obs[agent]["queue_size"] = np.array([queue_size], dtype=np.int32)
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
-
-            # Set the forwarded and forwarded but rejected requests from the
-            # previous step.
-            if self.last_info is None:
-                last_forward_reqs = last_forward_rejects = 0
-            else:
-                last_forward_reqs = self.last_info["action"][agent][1]
-                # TODO
-                last_forward_rejects = 0
-                """
-                last_forward_rejects = self.last_info["workload"][agent][
-                    "forward_rejects"
-                ]
-                """
-
-            obs[agent]["last_forward_requests"] = np.array(
-                [last_forward_reqs], dtype=np.int32
+            obs[agent]["prev_forward_requests"] = np.array(
+                [prev_forward_reqs], dtype=np.int32
             )
-            obs[agent]["last_forward_rejects"] = np.array(
-                [last_forward_rejects], dtype=np.int32
+            obs[agent]["prev_forward_rejects"] = np.array(
+                [prev_forward_rejects], dtype=np.int32
             )
 
+        update_info(obs)
         return obs
 
     def _manage_workload(self, action):
@@ -428,96 +468,62 @@ class DFaaS(MultiAgentEnv):
 
         # 1. First, process the requests in the queue from the previous step.
         for agent in self.agents:
-            for request in self.queues[agent].copy():
-                if not process_request(agent, request):
-                    append_queue(agent, request)
+            not_processed = deque()
+            for request in self.queues[agent]:
+                if process_request(agent, request):
+                    self.info["processed_local"][agent][self.current_step] += 1
+                    # Count the number of processed requests forwarded by the
+                    # opposite node.
+                    if request.forwarded:
+                        self.info["processed_local_forward"][agent][
+                            self.current_step
+                        ] += 1
+                else:
+                    not_processed.append(request)
 
-        # 2. Try processing incoming requests. Append the surplus to the queue.
+            self.queues[agent] = not_processed
+            self.info["queue_size"][agent][self.current_step] = len(not_processed)
+
+        # 2. Handle incoming local requests.
         for agent in self.agents:
             for request in _sample_workload(local[agent], self.rng):
-                if process_request(agent, request):
+                # Try to process incoming requests only when the queue is empty.
+                if len(self.queues[agent]) == 0 and process_request(agent, request):
+                    self.info["processed_local"][agent][self.current_step] += 1
                     continue
+
+                # Queue is not empty or system does not have enough resources,
+                # try to add the request to the queue.
                 if append_queue(agent, request):
+                    self.info["queue_size"][agent][self.current_step] += 1
                     continue
 
-                # This request must be rejected: no CPU/RAM available and queue
-                # is full.
+                # Insufficient requests and full queue: the only option left is
+                # to reject.
                 reject[agent] += 1
+                self.info["local_rejects_queue_full"][agent][self.current_step] += 1
 
-        # 3. Try processing forwarded requests from the opposite agent. Append
-        # the surplus to the queue.
+        # 3. Handle incoming forwarded requests. Same strategy as for incoming
+        # local requests.
         for agent in self.agents:
             opposite_agent = "node_0" if agent == "node_1" else "node_1"
             for request in _sample_workload(forward[opposite_agent], self.rng):
                 request = request._replace(forwarded=True)  # Mark the request.
-                if process_request(agent, request):
+                if len(self.queues[agent]) == 0 and process_request(agent, request):
+                    self.info["processed_local"][agent][self.current_step] += 1
+                    if request.forwarded:
+                        self.info["processed_local_forward"][agent][
+                            self.current_step
+                        ] += 1
                     continue
                 if append_queue(agent, request):
+                    self.info["queue_size"][agent][self.current_step] += 1
                     continue
 
-                # This request must be rejected: no CPU/RAM available and queue
-                # is full.
                 reject[opposite_agent] += 1
+                self.info["forward_rejects"][agent][self.current_step] += 1
 
         return reject
-
-    '''
-    def _additional_info(self, obs, action=None, rewards=None, info_work=None):
-        """Update the additional_info dictionary with the current step."""
-        # Initialize the additional_info dictionary with all the NumPy arrays.
-        if self.additional_info is None:
-            self.additional_info = {}
-            for key in self.info_keys:
-                self.additional_info[key] = {}
-                for agent in self.agents:
-                    self.additional_info[key][agent] = np.empty(
-                        self.max_steps, dtype=self.info_keys[key]
-                    )
-
-        # Update the additional_info dictionary.
-        for agent in self.agents:
-            # In the last step, do not write the observation out of bounds.
-            if self.current_step < self.max_steps:
-                self.additional_info["observation_input_requests"][agent][
-                    self.current_step
-                ] = obs[agent]["input_requests"]
-                self.additional_info["observation_queue_capacity"][agent][
-                    self.current_step
-                ] = obs[agent]["queue_size"]
-
-            if self.current_step == 0:
-                # After reset() there is no action, reward and info_work.
-                continue
-
-            # These values refer to the previous step, so there is -1.
-            self.additional_info["action_local"][agent][self.current_step - 1] = action[
-                agent
-            ][0]
-            self.additional_info["action_forward"][agent][self.current_step - 1] = (
-                action[agent][1]
-            )
-            self.additional_info["action_reject"][agent][self.current_step - 1] = (
-                action[agent][2]
-            )
-
-            self.additional_info["excess_local"][agent][self.current_step - 1] = (
-                info_work[agent]["local_excess"]
-            )
-            self.additional_info["excess_forward_reject"][agent][
-                self.current_step - 1
-            ] = info_work[agent]["forward_rejects"]
-
-            self.additional_info["queue_status_pre_forward"][agent][
-                self.current_step - 1
-            ] = info_work[agent]["queue_status_pre_forward"]
-            self.additional_info["queue_status_post_forward"][agent][
-                self.current_step - 1
-            ] = info_work[agent]["queue_status_post_forward"]
-
-            self.additional_info["reward"][agent][self.current_step - 1] = rewards[
-                agent
-            ]
-    '''
 
 
 def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
@@ -825,23 +831,21 @@ class DFaaSCallbacks(DefaultCallbacks):
         Only the episode and base_env keyword arguments are used, other
         arguments are ignored."""
         env = base_env.envs[0]
-        info = env.additional_info
 
-        # Note that this has to be a list of length 1 because there can be
-        # multiple episodes in a single iteration, so at the end Ray will append
-        # the list to a general list for the iteration.
-        for key in env.info_keys:
-            episode.hist_data[key] = [info[key]]
+        assert (
+            env.current_step == env.max_steps
+        ), f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
 
-    def _end_trigger(self, result):
-        """Called by on_evaluate_end and on_train_result."""
-        # Final checker to verify the callbacks are executed.
-        result["callbacks_ok"] = True
+        for key in env.info.keys():
+            # Note that this has to be a list of length 1 because there can be
+            # multiple episodes in a single iteration, so at the end Ray will
+            # append the list to a general list for the iteration.
+            episode.hist_data[key] = [env.info[key]]
 
     def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
         """Called at the end of Algorithm.evaluate()."""
-        self._end_trigger(evaluation_metrics)
+        result["callbacks_ok"] = True
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
-        self._end_trigger(result)
+        result["callbacks_ok"] = True
