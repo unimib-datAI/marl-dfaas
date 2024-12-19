@@ -29,6 +29,12 @@ parser.add_argument(
     type=int,
     help="Number of iterations to run (non-negative integer)",
 )
+parser.add_argument(
+    "--runners",
+    default=5,
+    type=int,
+    help="Number of runners for collecting experencies in each iteration",
+)
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -38,9 +44,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(Path(__file__).name)
 
-# The number of runners is fixed to five. This is because 4320 steps are
-# collected in each iteration, 864 from each runner (3 episodes).
-runners = 5
+# By default, there are five runners collecting samples, each running 3 complete
+# episodes (for a total of 4320 samples, 864 for each runner).
+#
+# The number of runners can be changed. Each runner is a process. If set to
+# zero, sampling is done on the main process.
+runners = args.runners
 
 # Experiment configuration.
 # TODO: make this configurable!
@@ -94,21 +103,24 @@ policies = {
 }
 
 
-# This function is called by Ray to determine which policy to use for an agent
-# returned in the observation dictionary by step() or reset().
-def policy_mapping_fn(agent_id, episode, runner, **kwargs):
-    """This function is called at each step to assign the agent to a policy. In
-    this case, each agent has a fixed corresponding policy."""
+def policy_mapping_fn(agent_id, episode, worker, **kwargs):
+    """Called by RLlib at each step to map an agent to a policy (defined above).
+    In this case, the map is static: every agent has the same policy, and a
+    policy has the same single agent."""
     return f"policy_{agent_id}"
 
 
 assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
-# To have exactly 3 episodes played by each runner, we need to set the
-# train_batch_size parameter (the total number of tuples to collect for each
-# iteration across all runners) to the correct value. Since max_steps (288) and
-# runners (5) are fixed, the result is 4320 tuples.
-episodes_iter = 3 * runners
+# The train_batch_size is the total number of samples to collect for each
+# iteration across all runners. Since the user can specify 0 runners, we must
+# ensure that we collect at least 864 samples (3 complete episodes).
+#
+# Be careful with train_batch_size: RLlib stops the episodes when this number is
+# reached, it doesn't control each runner. The number should be divisible by the
+# number of runners, otherwise a runner has to collect more (or less) samples
+# and plays one plus or minus episode.
+episodes_iter = 3 * runners if runners > 0 else 1
 train_batch_size = dummy_env.max_steps * episodes_iter
 
 # Algorithm config.

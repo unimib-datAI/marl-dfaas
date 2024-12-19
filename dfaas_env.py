@@ -97,20 +97,6 @@ def _reward_fw(action, excess, queue):
 
 
 class DFaaS(MultiAgentEnv):
-    # Keys contained in the additional_info dictionary.
-    info_keys = {
-        "observation_input_requests": np.int32,
-        "observation_queue_capacity": np.int32,
-        "action_local": np.int32,
-        "action_forward": np.int32,
-        "action_reject": np.int32,
-        "excess_local": np.int32,
-        "excess_forward_reject": np.int32,
-        "queue_status_pre_forward": np.int32,
-        "queue_status_post_forward": np.int32,
-        "reward": np.float32,
-    }
-
     def __init__(self, config={}):
         # IDs of the agents in the DFaaS environment.
         self.agents = ["node_0", "node_1"]
@@ -190,6 +176,18 @@ class DFaaS(MultiAgentEnv):
         self.evaluation = config.get("evaluation", False)
 
         super().__init__()
+
+    def get_config(self):
+        """Returns a dictionary with the current configuration of the
+        environment."""
+        config = {
+            "queue_capacity": self.queue_capacity,
+            "max_steps": self.max_steps,
+            "input_requests_type": self.input_requests_type,
+            "evaluation": self.evaluation,
+        }
+
+        return config
 
     def reset(self, *, seed=None, options=None):
         # Current step.
@@ -300,37 +298,37 @@ class DFaaS(MultiAgentEnv):
             self.info["action_reject"][agent][self.current_step] = action[agent][2]
 
         # 2. Manage the workload.
-        info_work = self._manage_workload(action)
+        additional_rejects = self._manage_workload(action)
 
         # 3. Calculate the reward for both agents.
-        # TODO
         rewards = {}
         for agent in self.agents:
-            reward = 1
+            excess = additional_rejects[agent]
+            queue_status = (len(self.queues[agent]), self.queue_capacity)
+
+            reward = _reward_fw(action[agent], excess, queue_status)
+            assert isinstance(reward, float), "Unsupported reward type {type(reward)}"
+
+            # Make sure the reward is of type float.
+            # rewards[agent] = float(rewards[agent])
 
             self.info["reward"][agent][self.current_step] = reward
-        """
-        rewards = {}
-        for agent in self.agents:
-            rewards[agent] = _reward_fw(
-                action[agent],
-                (info_work[agent]["local_excess"], info_work[agent]["forward_rejects"]),
-                (
-                    info_work[agent]["queue_status_pre_forward"],
-                    self.queue_capacity,
-                ),
-            )
-            # Make sure the reward is of type float.
-            rewards[agent] = float(rewards[agent])
-        """
 
         # Go to the next step.
         self.current_step += 1
 
-        # 4. Update environment state and prepare return values.
-        # Each key in the terminated dictionary indicates whether an individual
-        # agent has terminated. There is a special key "__all__" which is true
-        # only if all agents have terminated.
+        # 4. Update environment state.
+        if self.current_step < self.max_steps:
+            obs = self._build_observation()
+        else:
+            # Return a dummy observation because this is the last step.
+            obs = self.observation_space.sample()
+
+        # 5. Prepare return values.
+
+        # Each key in the dictionary indicates whether an individual agent has
+        # terminated. There is a special key "__all__" which is true only if all
+        # agents have terminated.
         terminated = {agent: False for agent in self.agents}
         if self.current_step == self.max_steps:
             # We are past the last step: nothing more to do.
@@ -341,12 +339,6 @@ class DFaaS(MultiAgentEnv):
         truncated = {agent: False for agent in self.agents}
         truncated["__all__"] = False
 
-        if self.current_step < self.max_steps:
-            obs = self._build_observation()
-        else:
-            # Return a dummy observation because this is the last step.
-            obs = self.observation_space.sample()
-
         # Postprocess the info dictionary by converting all NumPy arrays to
         # Python types. Note that this is done on the current and previous step
         # to avoid copying this code into the reset() method.
@@ -354,9 +346,11 @@ class DFaaS(MultiAgentEnv):
         # TODO: This is not very efficient, but it works.
         for key in self.info:
             for agent in self.agents:
-                value = self.info[key][agent][self.current_step]
-                if isinstance(value, np.ndarray):
-                    self.info[key][agent][self.current_step] = value.item()
+                # Warning: this is also executed at the end of the episode!
+                if self.current_step < self.max_steps:
+                    value = self.info[key][agent][self.current_step]
+                    if isinstance(value, np.ndarray):
+                        self.info[key][agent][self.current_step] = value.item()
 
                 value = self.info[key][agent][self.current_step - 1]
                 if isinstance(value, np.ndarray):
@@ -386,10 +380,10 @@ class DFaaS(MultiAgentEnv):
             for agent in self.agents:
                 input_requests = self.input_requests[agent][self.current_step]
                 obs[agent] = {
-                    "queue_size": 0,
+                    "queue_size": np.array([0], dtype=np.int32),
                     "input_requests": np.array([input_requests], dtype=np.int32),
-                    "prev_forward_requests": 0,
-                    "prev_forward_rejects": 0,
+                    "prev_forward_requests": np.array([0], dtype=np.int32),
+                    "prev_forward_rejects": np.array([0], dtype=np.int32),
                 }
 
             update_info(obs)
@@ -420,9 +414,11 @@ class DFaaS(MultiAgentEnv):
         return obs
 
     def _manage_workload(self, action):
-        """Manages the workload for the agents in the current step. It takes as
-        input the actions for each agent, and returns the number of rejected
-        requests for each agent.
+        """Manages the workload for the agents in the current step. It takes the
+        input request actions for each agent and returns a dictionary whose keys
+        are the agent IDs and whose value is a tuple of two elements: the number
+        of local input requests rejected and the number of forwarded requests
+        rejected by the other agent because the queue is full.
 
         The rejected requests for an agent is the sum of: rejected requests
         indicated by the action, the number of local requests that could not be
@@ -506,6 +502,8 @@ class DFaaS(MultiAgentEnv):
         # 3. Handle incoming forwarded requests. Same strategy as for incoming
         # local requests.
         for agent in self.agents:
+            # agent -> process the requests from the opposite agent
+            # opposite_agent -> forward the requests to the agent
             opposite_agent = "node_0" if agent == "node_1" else "node_1"
             for request in _sample_workload(forward[opposite_agent], self.rng):
                 request = request._replace(forwarded=True)  # Mark the request.
@@ -520,10 +518,17 @@ class DFaaS(MultiAgentEnv):
                     self.info["queue_size"][agent][self.current_step] += 1
                     continue
 
-                reject[opposite_agent] += 1
-                self.info["forward_rejects"][agent][self.current_step] += 1
+                self.info["forward_rejects"][opposite_agent][self.current_step] += 1
 
-        return reject
+        # Fill the dictionary to return.
+        retval = {}
+        for agent in self.agents:
+            retval[agent] = (
+                self.info["local_rejects_queue_full"][agent][self.current_step],
+                self.info["forward_rejects"][agent][self.current_step],
+            )
+
+        return retval
 
 
 def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
@@ -844,7 +849,7 @@ class DFaaSCallbacks(DefaultCallbacks):
 
     def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
         """Called at the end of Algorithm.evaluate()."""
-        result["callbacks_ok"] = True
+        evaluation_metrics["callbacks_ok"] = True
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
