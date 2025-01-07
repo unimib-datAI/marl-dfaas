@@ -1,21 +1,24 @@
---- .env/bin/activate	2024-12-09 12:32:43.283045021 +0100
-+++ .env/bin/activate_new	2024-12-09 12:33:31.268960301 +0100
-@@ -24,6 +24,8 @@
+--- .env/bin/activate	2025-01-07 15:37:35.804523877 +0100
++++ .env/bin/activate.new	2025-01-07 15:37:11.181568510 +0100
+@@ -24,6 +24,10 @@
          unset _OLD_VIRTUAL_PS1
      fi
  
 +    unset RAY_DEDUP_LOGS
++    
++    unset PYTHONDONTWRITEBYTECODE
 +
      unset VIRTUAL_ENV
      unset VIRTUAL_ENV_PROMPT
      if [ ! "${1:-}" = "nondestructive" ] ; then
-@@ -67,4 +69,8 @@
- 
+@@ -68,3 +72,10 @@
  # Call hash to forget past commands. Without forgetting
  # past commands the $PATH changes we made may not be respected
--hash -r 2> /dev/null
-+hash -r 2> /dev/nullG
+ hash -r 2> /dev/null
 +
 +# Disable Ray log deduplication: I want to see the output of each worker
 +# uniquely.
 +export RAY_DEDUP_LOGS=0
++
++# Do not write Python compiled files (with __pycache__ directories).
++export PYTHONDONTWRITEBYTECODE=1
