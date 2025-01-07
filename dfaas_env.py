@@ -312,6 +312,7 @@ class DFaaS(MultiAgentEnv):
             # Make sure the reward is of type float.
             # rewards[agent] = float(rewards[agent])
 
+            rewards[agent] = reward
             self.info["reward"][agent][self.current_step] = reward
 
         # Go to the next step.
