@@ -20,7 +20,11 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument(dest="suffix", help="A string to append to experiment directory")
 parser.add_argument(
-    "--no-gpu", help="Disable GPU usage", default=True, dest="gpu", action="store_false"
+    "--no-gpu",
+    help="Disable GPU usage",
+    default=False,
+    dest="no_gpu",
+    action="store_true",
 )
 parser.add_argument("--env-config", help="Environment config file")
 parser.add_argument(
@@ -57,7 +61,7 @@ exp_config = {
     "seed": 42,  # Seed of the experiment.
     "max_iterations": args.iterations,  # Number of iterations.
     "env": dfaas_env.DFaaS.__name__,  # Environment.
-    "gpu": args.gpu,
+    "gpu": not args.no_gpu,
     "runners": runners,
 }
 logger.info(f"Experiment configuration = {exp_config}")
@@ -144,7 +148,7 @@ ppo_config = (
         evaluation_config={"env_config": env_eval_config},
     )
     .debugging(seed=exp_config["seed"])
-    .resources(num_gpus=1 if args.gpu else 0)
+    .resources(num_gpus=0 if args.no_gpu else 1)
     .callbacks(dfaas_env.DFaaSCallbacks)
     .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
 )
