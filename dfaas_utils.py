@@ -1,28 +1,19 @@
-import json
 import sys
 from pathlib import Path
 
-import numpy as np
-
-
-# Thanks to: https://stackoverflow.com/a/47626762
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, np.number):
-            return obj.item()
-
-        # Use the default JSON encoder for other types.
-        return json.JSONEncoder.default(self, obj)
+import orjson
 
 
 def dict_to_json(data, file_path):
     file_path = to_pathlib(file_path)
 
     try:
-        with open(file_path, "w") as file:
-            json.dump(data, file, cls=NumpyEncoder, sort_keys=True)
+        with open(file_path, "wb") as file:
+            enc = orjson.dumps(
+                data, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_SORT_KEYS
+            )
+            file.write(enc)
+            file.write(b"\n")
     except IOError as e:
         print(
             f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}",
@@ -36,7 +27,7 @@ def json_to_dict(file_path):
 
     try:
         with open(file_path, "r") as file:
-            return json.load(file)
+            return orjson.loads(file.read())
     except IOError as e:
         print(
             f"Failed to read json file from {file_path.as_posix()!r}: {e}",
@@ -55,12 +46,7 @@ def to_pathlib(file_path):
 def parse_result_file(result_path):
     result_path = to_pathlib(result_path)
 
-    # Fill the iters list with the "result.json" file.
-    iters = []
+    # The "result.json" file is not a valid JSON file. Each line is an isolated
+    # JSON object, the result of one training iteration.
     with result_path.open() as result:
-        # The "result.json" file is not a valid JSON file. Each row is an
-        # isolated JSON object, the result of one training iteration.
-        while (raw_iter := result.readline()) != "":
-            iters.append(json.loads(raw_iter))
-
-    return iters
+        return [orjson.loads(line) for line in result]

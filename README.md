@@ -35,6 +35,10 @@ file. However, the most important dependencies are:
 * [Matplotlib](https://matplotlib.org/) (version 3.9.3): is a plot generation
   library used in the scripts in the [`plots`](plots) directory.
 
+* [orjson](https://pypi.org/project/orjson/) (version 3.10.13): is a JSON
+  library that is faster than the standard library. Used because the experiments
+  generate large JSON files that slow down the encoding/decoding processes.
+
 When installing Ray RLlib, `pip` automatically installs its dependencies, which
 are also used by the experiment scripts (like NumPy or Gymnasium). This means
 that the environment can be easily set up by installing the following packages:
@@ -44,6 +48,7 @@ ray[rllib]==2.40.0
 torch==2.5.1
 gputil==1.4.0  # Required by RLlib (GPU system monitoring).
 matplotlib==3.9.3
+orjson==3.10.13
 ```
 
 Run the following commands to set up the development environment with Ubuntu:
@@ -54,7 +59,7 @@ $ git clone https://github.com/unimib-datAI/marl-dfaas.git
 $ cd marl-dfaas
 $ python3.12 -m venv .env
 $ source .env/bin/activate
-$ pip install ray[rllib]==2.39.0 torch==2.5.1 gpuutil==1.4.0
+$ pip install <packages above>
 ```
 
 For perfect reproducibility, there is a [`requirements.txt`](requirements.txt)
@@ -110,7 +115,7 @@ more information.
 
 ## License
 
-Copyright 2024 Emanuele Petriglia
+Copyright © 2024-2025 Emanuele Petriglia
 
 The source code in this repository is licensed under the Apache License,
 version 2.0. See the [LICENSE](LICENSE) file for more information.
