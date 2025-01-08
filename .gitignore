@@ -5,3 +5,4 @@ results
 *.swp
 *.csv
 *.tar
+.ipynb_checkpoints

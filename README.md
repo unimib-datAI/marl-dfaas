@@ -32,12 +32,28 @@ file. However, the most important dependencies are:
   deep learning on GPUs and CPUs. It is used by Ray RLlib when training models
   with deep learning reinforcement learning algorithms.
 
+For plotting only, the following dependencies are required:
+
 * [Matplotlib](https://matplotlib.org/) (version 3.9.3): is a plot generation
-  library used in the scripts in the [`plots`](plots) directory.
+  library used in the scripts in the [`plots`](plots) and
+  [`notebooks`](notebooks) directory.
 
 * [orjson](https://pypi.org/project/orjson/) (version 3.10.13): is a JSON
   library that is faster than the standard library. Used because the experiments
   generate large JSON files that slow down the encoding/decoding processes.
+
+* [Jupyter Notebook](https://jupyter-notebook.readthedocs.io/en/v7.3.2/)
+  (version 7.3.2): Jupyter notebooks are used to create plots and explore
+  results and statistics from the experiments. The notebooks are stored in the
+  `notebooks` directory. 
+
+* [ipympl](https://matplotlib.org/ipympl/) (version 0.9.6): this is an extension
+  for Jupyter Notebook to support interactive Matplotlib using Jupyter Widgets
+  [`ipywidgets`](https://ipywidgets.readthedocs.io/en/latest/index.html#).
+
+Note that Jupyter Notebook and ipympl are only needed if you are using the
+notebooks. Scripts in the `plots` directory are not interactive and only require
+Matplotlib.
 
 When installing Ray RLlib, `pip` automatically installs its dependencies, which
 are also used by the experiment scripts (like NumPy or Gymnasium). This means
@@ -49,6 +65,8 @@ torch==2.5.1
 gputil==1.4.0  # Required by RLlib (GPU system monitoring).
 matplotlib==3.9.3
 orjson==3.10.13
+ipympl==0.9.6
+notebook==7.3.2
 ```
 
 Run the following commands to set up the development environment with Ubuntu:
@@ -74,10 +92,10 @@ PyTorch. PyTorch can also be used with a CPU, in this case follow the
 website.
 
 The requirements file also contains [`black`](https://black.readthedocs.io) (a
-development tool for automatically formatting source code),
-[`pylint`](https://pylint.readthedocs.io/en/latest/index.html) (a static code
-analyser) and [`pre-commit`](https://pre-commit.com) packages. The latter run
-automatically `black` when doing commits.
+development tool for automatically formatting source code and Jupyter
+notebooks), [`pylint`](https://pylint.readthedocs.io/en/latest/index.html) (a
+static code analyser) and [`pre-commit`](https://pre-commit.com) packages. The
+latter run automatically `black` when doing commits.
 
 ## How to run the experiments
 
@@ -88,6 +106,14 @@ allow loading of commonly used modules (`dfaas_env.py`...). As example, if you
 need to run a test script:
 
     $ python tests/env/local_strategy.py
+
+### How to run Jupyter notebooks
+
+Just run:
+
+    $ jupyter notebook --no-browser notebooks/
+
+Then open the link in the output in a browser.
 
 ## Patching Ray
 
