@@ -4,6 +4,10 @@ import logging
 import sys
 import os
 
+import IPython.core.debugger
+
+import matplotlib
+
 # Add the parent directory (the root directory of the project) to sys.path. This
 # is needed to load modules like dfaas_utils or dfaas_env.
 sys.path.append(Path(os.getcwd()).parent.as_posix())
@@ -52,3 +56,14 @@ def get_env(exp_dir):
         _env_init(exp_dir)
 
     return _env[exp_dir]
+
+
+def set_trace():
+    """Open IPython debugger in interactive-mode."""
+    debugger.set_trace()
+
+
+# Default size (10) is too small.
+font = {"size": 12}
+matplotlib.rcParams["figure.figsize"] = [9, 6]
+matplotlib.rc("font", **font)
