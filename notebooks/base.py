@@ -4,7 +4,7 @@ import logging
 import sys
 import os
 
-import IPython.core.debugger
+import IPython.core.debugger as debugger
 
 import matplotlib
 
