@@ -1,0 +1,8 @@
+ray[rllib]==2.40.0
+torch==2.5.1
+gputil==1.4.0  # Required by RLlib (GPU system monitoring).
+matplotlib==3.9.3
+orjson==3.10.13
+ipympl==0.9.6
+notebook==7.3.2
+nbstripout==0.8.1

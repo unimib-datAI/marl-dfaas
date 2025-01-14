@@ -21,53 +21,45 @@ module is not installed by default in Ubuntu, it must be installed using `sudo
 apt install python3.12-venv`.
 
 The complete list of Python dependencies can be found in the requirements.txt
-file. However, the most important dependencies are:
+and requirements.base.txt files. However, the most important dependencies are:
 
-* [Ray RLlib](https://docs.ray.io/en/releases-2.40.0/rllib/) (version 2.40):
+* [Ray RLlib](https://docs.ray.io/en/releases-2.40.0/rllib/):
   this is a reinforcement learning library used to define the DFaaS custom
   environment, run the experiments by training the models with the implemented
-  algorithms.
+  algorithms. The version is pinned to 2.40.0.
 
-* [PyTorch](https://pytorch.org/docs/2.5/) (version 2.5.1): is a library for
-  deep learning on GPUs and CPUs. It is used by Ray RLlib when training models
-  with deep learning reinforcement learning algorithms.
+* [PyTorch](https://pytorch.org/docs/2.5/): is a library for deep learning on
+  GPUs and CPUs. It is used by Ray RLlib when training models with deep learning
+  reinforcement learning algorithms.
 
 For plotting only, the following dependencies are required:
 
-* [Matplotlib](https://matplotlib.org/) (version 3.9.3): is a plot generation
-  library used in the scripts in the [`plots`](plots) and
-  [`notebooks`](notebooks) directory.
+* [Matplotlib](https://matplotlib.org/): is a plot generation library used in
+  the scripts in the [`plots`](plots) and [`notebooks`](notebooks) directory.
 
-* [orjson](https://pypi.org/project/orjson/) (version 3.10.13): is a JSON
-  library that is faster than the standard library. Used because the experiments
-  generate large JSON files that slow down the encoding/decoding processes.
+* [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
+  than the standard library. Used because the experiments generate large JSON
+  files that slow down the encoding/decoding processes.
 
-* [Jupyter Notebook](https://jupyter-notebook.readthedocs.io/en/v7.3.2/)
-  (version 7.3.2): Jupyter notebooks are used to create plots and explore
-  results and statistics from the experiments. The notebooks are stored in the
-  `notebooks` directory. 
+* [Jupyter Notebook](https://jupyter-notebook.readthedocs.io/en/v7.3.2/):
+  Jupyter notebooks are used to create plots and explore results and statistics
+  from the experiments. The notebooks are stored in the `notebooks` directory. 
 
-* [ipympl](https://matplotlib.org/ipympl/) (version 0.9.6): this is an extension
-  for Jupyter Notebook to support interactive Matplotlib using Jupyter Widgets
+* [ipympl](https://matplotlib.org/ipympl/): this is an extension for Jupyter
+  Notebook to support interactive Matplotlib using Jupyter Widgets
   [`ipywidgets`](https://ipywidgets.readthedocs.io/en/latest/index.html#).
 
-Note that Jupyter Notebook and ipympl are only needed if you are using the
-notebooks. Scripts in the `plots` directory are not interactive and only require
-Matplotlib.
+* [nbstripout](https://pypi.org/project/nbstripout/): utility that erases a
+  Jupyter Notebook's output before committing to git.
 
-When installing Ray RLlib, `pip` automatically installs its dependencies, which
-are also used by the experiment scripts (like NumPy or Gymnasium). This means
-that the environment can be easily set up by installing the following packages:
+Only the first two dependencies (Ray RLlib and PyTorch) are required. The other
+dependencies are required only if you are using the notebooks. Scripts in the
+`plots` directory are not interactive and only require Matplotlib.
 
-```
-ray[rllib]==2.40.0
-torch==2.5.1
-gputil==1.4.0  # Required by RLlib (GPU system monitoring).
-matplotlib==3.9.3
-orjson==3.10.13
-ipympl==0.9.6
-notebook==7.3.2
-```
+When installing Ray RLlib, `pip` automatically installs some dependencies used
+by the project, like NumPy, Pandas or Gymnasium. This means that the environment
+can be easily set up by installing the dependencies listed above and they can be
+found also in the [`requirements.base.txt`](requirements.base.txt).
 
 Run the following commands to set up the development environment with Ubuntu:
 
@@ -77,19 +69,18 @@ $ git clone https://github.com/unimib-datAI/marl-dfaas.git
 $ cd marl-dfaas
 $ python3.12 -m venv .env
 $ source .env/bin/activate
-$ pip install <packages above>
+$ pip install --requirement requirements-base.txt
 ```
 
 For perfect reproducibility, there is a [`requirements.txt`](requirements.txt)
-file that can be used instead of the previous command:
+that contains all the dependencies installed with the fixed versions:
 
     $ pip install --requirement requirements.txt
 
-Please note that both the requirements file and the command line suggestions
-expect a machine with an NVIDIA GPU and CUDA (at least 12.4) installed for
-PyTorch. PyTorch can also be used with a CPU, in this case follow the
-[instructions](https://pytorch.org/get-started/locally/) on the official
-website.
+Please note that the requirements file expects a machine with an NVIDIA GPU and
+CUDA (at least 12.4) installed for PyTorch. PyTorch can also be used with a CPU,
+in this case follow the [instructions](https://pytorch.org/get-started/locally/)
+on the official website.
 
 The requirements file also contains [`black`](https://black.readthedocs.io) (a
 development tool for automatically formatting source code and Jupyter
