@@ -3,6 +3,7 @@ from pathlib import Path
 import logging
 import sys
 import os
+import warnings
 
 import IPython.core.debugger as debugger
 
@@ -67,3 +68,6 @@ def set_trace():
 font = {"size": 12}
 matplotlib.rcParams["figure.figsize"] = [9, 6]
 matplotlib.rc("font", **font)
+
+# Disable Ray's warnings.
+warnings.filterwarnings("ignore", category=DeprecationWarning)
