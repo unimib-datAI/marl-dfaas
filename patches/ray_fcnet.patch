@@ -1,0 +1,25 @@
+--- .env/lib/python3.12/site-packages/ray/rllib/models/torch/fcnet.py	2025-01-17 16:57:29.810414855 +0100
++++ .env/lib/python3.12/site-packages/ray/rllib/models/torch/fcnet_new.py	2025-01-17 17:40:06.151767685 +0100
+@@ -39,6 +39,13 @@
+         no_final_linear = model_config.get("no_final_linear")
+         self.vf_share_layers = model_config.get("vf_share_layers")
+         self.free_log_std = model_config.get("free_log_std")
++
++        # Custom model config.
++        custom = model_config.get("custom_model_config", None)
++        last_activation_fn = None
++        if custom is not None:
++            last_activation_fn = custom.get("last_activation_fn", None)
++
+         # Generate free-floating bias variables for the second half of
+         # the outputs.
+         if self.free_log_std:
+@@ -94,7 +101,7 @@
+                     in_size=prev_layer_size,
+                     out_size=num_outputs,
+                     initializer=normc_initializer(0.01),
+-                    activation_fn=None,
++                    activation_fn=last_activation_fn,  # Can be None -> Linear.
+                 )
+             else:
+                 self.num_outputs = ([int(np.prod(obs_space.shape))] + hiddens[-1:])[-1]

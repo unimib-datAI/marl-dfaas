@@ -6,6 +6,7 @@ import argparse
 
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
+from ray.rllib.models.catalog import MODEL_DEFAULTS
 
 import dfaas_utils
 import dfaas_env
@@ -39,6 +40,8 @@ parser.add_argument(
     type=int,
     help="Number of runners for collecting experencies in each iteration",
 )
+parser.add_argument("--model", type=Path, help="Override default neural networks model")
+
 args = parser.parse_args()
 
 # Initialize logger for this module.
@@ -57,6 +60,7 @@ runners = args.runners
 
 # Experiment configuration.
 # TODO: make this configurable!
+# TODO: Add custom model option.
 exp_config = {
     "seed": 42,  # Seed of the experiment.
     "max_iterations": args.iterations,  # Number of iterations.
@@ -114,6 +118,16 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
     return f"policy_{agent_id}"
 
 
+# Model options.
+model = MODEL_DEFAULTS.copy()
+# Must be False to have a different network for the Critic.
+model["vf_share_layers"] = False
+
+if args.model is not None:
+    # Update the model with the given options.
+    given_model = dfaas_utils.json_to_dict(args.model)
+    model = model | given_model
+
 assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
 # The train_batch_size is the total number of samples to collect for each
@@ -138,7 +152,7 @@ ppo_config = (
     # iteration in the log result.
     .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
     .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
-    .training(train_batch_size=train_batch_size)
+    .training(train_batch_size=train_batch_size, model=model)
     .framework("torch")
     .env_runners(num_env_runners=runners)
     .evaluation(
@@ -170,6 +184,14 @@ dummy_config = dummy_env.get_config()
 env_config_path = logdir / "env_config.json"
 dfaas_utils.dict_to_json(dummy_config, env_config_path)
 logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
+
+# Save the model architecture for all policies.
+policies_dir = logdir / "policy_model"
+policies_dir.mkdir()
+for policy_name, policy in ppo_algo.env_runner.policy_map.items():
+    out = policies_dir / policy_name
+    out.write_text(f"{policy.model}")
+    logger.info(f"Policy '{policy_name}' model saved to: {out.as_posix()!r}")
 
 # Copy the environment source file into the experiment directory. This ensures
 # that the original environment used for the experiment is preserved.
