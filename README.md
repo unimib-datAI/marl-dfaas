@@ -11,6 +11,22 @@ The thesis, a summary and the presentation slides are available in another
 [repository hosted on GitLab](https://gitlab.com/ema-pe/master-degree-thesis),
 but they are written in Italian.
 
+## Project directory structure
+
+* `dataset`: contains the dataset used to have real function invocations traces
+  in the DFaaS environment (instead of generated ones).
+* `models`: the neural network models used for PPO and SAC algorithms, specified
+  as JSON files.
+* `notebooks`: Python Jupyter notebooks used mainly to show plots of the
+  experiments and do some simple prototyping or experiments.
+* `patches`: required custom patches to Ray RLlib or other libraries needed to
+  run the experiments.
+* `plots`: non-interactive Python scripts to generate plots from experiments.
+* `results`: default directory where the experiment data is stored. This folder
+  is not shown in the repository because it contains ephemeral data.
+* `tests`: some Python scripts used to test the Ray RLLib, the DFaaS
+  environment, or other miscellaneous tests.
+
 ## How to set up the environment
 
 The experiments are run and tested on Ubuntu 24.04 using Python 3.12. For a
