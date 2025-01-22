@@ -1,8 +1,8 @@
 # This Python script runs a training experiment using the SAC algorithm.
 #
-# WARNING: SAC currently does not work with DFaaS environment because of an
-# unknown problem during training, I think it's due to unoptimized
-# hyperparameters that cause the gradients to explode.
+# WARNING: SAC support is experimental in the DFaaS environment. It doesn't work
+# very well because I have to tune the hyperparameters, the neural network and
+# the sampling method.
 from pathlib import Path
 import shutil
 from datetime import datetime
@@ -124,14 +124,11 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 
 
 # Model options.
-model = MODEL_DEFAULTS.copy()
-# Must be False to have a different network for the Critic.
-model["vf_share_layers"] = False
-
+# If given, it updates the default model options (see SACConfig class).
 if args.model is not None:
-    # Update the model with the given options.
-    given_model = dfaas_utils.json_to_dict(args.model)
-    model = model | given_model
+    policy_model_config = dfaas_utils.json_to_dict(args.model)
+else:
+    policy_model_config = {}
 
 assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
@@ -166,7 +163,7 @@ sac_config = (
     .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
     .training(
         train_batch_size=train_batch_size,
-        model=model,
+        policy_model_config=policy_model_config,
         replay_buffer_config=replay_buffer_config,
     )
     .framework("torch")

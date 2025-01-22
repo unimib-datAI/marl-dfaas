@@ -1,0 +1,1 @@
+{"fcnet_activation": "tanh", "custom_model_config": {"last_activation_fn": "Softplus"}}
