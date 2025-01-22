@@ -36,8 +36,7 @@ dependencies in a virtual environment (see the
 module is not installed by default in Ubuntu, it must be installed using `sudo
 apt install python3.12-venv`.
 
-The complete list of Python dependencies can be found in the requirements.txt
-and requirements.base.txt files. However, the most important dependencies are:
+To run the experiments, the dependencies are:
 
 * [Ray RLlib](https://docs.ray.io/en/releases-2.40.0/rllib/):
   this is a reinforcement learning library used to define the DFaaS custom
@@ -48,14 +47,18 @@ and requirements.base.txt files. However, the most important dependencies are:
   GPUs and CPUs. It is used by Ray RLlib when training models with deep learning
   reinforcement learning algorithms.
 
-For plotting only, the following dependencies are required:
-
-* [Matplotlib](https://matplotlib.org/): is a plot generation library used in
-  the scripts in the [`plots`](plots) and [`notebooks`](notebooks) directory.
-
 * [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
   than the standard library. Used because the experiments generate large JSON
   files that slow down the encoding/decoding processes.
+
+Only these dependencies need to be installed manually. `pip` automatically
+installs the dependencies, and some of them are directly used by the project
+(like NumPy, Gymnasium, Pandas or NetworkX).
+
+The following dependencies are required for plotting or running notebooks:
+
+* [Matplotlib](https://matplotlib.org/): is a plot generation library used in
+  the scripts in the [`plots`](plots) and [`notebooks`](notebooks) directory.
 
 * [Jupyter Notebook](https://jupyter-notebook.readthedocs.io/en/v7.3.2/):
   Jupyter notebooks are used to create plots and explore results and statistics
@@ -68,14 +71,15 @@ For plotting only, the following dependencies are required:
 * [nbstripout](https://pypi.org/project/nbstripout/): utility that erases a
   Jupyter Notebook's output before committing to git.
 
-Only the first two dependencies (Ray RLlib and PyTorch) are required. The other
-dependencies are required only if you are using the notebooks. Scripts in the
-`plots` directory are not interactive and only require Matplotlib.
+Note that scripts in the `plots` directory are not interactive and only require
+Matplotlib.
 
-When installing Ray RLlib, `pip` automatically installs some dependencies used
-by the project, like NumPy, Pandas or Gymnasium. This means that the environment
-can be easily set up by installing the dependencies listed above and they can be
-found also in the [`requirements.base.txt`](requirements.base.txt).
+There are two requirements files for `pip` in the repository:
+
+* [`requirements.base.txt`](requirements.base.txt): contains only the
+  dependencies listed above with fixed versions,
+* [`requirements.txt`](requirements.txt): contains the full list of dependencies
+  with fixed versions.
 
 Run the following commands to set up the development environment with Ubuntu:
 
@@ -88,8 +92,7 @@ $ source .env/bin/activate
 $ pip install --requirement requirements-base.txt
 ```
 
-For perfect reproducibility, there is a [`requirements.txt`](requirements.txt)
-that contains all the dependencies installed with the fixed versions:
+Or, for perfect reproducibility:
 
     $ pip install --requirement requirements.txt
 
@@ -98,11 +101,15 @@ CUDA (at least 12.4) installed for PyTorch. PyTorch can also be used with a CPU,
 in this case follow the [instructions](https://pytorch.org/get-started/locally/)
 on the official website.
 
-The requirements file also contains [`black`](https://black.readthedocs.io) (a
-development tool for automatically formatting source code and Jupyter
-notebooks), [`pylint`](https://pylint.readthedocs.io/en/latest/index.html) (a
-static code analyser) and [`pre-commit`](https://pre-commit.com) packages. The
-latter run automatically `black` when doing commits.
+The [`requirements.txt`](requirements.txt) also contains some development tools:
+
+* [`black`](https://black.readthedocs.io): a source code formatted for Python
+  code and Jupyter notebooks,
+* [`pylint`](https://pylint.readthedocs.io/en/latest/index.html): a static code
+  analyser,
+* [`pre-commit`](https://pre-commit.com): to run hooks when doing a Git commit,
+* [`nbstripout`](https://github.com/kynan/nbstripout): to clean the output of
+  notebooks before committing them.
 
 ## How to run the experiments
 
