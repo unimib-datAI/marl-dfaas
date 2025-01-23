@@ -13,10 +13,10 @@ but they are written in Italian.
 
 ## Project directory structure
 
+* `configs`: contains the specific configuration for the environment, models and
+  other aspects of the experiments.
 * `dataset`: contains the dataset used to have real function invocations traces
   in the DFaaS environment (instead of generated ones).
-* `models`: the neural network models used for PPO and SAC algorithms, specified
-  as JSON files.
 * `notebooks`: Python Jupyter notebooks used mainly to show plots of the
   experiments and do some simple prototyping or experiments.
 * `patches`: required custom patches to Ray RLlib or other libraries needed to

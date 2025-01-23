@@ -86,8 +86,7 @@ env_eval_config["evaluation"] = True
 dummy_env = dfaas_env.DFaaS(config=env_config)
 
 # PolicySpec is required to specify the action/observation space for each
-# policy. Because each agent in the env has different action and observation
-# space, it is important to configure them.
+# policy. In this case, each policy has the same spaces.
 #
 # See this thread: https://discuss.ray.io/t/multi-agent-where-does-the-first-structure-comes-from/7010/5
 #
@@ -95,20 +94,15 @@ dummy_env = dfaas_env.DFaaS(config=env_config)
 #
 # Note that if no option is given to PolicySpec, it will inherit the
 # configuration/algorithm from the main configuration.
-policies = {
-    "policy_node_0": PolicySpec(
+policies = {}
+for agent in dummy_env.agents:
+    policy_name = f"policy_{agent}"
+    policies[policy_name] = PolicySpec(
         policy_class=None,
-        observation_space=dummy_env.observation_space["node_0"],
-        action_space=dummy_env.action_space["node_0"],
+        observation_space=dummy_env.observation_space[agent],
+        action_space=dummy_env.action_space[agent],
         config=None,
-    ),
-    "policy_node_1": PolicySpec(
-        policy_class=None,
-        observation_space=dummy_env.observation_space["node_1"],
-        action_space=dummy_env.action_space["node_1"],
-        config=None,
-    ),
-}
+    )
 
 
 def policy_mapping_fn(agent_id, episode, worker, **kwargs):

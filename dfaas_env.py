@@ -6,6 +6,7 @@ from collections import deque, namedtuple, defaultdict
 
 import pandas as pd
 import numpy as np
+import networkx as nx
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -98,8 +99,29 @@ def _reward_fw(action, excess, queue):
 
 class DFaaS(MultiAgentEnv):
     def __init__(self, config={}):
+        """Create the DFaaS environment with the given config. The config
+        supports the following keys (see the source code for defaults):
+
+            - network: the graph structure of the DFaaS network, given as
+              adjacency lists to be parsed with NetworkX.
+            - queue_capacity
+            - max_steps
+            - input_requests_type
+            - evaluation
+
+        """
+        # By default, the network has two interconnected agents.
+        #
+        # The graph is represented by NetworkX's adjacency lists. Each line is a
+        # list of node labels, where the first label is the source node and the
+        # following labels are the destination nodes.
+        network_config = config.get("network", ["node_0 node_1"])
+
+        # Freeze to prevent further modification of the network nodes and edges.
+        self.network = nx.freeze(nx.parse_adjlist(network_config))
+
         # IDs of the agents in the DFaaS environment.
-        self.agents = ["node_0", "node_1"]
+        self.agents = list(self.network.nodes)
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
@@ -428,7 +450,6 @@ class DFaaS(MultiAgentEnv):
         assert len(action) == len(
             self.agents
         ), f"Expected {len(self.agents)} entries, found {len(action)}"
-        assert self.agents == ["node_0", "node_1"], "Expected only two agents"
 
         # CPU shares and RAM available for all requests in a single step.
         cpu_capacity = {agent: 1000 for agent in self.agents}
@@ -479,7 +500,9 @@ class DFaaS(MultiAgentEnv):
                     not_processed.append(request)
 
             self.queues[agent] = not_processed
-            self.info["queue_size"][agent][self.current_step] = len(not_processed)
+            self.info["queue_size_pre_incoming_local"][agent][self.current_step] = len(
+                not_processed
+            )
 
         # 2. Handle incoming local requests.
         for agent in self.agents:
@@ -492,7 +515,6 @@ class DFaaS(MultiAgentEnv):
                 # Queue is not empty or system does not have enough resources,
                 # try to add the request to the queue.
                 if append_queue(agent, request):
-                    self.info["queue_size"][agent][self.current_step] += 1
                     continue
 
                 # Insufficient requests and full queue: the only option left is
@@ -500,26 +522,42 @@ class DFaaS(MultiAgentEnv):
                 reject[agent] += 1
                 self.info["local_rejects_queue_full"][agent][self.current_step] += 1
 
+            self.info["queue_size_pre_incoming_forward"][agent][self.current_step] = (
+                len(self.queues[agent])
+            )
+
         # 3. Handle incoming forwarded requests. Same strategy as for incoming
         # local requests.
         for agent in self.agents:
-            # agent -> process the requests from the opposite agent
-            # opposite_agent -> forward the requests to the agent
-            opposite_agent = "node_0" if agent == "node_1" else "node_1"
-            for request in _sample_workload(forward[opposite_agent], self.rng):
-                request = request._replace(forwarded=True)  # Mark the request.
-                if len(self.queues[agent]) == 0 and process_request(agent, request):
-                    self.info["processed_local"][agent][self.current_step] += 1
-                    if request.forwarded:
-                        self.info["processed_local_forward"][agent][
-                            self.current_step
-                        ] += 1
-                    continue
-                if append_queue(agent, request):
-                    self.info["queue_size"][agent][self.current_step] += 1
-                    continue
+            # TODO: Order matter!
+            for neighbor in self.network.neighbors(agent):
+                # The forwarded requests are distributed equally to all
+                # neighbouring nodes, so I need to calculate the share for the
+                # current agent.
+                #
+                # TODO: This can be improved by using the dictionary structure
+                # of the network when processing the action directly instead of
+                # this function!
+                #
+                # FIXME: The division truncates the fractional part, a request
+                # may be missing!
+                incoming_reqs = forward[neighbor] // self.network.degree(neighbor)
 
-                self.info["forward_rejects"][opposite_agent][self.current_step] += 1
+                for request in _sample_workload(incoming_reqs, self.rng):
+                    request = request._replace(forwarded=True)  # Mark the request.
+                    if len(self.queues[agent]) == 0 and process_request(agent, request):
+                        self.info["processed_local"][agent][self.current_step] += 1
+                        if request.forwarded:
+                            self.info["processed_local_forward"][agent][
+                                self.current_step
+                            ] += 1
+                        continue
+                    if append_queue(agent, request):
+                        continue
+
+                    self.info["forward_rejects"][neighbor][self.current_step] += 1
+
+            self.info["queue_size"][agent][self.current_step] = len(self.queues[agent])
 
         # Fill the dictionary to return.
         retval = {}
