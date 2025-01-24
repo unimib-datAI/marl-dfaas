@@ -207,6 +207,7 @@ class DFaaS(MultiAgentEnv):
             "max_steps": self.max_steps,
             "input_requests_type": self.input_requests_type,
             "evaluation": self.evaluation,
+            "network": list(nx.generate_adjlist(self.network)),
         }
 
         return config
