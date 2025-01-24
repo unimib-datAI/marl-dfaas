@@ -135,6 +135,9 @@ class DFaaS(MultiAgentEnv):
             {
                 # Distribution of how many requests are processed locally,
                 # forwarded and rejected.
+                #
+                # Important: forwarding requests are evenly distributed among
+                # the node's neighbours.
                 agent: Simplex(shape=(3,))
                 for agent in self.agents
             }
