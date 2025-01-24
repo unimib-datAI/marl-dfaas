@@ -71,3 +71,28 @@ matplotlib.rc("font", **font)
 
 # Disable Ray's warnings.
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+
+def get_experiments(exp_prefix):
+    """Searches for experiment directories under the given exp_prefix
+    directory (preferably a Path object, but can also be a string) and
+    returns a list of tuples (experiment name and experiment path)."""
+    # Force to have a Path object.
+    if not isinstance(exp_prefix, Path):
+        exp_prefix = Path(exp_prefix)
+
+    # Scan the files and directories under exp_prefix.
+    exps = []
+    for exp in exp_prefix.iterdir():
+        if exp.name.startswith("DFAAS"):  # A single experiment.
+            exps.append((exp.name, exp))
+            continue
+
+        # The experiment is a directory with sub-experiments, add
+        # each experiment individually.
+        for sub_exp in exp.iterdir():
+            if sub_exp.name.startswith("DFAAS"):
+                exps.append((f"{exp.name}/{sub_exp.name}", sub_exp))
+
+    # Newest experiment first.
+    return sorted(exps, reverse=True)
