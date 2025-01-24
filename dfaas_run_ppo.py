@@ -221,9 +221,11 @@ eval_file = logdir / "evaluation.json"
 dfaas_utils.dict_to_json(evaluation, eval_file)
 logger.info(f"Final evaluation saved to: {ppo_algo.logdir}/final_evaluation.json")
 
-# Remove this file as it is redundant, "result.json" already contains the same
-# data.
-Path(logdir / "progress.csv").unlink()
+# Remove unused or problematic files in the result directory.
+Path(logdir / "progress.csv").unlink()  # result.json contains same data.
+Path(
+    logdir / "params.json"
+).unlink()  # params.pkl contains same data (and the JSON is broken).
 
 # Move the original experiment directory to a custom directory.
 exp_name = f"DFAAS-MA_{start}_{args.suffix}"
