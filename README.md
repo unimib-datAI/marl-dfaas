@@ -125,9 +125,9 @@ need to run a test script:
 
 Just run:
 
-    $ jupyter notebook --no-browser notebooks/
+    $ jupyter notebook --config jupyter_notebook_config.py
 
-Then open the link in the output in a browser.
+Then open http://localhost:8888/tree in a Web browser.
 
 ## Patching Ray
 
