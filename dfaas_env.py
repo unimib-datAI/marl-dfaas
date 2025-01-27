@@ -98,18 +98,20 @@ def _reward_fw(action, excess, queue):
 
 
 class DFaaS(MultiAgentEnv):
+    """DFaaS environment.
+
+    The constructor accepts a config dictionary with the following keys (see the
+    source code for defaults):
+
+    - network: the graph structure of the DFaaS network, given as adjacency
+      lists to be parsed with NetworkX.
+    - queue_capacity
+    - max_steps
+    - input_requests_type
+    - evaluation
+    """
+
     def __init__(self, config={}):
-        """Create the DFaaS environment with the given config. The config
-        supports the following keys (see the source code for defaults):
-
-            - network: the graph structure of the DFaaS network, given as
-              adjacency lists to be parsed with NetworkX.
-            - queue_capacity
-            - max_steps
-            - input_requests_type
-            - evaluation
-
-        """
         # By default, the network has two interconnected agents.
         #
         # The graph is represented by NetworkX's adjacency lists. Each line is a
@@ -149,6 +151,9 @@ class DFaaS(MultiAgentEnv):
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict(
             {
+                # The first two observations refer to the current step's
+                # starting point, the next to the previous step (historical
+                # data).
                 agent: gym.spaces.Dict(
                     {
                         # Number of input requests to process for a single step.
@@ -161,12 +166,23 @@ class DFaaS(MultiAgentEnv):
                             high=self.queue_capacity,
                             dtype=np.int32,
                         ),
-                        # Forwarded requests in the previous step.
-                        "prev_forward_requests": gym.spaces.Box(
+                        # Local requests in the previous step.
+                        "prev_local_requests": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
+                        # Local requests but rejected in the previosu step.
+                        # Note prev_local_rejects <= prev_local_requests.
+                        "prev_local_rejects": gym.spaces.Box(
+                            low=0, high=150, dtype=np.int32
+                        ),
+                        # Incoming forwarded requests in the previous step.
+                        # Note that the upper limit depends on the number of
+                        # node neighbours.
+                        "prev_forward_requests": gym.spaces.Box(
+                            low=0, high=150 * self.network.degree[agent], dtype=np.int32
+                        ),
                         # Forwarded but rejected requests in the previous step.
-                        # Note last_forward_rejects <= last_forward_requests.
+                        # Note prev_forward_rejects <= prev_forward_requests.
                         "prev_forward_rejects": gym.spaces.Box(
                             low=0, high=150, dtype=np.int32
                         ),
@@ -409,6 +425,8 @@ class DFaaS(MultiAgentEnv):
                 obs[agent] = {
                     "queue_size": np.array([0], dtype=np.int32),
                     "input_requests": np.array([input_requests], dtype=np.int32),
+                    "prev_local_requests": np.array([0], dtype=np.int32),
+                    "prev_local_rejects": np.array([0], dtype=np.int32),
                     "prev_forward_requests": np.array([0], dtype=np.int32),
                     "prev_forward_rejects": np.array([0], dtype=np.int32),
                 }
@@ -421,6 +439,10 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             queue_size = self.info["queue_size"][agent][self.current_step - 1]
             input_requests = self.input_requests[agent][self.current_step]
+            prev_local_reqs = self.info["action_local"][agent][self.current_step - 1]
+            prev_local_rejects = self.info["local_rejects_queue_full"][agent][
+                self.current_step - 1
+            ]
             prev_forward_reqs = self.info["action_forward"][agent][
                 self.current_step - 1
             ]
@@ -430,6 +452,14 @@ class DFaaS(MultiAgentEnv):
 
             obs[agent]["queue_size"] = np.array([queue_size], dtype=np.int32)
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
+
+            obs[agent]["prev_local_requests"] = np.array(
+                [prev_local_reqs], dtype=np.int32
+            )
+            obs[agent]["prev_local_rejects"] = np.array(
+                [prev_local_rejects], dtype=np.int32
+            )
+
             obs[agent]["prev_forward_requests"] = np.array(
                 [prev_forward_reqs], dtype=np.int32
             )
