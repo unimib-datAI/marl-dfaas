@@ -113,13 +113,19 @@ The [`requirements.txt`](requirements.txt) also contains some development tools:
 
 ## How to run the experiments
 
-WIP
-
 **Important**: always run Python scripts from the project root directory to
 allow loading of commonly used modules (`dfaas_env.py`...). As example, if you
 need to run a test script:
 
     $ python tests/env/local_strategy.py
+
+### Training
+
+Run the [`dfaas_train.py`](dfaas_train.py) Python script. (**WIP**)
+
+### Evaluation
+
+Run the [`dfaas_evaluate.py`](dfaas_evaluate_ppo.py) Python script. (**WIP**)
 
 ### How to run Jupyter notebooks
 
