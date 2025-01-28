@@ -29,7 +29,7 @@ logger = logging.getLogger(Path(__file__).name)
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="dfaas_run_ppo", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        prog="dfaas_train", formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
         dest="suffix", help="A string to append to experiment directory"
@@ -60,6 +60,12 @@ def main():
     parser.add_argument(
         "--model", type=Path, help="Override default neural networks model"
     )
+    parser.add_argument(
+        "--skip-evaluation",
+        default=False,
+        action="store_true",
+        help="Skip final evaluation",
+    )
 
     args = parser.parse_args()
 
@@ -78,24 +84,25 @@ def main():
         "max_iterations": args.iterations,  # Number of iterations.
         "env": dfaas_env.DFaaS.__name__,  # Environment.
         "gpu": not args.no_gpu,
+        "final_evaluation": not args.skip_evaluation,
         "runners": runners,
     }
     logger.info(f"Experiment configuration = {exp_config}")
 
-    # Env configuration.
+    # Environment configuration.
     if args.env_config is not None:
         env_config = dfaas_utils.json_to_dict(args.env_config)
     else:
         env_config = {}
-    logger.info(f"Environment configuration = {env_config}")
+
+    # Create a dummy environment, used as reference.
+    dummy_env = dfaas_env.DFaaS(config=env_config)
+    logger.info(f"Environment configuration = {dummy_env.get_config()}")
 
     # For the evaluation phase at the end, the env_config is different than the
     # training one.
     env_eval_config = env_config.copy()
     env_eval_config["evaluation"] = True
-
-    # Create a dummy environment, used to get observation and action spaces.
-    dummy_env = dfaas_env.DFaaS(config=env_config)
 
     # PolicySpec is required to specify the action/observation space for each
     # policy. In this case, each policy has the same spaces.
@@ -198,7 +205,7 @@ def main():
     logger.info("Training start")
     for iteration in range(exp_config["max_iterations"]):
         logger.info(f"Iteration {iteration}")
-        experiment.train()
+        result = experiment.train()
 
         # Save a checkpoint every 50 iterations.
         if ((iteration + 1) % 50) == 0:
@@ -216,11 +223,14 @@ def main():
     logger.info(f"Iterations data saved to: {experiment.logdir}/result.json")
 
     # Do a final evaluation.
-    logger.info("Final evaluation start")
-    evaluation = experiment.evaluate()
-    eval_file = logdir / "evaluation.json"
-    dfaas_utils.dict_to_json(evaluation, eval_file)
-    logger.info(f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json")
+    if not args.skip_evaluation:
+        logger.info("Final evaluation start")
+        evaluation = experiment.evaluate()
+        eval_file = logdir / "evaluation.json"
+        dfaas_utils.dict_to_json(evaluation, eval_file)
+        logger.info(
+            f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json"
+        )
 
     # Remove unused or problematic files in the result directory.
     Path(logdir / "progress.csv").unlink()  # result.json contains same data.
@@ -229,7 +239,7 @@ def main():
     ).unlink()  # params.pkl contains same data (and the JSON is broken).
 
     # Move the original experiment directory to a custom directory.
-    exp_name = f"DFAAS-MA_{start}_{args.suffix}"
+    exp_name = f"DFAAS-MA_{start}_{args.algorithm}_{args.suffix}"
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
     logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
@@ -300,12 +310,13 @@ def build_sac(**kwargs):
     # Other values are set to the default.
     replay_buffer_config = {
         "type": "MultiAgentPrioritizedReplayBuffer",
-        "capacity": int(1e4),
+        "capacity": 10**6,
     }
 
-    # WIP
-    episodes_iter = 3 * runners if runners > 0 else 1
-    train_batch_size = dummy_env.max_steps * episodes_iter
+    # episodes_iter = 3 * runners if runners > 0 else 1
+
+    # Play one episode for each iteration.
+    rollout_fragment_length = dummy_env.max_steps
 
     config = (
         SACConfig()
@@ -315,15 +326,16 @@ def build_sac(**kwargs):
         )
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
-        .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
+        # .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
         .training(
-            train_batch_size=train_batch_size,
             policy_model_config=model,
             replay_buffer_config=replay_buffer_config,
         )
         .framework("torch")
-        .env_runners(num_env_runners=runners)
+        .env_runners(
+            rollout_fragment_length=rollout_fragment_length, num_env_runners=runners
+        )
         .evaluation(
             evaluation_interval=None,
             evaluation_duration=50,
