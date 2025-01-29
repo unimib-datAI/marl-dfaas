@@ -313,10 +313,25 @@ def build_sac(**kwargs):
         "capacity": 10**6,
     }
 
-    # episodes_iter = 3 * runners if runners > 0 else 1
+    # In each iteration, each runner plays exactly three complete episodes.
+    episodes_iter = 3 * runners if runners > 0 else 1
+    episodes_runner = 3
+    rollout_fragment_length = dummy_env.max_steps * episodes_runner
 
-    # Play one episode for each iteration.
-    rollout_fragment_length = dummy_env.max_steps
+    # Collect random exploratory experience before starting training, to help
+    # initialize the replay buffer.
+    warm_up_size = 10000
+
+    # In each iteration, we do 12 mini-batch update epochs on the models. Each
+    # batch has a size of 256.
+    #
+    # Formula:
+    #
+    #   native_ratio = train_batch_size / (rollout_fragment_length * max(runners + 1, 1))
+    #
+    #   epochs = training_intensity / native_ratio
+    train_batch_size = 256
+    training_intensity = 0.6
 
     config = (
         SACConfig()
@@ -326,9 +341,12 @@ def build_sac(**kwargs):
         )
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
-        # .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
+        .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
         .training(
+            num_steps_sampled_before_learning_starts=warm_up_size,
+            training_intensity=training_intensity,
+            train_batch_size=train_batch_size,
             policy_model_config=model,
             replay_buffer_config=replay_buffer_config,
         )
