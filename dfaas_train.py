@@ -311,6 +311,8 @@ def build_sac(**kwargs):
     replay_buffer_config = {
         "type": "MultiAgentPrioritizedReplayBuffer",
         "capacity": 10**6,
+        "num_shards": 1,  # Each agent has it is own buffer of 10^6 capacity.
+        # "num_shards": len(dummy_env.agents)  # TODO
     }
 
     # In each iteration, each runner plays exactly three complete episodes.

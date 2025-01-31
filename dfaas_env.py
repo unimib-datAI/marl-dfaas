@@ -12,6 +12,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
+from ray.rllib.algorithms.sac import SAC
 
 # Initialize logger for this module.
 logging.basicConfig(
@@ -926,4 +927,14 @@ class DFaaSCallbacks(DefaultCallbacks):
 
     def on_train_result(self, *, algorithm, result, **kwargs):
         """Called at the end of Algorithm.train()."""
+        if algorithm.__class__ == SAC:
+            # Only for SAC: log also the status of the replay buffer.
+            result["info"]["replay_buffer"] = {}
+            result["info"]["replay_buffer"][
+                "capacity_per_policy"
+            ] = algorithm.local_replay_buffer.capacity
+            result["info"]["replay_buffer"].update(
+                algorithm.local_replay_buffer.stats()
+            )
+
         result["callbacks_ok"] = True
