@@ -203,8 +203,10 @@ def main():
 
     # Run the training phase for n iterations.
     logger.info("Training start")
-    for iteration in range(exp_config["max_iterations"]):
-        logger.info(f"Iteration {iteration}")
+    max_iterations = exp_config["max_iterations"]
+    for iteration in range(max_iterations):
+        percentual = iteration / max_iterations
+        logger.info(f"Iteration {iteration}/{max_iterations} {percentual:.0%}")
         result = experiment.train()
 
         # Save a checkpoint every 50 iterations.
