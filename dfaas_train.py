@@ -1,5 +1,6 @@
-# Main Python script to run PPO or SAC algorithm training experiment with DFaaS
-# environment.
+"""This module executes a training experiment using a specified algorithm with
+the DFaaS environment."""
+
 from pathlib import Path
 import shutil
 from datetime import datetime
@@ -13,6 +14,7 @@ from ray.rllib.models.catalog import MODEL_DEFAULTS
 
 import dfaas_utils
 import dfaas_env
+import dfaas_apl
 
 # Disable Ray's warnings.
 import warnings
@@ -48,9 +50,7 @@ def main():
         type=int,
         help="Number of iterations to run (non-negative integer)",
     )
-    parser.add_argument(
-        "--algorithm", default="PPO", choices=["PPO", "SAC"], help="Algorithm to use"
-    )
+    parser.add_argument("--algorithm", default="PPO", help="Algorithm to use")
     parser.add_argument(
         "--runners",
         default=5,
@@ -80,6 +80,7 @@ def main():
     # TODO: make this configurable!
     # TODO: Add custom model option.
     exp_config = {
+        "algorithm": args.algorithm,
         "seed": 42,  # Seed of the experiment.
         "max_iterations": args.iterations,  # Number of iterations.
         "env": dfaas_env.DFaaS.__name__,  # Environment.
@@ -169,8 +170,18 @@ def main():
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
             )
+        case "APL":
+            experiment = build_apl(
+                runners=runners,
+                dummy_env=dummy_env,
+                env_config=env_config,
+                env_eval_config=env_eval_config,
+                exp_config=exp_config,
+                policies=policies,
+                policy_mapping_fn=policy_mapping_fn,
+            )
         case _:
-            assert False, "Unreachable code"
+            raise ValueError(f"Algorithm {args.algorithm!r} not found")
 
     # Get the experiment directory to save other files.
     logdir = Path(experiment.logdir).resolve()
@@ -187,13 +198,15 @@ def main():
     dfaas_utils.dict_to_json(dummy_config, env_config_path)
     logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
 
-    # Save the model architecture for all policies.
-    policies_dir = logdir / "policy_model"
-    policies_dir.mkdir()
-    for policy_name, policy in experiment.env_runner.policy_map.items():
-        out = policies_dir / policy_name
-        out.write_text(f"{policy.model}")
-        logger.info(f"Policy '{policy_name}' model saved to: {out.as_posix()!r}")
+    # Save the model architecture for all policies (if the algorithm provides
+    # one).
+    if args.algorithm != "APL":
+        policies_dir = logdir / "policy_model"
+        policies_dir.mkdir()
+        for policy_name, policy in experiment.env_runner.policy_map.items():
+            out = policies_dir / policy_name
+            out.write_text(f"{policy.model}")
+            logger.info(f"Policy '{policy_name}' model saved to: {out.as_posix()!r}")
 
     # Copy the environment source file into the experiment directory. This ensures
     # that the original environment used for the experiment is preserved.
@@ -205,8 +218,8 @@ def main():
     logger.info("Training start")
     max_iterations = exp_config["max_iterations"]
     for iteration in range(max_iterations):
-        percentual = iteration / max_iterations
-        logger.info(f"Iteration {iteration}/{max_iterations} {percentual:.0%}")
+        percentual = (iteration + 1) / max_iterations
+        logger.info(f"Iteration {iteration + 1}/{max_iterations} {percentual:.0%}")
         result = experiment.train()
 
         # Save a checkpoint every 50 iterations.
@@ -366,6 +379,45 @@ def build_sac(**kwargs):
         )
         .debugging(seed=exp_config["seed"])
         .resources(num_gpus=0 if no_gpu else 1)
+        .callbacks(dfaas_env.DFaaSCallbacks)
+        .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
+    )
+
+    return config.build()
+
+
+def build_apl(**kwargs):
+    runners = kwargs["runners"]
+    dummy_env = kwargs["dummy_env"]
+    env_config = kwargs["env_config"]
+    env_eval_config = kwargs["env_eval_config"]
+    exp_config = kwargs["exp_config"]
+    policies = kwargs["policies"]
+    policy_mapping_fn = kwargs["policy_mapping_fn"]
+
+    # See build_ppo function.
+    episodes_iter = 3 * runners if runners > 0 else 1
+    train_batch_size = dummy_env.max_steps * episodes_iter
+
+    config = (
+        dfaas_apl.APLConfig()
+        # By default RLlib uses the new API stack, but I use the old one.
+        .api_stack(
+            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
+        )
+        # For each iteration, store only the episodes calculated in that
+        # iteration in the log result.
+        .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
+        .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
+        .training(train_batch_size=train_batch_size)
+        .env_runners(num_env_runners=runners)
+        .evaluation(
+            evaluation_interval=None,
+            evaluation_duration=50,
+            evaluation_num_env_runners=1,
+            evaluation_config={"env_config": env_eval_config},
+        )
+        .debugging(seed=exp_config["seed"])
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
     )
