@@ -16,6 +16,7 @@ import matplotlib
 sys.path.append(Path(os.getcwd()).parent.as_posix())
 
 import dfaas_env
+import dfaas_upperbound
 import dfaas_utils
 
 # Reset the matplotlib logger to warning, because Ray (called by dfaas_env
@@ -53,7 +54,14 @@ def _env_init(exp_dir):
 
     # Create the environment with the given env config.
     global _env
-    _env[exp_dir] = dfaas_env.DFaaS(config=env_config)
+    match exp_config["env"]:
+        case "DFaaS":
+            _env[exp_dir] = dfaas_env.DFaaS(config=env_config)
+        case "SingleDFaaS":
+            _env[exp_dir] = dfaas_upperbound.SingleDFaaS(config=env_config)
+        case _:
+            logger.critical(f"Unsupported environment for exp: {exp_dir.as_posix()!r}")
+            raise ValueError(exp_dir)
 
 
 def get_env(exp_dir):
