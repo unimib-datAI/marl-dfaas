@@ -116,14 +116,14 @@ def get_experiments(exp_prefix):
     # Scan the files and directories under exp_prefix.
     exps = []
     for exp in exp_prefix.iterdir():
-        if exp.name.startswith("DFAAS"):  # A single experiment.
+        if (exp / "exp_config.json").exists():  # A single experiment.
             exps.append((exp.name, exp))
             continue
 
         # The experiment is a directory with sub-experiments, add
         # each experiment individually.
         for sub_exp in exp.iterdir():
-            if sub_exp.name.startswith("DFAAS"):
+            if (sub_exp / "exp_config.json").exists():  # A single experiment.
                 exps.append((f"{exp.name}/{sub_exp.name}", sub_exp))
 
     # Newest experiment first.
