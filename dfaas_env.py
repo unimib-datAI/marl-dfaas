@@ -878,6 +878,9 @@ register(DFaaS)
 class DFaaSCallbacks(DefaultCallbacks):
     """User defined callbacks for the DFaaS environment.
 
+    These callbacks can be used with other environments, both multi-agent and
+    single-agent.
+
     See the Ray's API documentation for DefaultCallbacks, the custom class
     overrides (and uses) only a subset of callbacks and keyword arguments."""
 
@@ -892,7 +895,13 @@ class DFaaSCallbacks(DefaultCallbacks):
             episode.length <= 0
         ), f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
 
-        env = base_env.envs[0]
+        try:
+            env = base_env.envs[0]
+        except AttributeError:
+            # With single-agent environment the wrapper env is an instance of
+            # VectorEnvWrapper and it doesn't have envs attribute. With
+            # multi-agent the wrapper is MultiAgentEnvWrapper.
+            env = base_env.get_sub_environments()[0]
 
         # Save environment seed directly in hist_data.
         episode.hist_data["seed"] = [env.seed]
@@ -909,7 +918,10 @@ class DFaaSCallbacks(DefaultCallbacks):
 
         Only the episode and base_env keyword arguments are used, other
         arguments are ignored."""
-        env = base_env.envs[0]
+        try:
+            env = base_env.envs[0]
+        except AttributeError:
+            env = base_env.get_sub_environments()[0]
 
         assert (
             env.current_step == env.max_steps

@@ -279,7 +279,7 @@ def build_ppo(**kwargs):
     # reached, it doesn't control each runner. The number should be divisible by the
     # number of runners, otherwise a runner has to collect more (or less) samples
     # and plays one plus or minus episode.
-    episodes_iter = 3 * runners if runners > 0 else 1
+    episodes_iter = 3 * (runners if runners > 0 else 1)
     train_batch_size = dummy_env.max_steps * episodes_iter
 
     config = (
@@ -331,7 +331,7 @@ def build_sac(**kwargs):
     }
 
     # In each iteration, each runner plays exactly three complete episodes.
-    episodes_iter = 3 * runners if runners > 0 else 1
+    episodes_iter = 3 * (runners if runners > 0 else 1)
     episodes_runner = 3
     rollout_fragment_length = dummy_env.max_steps * episodes_runner
 
@@ -396,7 +396,7 @@ def build_apl(**kwargs):
     policy_mapping_fn = kwargs["policy_mapping_fn"]
 
     # See build_ppo function.
-    episodes_iter = 3 * runners if runners > 0 else 1
+    episodes_iter = 3 * (runners if runners > 0 else 1)
     train_batch_size = dummy_env.max_steps * episodes_iter
 
     config = (

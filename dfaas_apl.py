@@ -24,6 +24,11 @@ class APLPolicy(Policy):
     def __init__(self, observation_space, action_space, config):
         super().__init__(observation_space, action_space, config)
 
+        self.env_name = config["env"]
+        if self.env_name == "SingleDFaaS":
+            # This is a special env, it does not take any action.
+            return
+
         if not isinstance(action_space, Simplex):
             raise ValueError(
                 f"Only Simplex action space is supported by APLPolicy, found {action_space.__class__!r}"
@@ -40,8 +45,12 @@ class APLPolicy(Policy):
         Returns only the batch of output actions."""
         observations = len(obs_batch)
 
-        # Always process locally the incoming requests.
-        actions = np.repeat([[1.0, 0.0, 0.0]], observations, axis=0)
+        if self.env_name == "SingleDFaaS":
+            # Dummy action, it is not considered.
+            actions = np.repeat([0], observations, axis=0)
+        else:
+            # Always process locally the incoming requests.
+            actions = np.repeat([[1.0, 0.0, 0.0]], observations, axis=0)
 
         return actions, [], {}
 
