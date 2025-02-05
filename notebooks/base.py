@@ -7,6 +7,8 @@ import warnings
 
 import IPython.core.debugger as debugger
 
+import numpy as np
+
 import cloudpickle
 
 import matplotlib
@@ -30,6 +32,9 @@ logging.basicConfig(
     level=logging.DEBUG,
 )
 logger = logging.getLogger(Path(__file__).name)
+
+# Convert NumPy warning to errors.
+np.seterr(all="raise")
 
 # This module-level variable holds the environment object. Supports multiple
 # experiments (the key is the experiment path, value is the object).
