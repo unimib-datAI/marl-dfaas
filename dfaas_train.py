@@ -325,8 +325,8 @@ def build_sac(**kwargs):
     # Other values are set to the default.
     replay_buffer_config = {
         "type": "MultiAgentPrioritizedReplayBuffer",
-        "capacity": 10**6,
-        "num_shards": 1,  # Each agent has it is own buffer of 10^6 capacity.
+        "capacity": 4 * int(1e5),
+        "num_shards": 1,  # Each agent has it is own buffer of full capacity.
         # "num_shards": len(dummy_env.agents)  # TODO
     }
 
@@ -337,7 +337,7 @@ def build_sac(**kwargs):
 
     # Collect random exploratory experience before starting training, to help
     # initialize the replay buffer.
-    warm_up_size = 10000
+    warm_up_size = int(1e4)
 
     # In each iteration, we do 12 mini-batch update epochs on the models. Each
     # batch has a size of 256.
@@ -347,6 +347,8 @@ def build_sac(**kwargs):
     #   native_ratio = train_batch_size / (rollout_fragment_length * max(runners + 1, 1))
     #
     #   epochs = training_intensity / native_ratio
+    #
+    # See calculate_rr_weights() in rllib/algorithms/dqn/dqn.py
     train_batch_size = 256
     training_intensity = 0.6
 
