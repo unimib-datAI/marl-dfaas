@@ -66,8 +66,13 @@ def main():
         action="store_true",
         help="Skip final evaluation",
     )
+    parser.add_argument("--seed", default=42, type=int, help="Seed of the experiment")
 
     args = parser.parse_args()
+
+    if args.seed < 0:
+        print("seed must be a non-negative number")
+        exit(1)
 
     # By default, there are five runners collecting samples, each running 3 complete
     # episodes (for a total of 4320 samples, 864 for each runner).
@@ -81,7 +86,7 @@ def main():
     # TODO: Add custom model option.
     exp_config = {
         "algorithm": args.algorithm,
-        "seed": 42,  # Seed of the experiment.
+        "seed": args.seed,  # Seed of the experiment.
         "max_iterations": args.iterations,  # Number of iterations.
         "env": dfaas_env.DFaaS.__name__,  # Environment.
         "gpu": not args.no_gpu,
