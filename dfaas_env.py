@@ -564,6 +564,10 @@ class DFaaS(MultiAgentEnv):
         # 3. Handle incoming forwarded requests. Same strategy as for incoming
         # local requests.
         for agent in self.agents:
+            # Set the default value since the agent may not process any
+            # forwarded request.
+            self.info["processed_local_forward"][agent][self.current_step] = 0
+
             # TODO: Order matter!
             for neighbor in self.network.neighbors(agent):
                 # The forwarded requests are distributed equally to all
