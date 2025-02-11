@@ -22,6 +22,28 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
+def _reward_fw_simpler(action, excess, queue):
+    assert len(action) == 3, "Expected (local, forward, reject)"
+    assert len(excess) == 2, "Expected (local_excess, forward_reject)"
+    assert len(queue) == 2, "Expected (queue_status, queue_max_capacity)"
+
+    reqs_total = sum(action)
+    reqs_local, reqs_forward, reqs_reject = action
+    local_excess, forward_reject = excess
+    queue_status, queue_max = queue
+
+    if reqs_total == 0:
+        return 1.0
+
+    if local_excess > 0 or forward_reject > 0:
+        malus_local = local_excess / reqs_total
+        malus_forward = forward_reject / reqs_total
+
+        return 1 - (malus_local + malus_forward)
+
+    return 1 - (reqs_reject / reqs_total)
+
+
 def _reward_fw(action, excess, queue):
     """Reward function for the agents in the DFaaS environment.
 
@@ -349,7 +371,7 @@ class DFaaS(MultiAgentEnv):
             excess = additional_rejects[agent]
             queue_status = (len(self.queues[agent]), self.queue_capacity)
 
-            reward = _reward_fw(action[agent], excess, queue_status)
+            reward = _reward_fw_simpler(action[agent], excess, queue_status)
             assert isinstance(reward, float), "Unsupported reward type {type(reward)}"
 
             # Make sure the reward is of type float.

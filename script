@@ -1,0 +1,7 @@
+python dfaas_train.py --algorithm PPO --model configs/models/softplus.json --iterations 300 --runners 5 --seed 42 new_fw
+
+python dfaas_train.py --algorithm APL --iterations 300 --runners 5 --seed 42 new_fw
+
+python dfaas_train.py --algorithm SAC --model configs/models/softplus.json --iterations 300 --runners 5 --seed 42 new_fw
+ 
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 42 new_fw
