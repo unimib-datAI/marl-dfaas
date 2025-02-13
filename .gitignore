@@ -6,3 +6,4 @@ results
 *.csv
 *.tar
 .ipynb_checkpoints
+*.pdf
