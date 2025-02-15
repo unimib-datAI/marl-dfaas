@@ -1,87 +1,134 @@
 #!/usr/bin/env bash
 
-# Seed 1656458957
+# Seed 42
 
-echo "Seed 1656458957"
+echo "Seed 42"
 
 python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 1220993544 --env-config configs/env/five_agents.json 1220993544 &
+    --iterations 300 --runners 5 --seed 42 --env-config configs/env/five_agents.json 42 &
 
 python dfaas_train.py --algorithm APL \
-    --iterations 300 --runners 5 --seed 1220993544 --env-config configs/env/five_agents.json 1220993544 &
+    --iterations 300 --runners 5 --seed 42 --env-config configs/env/five_agents.json 42 &
 
 python dfaas_train.py --algorithm SAC --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 1220993544 --env-config configs/env/five_agents.json 1220993544 &
+    --iterations 300 --runners 5 --seed 42 --env-config configs/env/five_agents.json 42 &
+
+wait
  
-python dfaas_upperbound.py --iterations 300 --runners 5 --seed 1220993544 --env-config configs/env/five_agents.json 1220993544 &
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 42 --env-config configs/env/five_agents.json 42 &
+
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 43 --env-config configs/env/five_agents.json 43 &
 
 wait
 
-# Seed 3125571075
+# Seed 43
 
-echo "Seed 3125571075"
+echo "Seed 43"
 
 python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 3125571075 --env-config configs/env/five_agents.json 3125571075 &
+    --iterations 300 --runners 5 --seed 43 --env-config configs/env/five_agents.json 43 &
 
 python dfaas_train.py --algorithm APL \
-    --iterations 300 --runners 5 --seed 3125571075 --env-config configs/env/five_agents.json 3125571075 &
+    --iterations 300 --runners 5 --seed 43 --env-config configs/env/five_agents.json 43 &
 
 python dfaas_train.py --algorithm SAC \
-    --iterations 300 --runners 5 --seed 3125571075 --env-config configs/env/five_agents.json 3125571075 &
-
-python dfaas_upperbound.py --iterations 300 --runners 5 --seed 3125571075 --env-config configs/env/five_agents.json 3125571075 &
+    --iterations 300 --runners 5 --seed 43 --env-config configs/env/five_agents.json 43 &
 
 wait
 
-# Seed 1373121428
 
-echo "Seed 1373121428"
+# Seed 44
+
+echo "Seed 44"
 
 python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 1373121428 --env-config configs/env/five_agents.json 1373121428 &
+    --iterations 300 --runners 5 --seed 44 --env-config configs/env/five_agents.json 44 &
 
 python dfaas_train.py --algorithm APL \
-    --iterations 300 --runners 5 --seed 1373121428 --env-config configs/env/five_agents.json 1373121428 &
+    --iterations 300 --runners 5 --seed 44 --env-config configs/env/five_agents.json 44 &
 
 python dfaas_train.py --algorithm SAC \
-    --iterations 300 --runners 5 --seed 1373121428 --env-config configs/env/five_agents.json 1373121428 &
+    --iterations 300 --runners 5 --seed 44 --env-config configs/env/five_agents.json 44 &
 
-python dfaas_upperbound.py --iterations 300 --runners 5 --seed 1373121428 --env-config configs/env/five_agents.json 1373121428 &
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 44 --env-config configs/env/five_agents.json 44 &
 
 wait
 
-# Seed 3302448696
+# Seed 45
 
-echo "Seed 3302448696"
+echo "Seed 45"
 
 python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 3302448696 --env-config configs/env/five_agents.json 3302448696 &
+    --iterations 300 --runners 5 --seed 45 --env-config configs/env/five_agents.json 45 &
 
 python dfaas_train.py --algorithm APL \
-    --iterations 300 --runners 5 --seed 3302448696 --env-config configs/env/five_agents.json 3302448696 &
-
-python dfaas_train.py --algorithm SAC \
-    --iterations 300 --runners 5 --seed 3302448696 --env-config configs/env/five_agents.json 3302448696 &
-
-python dfaas_upperbound.py --iterations 300 --runners 5 --seed 3302448696 --env-config configs/env/five_agents.json 3302448696 &
+    --iterations 300 --runners 5 --seed 45 --env-config configs/env/five_agents.json 45 &
 
 wait
 
-# Seed 1656458957
+python dfaas_train.py --algorithm SAC \
+    --iterations 300 --runners 5 --seed 45 --env-config configs/env/five_agents.json 45 &
 
-echo "Seed 1656458957"
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 45 --env-config configs/env/five_agents.json 45 &
+
+wait
+
+# Seed 46
+
+echo "Seed 46"
 
 python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
-    --iterations 300 --runners 5 --seed 1656458957 --env-config configs/env/five_agents.json 1656458957 &
+    --iterations 300 --runners 5 --seed 46 --env-config configs/env/five_agents.json 46 &
 
 python dfaas_train.py --algorithm APL \
-    --iterations 300 --runners 5 --seed 1656458957 --env-config configs/env/five_agents.json 1656458957 &
+    --iterations 300 --runners 5 --seed 46 --env-config configs/env/five_agents.json 46 &
+
+wait
 
 python dfaas_train.py --algorithm SAC \
-    --iterations 300 --runners 5 --seed 1656458957 --env-config configs/env/five_agents.json 1656458957 &
+    --iterations 300 --runners 5 --seed 46 --env-config configs/env/five_agents.json 46 &
 
-python dfaas_upperbound.py --iterations 300 --runners 5 --seed 1656458957 --env-config configs/env/five_agents.json 1656458957 &
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 46 --env-config configs/env/five_agents.json 46 &
+
+wait
+
+# Seed 47
+
+echo "Seed 47"
+
+python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
+    --iterations 300 --runners 5 --seed 47 --env-config configs/env/five_agents.json 47 &
+
+python dfaas_train.py --algorithm APL \
+    --iterations 300 --runners 5 --seed 47 --env-config configs/env/five_agents.json 47 &
+
+python dfaas_train.py --algorithm SAC --model configs/models/softplus.json \
+    --iterations 300 --runners 5 --seed 47 --env-config configs/env/five_agents.json 47 &
+
+wait
+ 
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 47 --env-config configs/env/five_agents.json 47 &
+
+python dfaas_train.py --algorithm SAC --model configs/models/softplus.json \
+    --iterations 300 --runners 5 --seed 46 --env-config configs/env/five_agents.json 46 &
+
+# Seed 48
+
+echo "Seed 48"
+
+python dfaas_train.py --algorithm PPO --model configs/models/softplus.json \
+    --iterations 300 --runners 5 --seed 48 --env-config configs/env/five_agents.json 48 &
+
+
+python dfaas_train.py --algorithm SAC \
+    --iterations 300 --runners 5 --seed 48 --env-config configs/env/five_agents.json 48 &
+
+wait
+
+python dfaas_train.py --algorithm APL \
+    --iterations 300 --runners 5 --seed 48 --env-config configs/env/five_agents.json 48 &
+
+python dfaas_upperbound.py --iterations 300 --runners 5 --seed 48 --env-config configs/env/five_agents.json 48 &
 
 wait
 

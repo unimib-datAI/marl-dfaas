@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 import argparse
 
+import ray
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
@@ -109,6 +110,8 @@ def main():
     # training one.
     env_eval_config = env_config.copy()
     env_eval_config["evaluation"] = True
+
+    ray.init(include_dashboard=False)
 
     # PolicySpec is required to specify the action/observation space for each
     # policy. In this case, each policy has the same spaces.

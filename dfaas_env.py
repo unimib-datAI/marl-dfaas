@@ -646,6 +646,54 @@ def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
 
     Returns a dictionary whose keys are the agent IDs and whose value is an
     np.ndarray containing the input requests for each step."""
+    # These two values are calculated to match the average mean of the real
+    # traces.
+    average_requests = 50
+    amplitude_requests = 100
+    noise_ratio = 0.1
+    unique_periods = 3  # The periods changes 3 times for each episode.
+
+    input_requests = {}
+    steps = np.arange(max_steps)
+    for agent in agents:
+        # Note: with default max_stes, the period changes every 96 steps
+        # (max_steps = 288). We first generate the periods and expand the array
+        # to match the max_steps. If max_steps is not a multiple of 96, some
+        # elements must be appended at the end, hence the resize call.
+        repeats = max_steps // unique_periods
+        periods = rng.uniform(15, high=100, size=unique_periods)
+        periods = np.repeat(periods, repeats)  # Expand the single values.
+        periods = np.resize(periods, periods.size + max_steps - periods.size)
+
+        base_input = average_requests + amplitude_requests * np.sin(
+            2 * np.pi * steps / periods
+        )
+        noisy_input = base_input + noise_ratio * rng.normal(
+            0, amplitude_requests, size=max_steps
+        )
+        requests = np.asarray(noisy_input, dtype=np.int32)
+
+        # Clip the excess values respecting the minimum and maximum values
+        # for the input requests observation.
+        min = limits[agent]["min"]
+        max = limits[agent]["max"]
+        np.clip(requests, min, max, out=requests)
+
+        input_requests[agent] = requests
+
+    return input_requests
+
+
+def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
+    """Generates the input requests for the given agents with the given length,
+    clipping the values within the given bounds and using the given rng to
+    generate the synthesized data.
+
+    limits must be a dictionary whose keys are the agent ids, and each agent has
+    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+
+    Returns a dictionary whose keys are the agent IDs and whose value is an
+    np.ndarray containing the input requests for each step."""
     average_requests = np.clip(rng.normal(loc=70), 60, 80)
     amplitude_requests = 60
     noise_ratio = 0.2
