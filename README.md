@@ -36,7 +36,7 @@ dependencies in a virtual environment (see the
 module is not installed by default in Ubuntu, it must be installed using `sudo
 apt install python3.12-venv`.
 
-To run the experiments, the dependencies are:
+To run the experiments, the main dependencies are:
 
 * [Ray RLlib](https://docs.ray.io/en/releases-2.40.0/rllib/):
   this is a reinforcement learning library used to define the DFaaS custom
@@ -47,13 +47,16 @@ To run the experiments, the dependencies are:
   GPUs and CPUs. It is used by Ray RLlib when training models with deep learning
   reinforcement learning algorithms.
 
+* [pacsltk](https://github.com/pacslab/serverless-performance-modeling): is a
+  library used as performance model in the simulated DFaaS environment.
+
 * [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
   than the standard library. Used because the experiments generate large JSON
   files that slow down the encoding/decoding processes.
 
-Only these dependencies need to be installed manually. `pip` automatically
-installs the dependencies, and some of them are directly used by the project
-(like NumPy, Gymnasium, Pandas or NetworkX).
+When you install these dependenceis using `pip`, it automatically installs other
+dependencies, some of them are directly used by the project (like NumPy,
+Gymnasium, Pandas or NetworkX).
 
 The following dependencies are required for plotting or running notebooks:
 
@@ -89,10 +92,10 @@ $ git clone https://github.com/unimib-datAI/marl-dfaas.git
 $ cd marl-dfaas
 $ python3.12 -m venv .env
 $ source .env/bin/activate
-$ pip install --requirement requirements-base.txt
+$ pip install --requirement requirements.base.txt
 ```
 
-Or, for perfect reproducibility:
+Or, for a perfect reproducibility:
 
     $ pip install --requirement requirements.txt
 
