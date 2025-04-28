@@ -399,16 +399,7 @@ class DFaaS(MultiAgentEnv):
         return obs
 
     def _manage_workload(self, action):
-        """Manages the workload for the agents in the current step. It takes the
-        input request actions for each agent and returns a dictionary whose keys
-        are the agent IDs and whose value is a tuple of two elements: the number
-        of local input requests rejected and the number of forwarded requests
-        rejected by the other agent because the queue is full.
-
-        The rejected requests for an agent is the sum of: rejected requests
-        indicated by the action, the number of local requests that could not be
-        processed or added to the queue, the number of forwarded requests to the
-        other agent that could not be processed or added to the queue."""
+        """Simulate one step of the workload management for all agents."""
         assert len(action) == len(
             self.agents
         ), f"Expected {len(self.agents)} entries, found {len(action)}"
@@ -422,71 +413,102 @@ class DFaaS(MultiAgentEnv):
         forward = {agent: action[agent][1] for agent in self.agents}
         reject = {agent: action[agent][2] for agent in self.agents}
 
-        # 1. First, process the local requests.
-        local_props = None
+        # Number of incoming requests for each agent and action. The first is
+        # always the local requests.
+        incoming_reqs = {agent: [] for agent in self.agents}
+
+        # Total number of incoming requests for each agent (local + forwarded).
+        incoming_reqs_total = {agent: 0 for agent in self.agents}
+
+        # Label (ID) of each agent in the corresponding incoming_reqs key.
+        incoming_reqs_agents = {agent: [] for agent in self.agents}
+
+        # Before calling the pacsltk's function, collect the total number of
+        # requests for each agent.
         for agent in self.agents:
-            local_reqs = local[agent]
+            incoming_reqs[agent].append(local[agent])
+            incoming_reqs_agents[agent].append(agent)
 
-            if local_reqs == 0:
-                # Skip this section since no requests to handle.
-                continue
-
-            local_rate = local_reqs / 60
-            local_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
-                local_rate, warm_service_time, cold_service_time, idle_time_before_kill
-            )
-            local_rejects = local_reqs * local_props["rejection_prob"]
-            self.info["processed_local"][agent][self.current_step] = (
-                local_reqs - local_rejects
-            )
-            self.info["local_rejects"][agent][self.current_step] = local_rejects
-
-        # 3. Handle incoming forwarded requests.
-        for agent in self.agents:
-            # Set the default value since the agent may not process any
-            # forwarded request.
-            self.info["processed_local_forward"][agent][self.current_step] = 0
-
-            # TODO: Order matter!
             for neighbor in self.network.neighbors(agent):
                 # The forwarded requests are distributed equally to all
                 # neighbouring nodes, so I need to calculate the share for the
                 # current agent.
                 #
-                # TODO: This can be improved by using the dictionary structure
-                # of the network when processing the action directly instead of
-                # this function!
-                #
                 # FIXME: The division truncates the fractional part, a request
                 # may be missing!
-                if forward[neighbor] == 0:
-                    # Skip since no requests to handle.
-                    continue
+                forwarded_reqs = forward[neighbor] // self.network.degree(neighbor)
+                incoming_reqs[agent].append(forwarded_reqs)
+                incoming_reqs_agents[agent].append(neighbor)
 
-                incoming_reqs = forward[neighbor] // self.network.degree(neighbor)
+            incoming_reqs_total[agent] = sum(incoming_reqs[agent])
 
-                if local_props != None and local_props["rejection_prob"] > 0:
-                    # Can't process incoming requests.
-                    self.info["forward_rejects"][neighbor][
+            self.info["incoming_requests"][agent][self.current_step] = (
+                incoming_reqs_total[agent]
+            )
+            self.info["incoming_requests_local"][agent][self.current_step] = (
+                incoming_reqs[agent][0]
+            )
+            self.info["incoming_requests_forward"][agent][self.current_step] = sum(
+                incoming_reqs[agent][1:]
+            )
+
+        # Then call the pacsltk's function for each agent.
+        for agent in self.agents:
+            if incoming_reqs_total[agent] == 0:
+                # Skip this agent since there a no requests to handle.
+                continue
+
+            incoming_rate = incoming_reqs_total[agent] / 60
+            result_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
+                incoming_rate,
+                warm_service_time,
+                cold_service_time,
+                idle_time_before_kill,
+            )
+            rejects_prob = result_props["rejection_prob"]
+            self.info["rejection_prob"][agent][self.current_step] = rejects_prob
+            total_rejects = incoming_reqs_total[agent] * rejects_prob
+
+            # Distribute the rejected requests to all agents (itself and its
+            # neighbors), proportionally to the incoming requests for each
+            # agent.
+            for idx in range(len(incoming_reqs)):
+                # Portions of incoming requests.
+                incoming_dist_agent = incoming_reqs_agents[agent][idx]
+                incoming_dist_reqs = incoming_reqs[agent][idx]
+
+                # Current agent (local requests).
+                if incoming_dist_agent == agent:
+                    rejects = round(
+                        total_rejects * incoming_dist_reqs / incoming_reqs_total[agent]
+                    )
+                    self.info["incoming_reqs_local_rejects"][agent][
                         self.current_step
-                    ] = incoming_reqs
+                    ] = rejects
                     continue
 
-                arrival_rate = incoming_reqs / 60
-                fw_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
-                    arrival_rate,
-                    warm_service_time,
-                    cold_service_time,
-                    idle_time_before_kill,
+                # Neighbor agent (forwarded requests).
+                rejects = round(
+                    total_rejects * incoming_dist_reqs / incoming_reqs_total[agent]
                 )
+                neighbor = incoming_dist_agent
+                self.info["rejects_forward"][neighbor][self.current_step] += rejects
+                self.info["incoming_reqs_forward_rejects"][agent][
+                    self.current_step
+                ] += rejects
 
-                fw_rejects = incoming_reqs * fw_props["rejection_prob"]
-                self.info["processed_local_forward"][agent][self.current_step] += (
-                    incoming_reqs - fw_rejects
-                )
-                self.info["forward_rejects"][neighbor][self.current_step] += fw_rejects
+            # Deprecated. TODO: Remove these!
+            self.info["local_rejects"][agent][self.current_step] = self.info[
+                "incoming_reqs_local_rejects"
+            ][agent][self.current_step]
+            self.info["forward_rejects"][agent][self.current_step] = self.info[
+                "rejects_forward"
+            ][neighbor][self.current_step]
 
         # Fill the dictionary to return.
+        #
+        # TODO: Remove this code, since the same values are logged in
+        # "rejects_local" and "rejects_forward" keys.
         retval = {}
         for agent in self.agents:
             retval[agent] = (
