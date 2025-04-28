@@ -7,6 +7,8 @@ from datetime import datetime
 import logging
 import argparse
 
+import tqdm
+
 import ray
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.algorithms.ppo import PPOConfig
@@ -225,9 +227,7 @@ def main():
     # Run the training phase for n iterations.
     logger.info("Training start")
     max_iterations = exp_config["max_iterations"]
-    for iteration in range(max_iterations):
-        percentual = (iteration + 1) / max_iterations
-        logger.info(f"Iteration {iteration + 1}/{max_iterations} {percentual:.0%}")
+    for iteration in tqdm.trange(max_iterations):
         result = experiment.train()
 
         # Save a checkpoint every 50 iterations.

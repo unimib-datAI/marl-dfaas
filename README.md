@@ -54,6 +54,9 @@ To run the experiments, the main dependencies are:
   than the standard library. Used because the experiments generate large JSON
   files that slow down the encoding/decoding processes.
 
+* [tqdm](https://pypi.org/project/tqdm/): a small module that enriches the log
+  output during the train.
+
 When you install these dependenceis using `pip`, it automatically installs other
 dependencies, some of them are directly used by the project (like NumPy,
 Gymnasium, Pandas or NetworkX).
