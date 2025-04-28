@@ -7,6 +7,7 @@ from collections import deque, namedtuple, defaultdict
 import pandas as pd
 import numpy as np
 import networkx as nx
+import pacsltk
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -22,7 +23,7 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
-def _reward_fw(action, excess, queue):
+def _reward_fw(action, additional_rejects):
     """Reward function for the agents in the DFaaS environment.
 
     The reward is based on:
@@ -30,72 +31,18 @@ def _reward_fw(action, excess, queue):
         - The action, a 3-length tuple containing the number of requests to
           process locally, to forward, and to reject.
 
-        - The excess, a 2-length tuple containing the local requests that
-          exceed the queue capacity and the forwarded requests that were
-          rejected by the other agent.
-
-        - The queue, a 2-length tuple containing the status of the queue (0
-          is empty) and the maximum capacity of the queue.
-
-    The reward returned is in the range [0, 1]."""
+        - WIP
+    """
     assert len(action) == 3, "Expected (local, forward, reject)"
-    assert len(excess) == 2, "Expected (local_excess, forward_reject)"
-    assert len(queue) == 2, "Expected (queue_status, queue_max_capacity)"
+    assert len(additional_rejects) == 2, "Expected (local_rejects, forward_rejects)"
 
     reqs_total = sum(action)
     reqs_local, reqs_forward, reqs_reject = action
-    local_excess, forward_reject = excess
-    queue_status, queue_max = queue
+    local_rejects, forward_rejects = additional_rejects
 
-    if reqs_total == 0:
-        return 1.0
-
-    free_slots = queue_max - queue_status
-    assert free_slots >= 0
-
-    # Calculate the number of excess forward requests.
-    #
-    # The forwarded and rejected requests must be excluded from the count
-    # because they are considered separately.
-    reqs_forward -= forward_reject
-    if free_slots > reqs_forward:
-        forward_excess = reqs_forward
-    else:  # reqs_forward >= free_slots
-        valid_forward = reqs_forward - free_slots
-        assert valid_forward >= 0
-        forward_excess = reqs_forward - valid_forward
-
-    # Calculate the number of excess reject requests.
-    free_slots = free_slots - forward_excess
-    assert free_slots >= 0
-    if free_slots > reqs_reject:
-        valid_reject = 0
-        reject_excess = reqs_reject
-    else:  # reqs_reject >= free_slots
-        valid_reject = reqs_reject - free_slots
-        assert valid_reject >= 0
-        reject_excess = reqs_reject - valid_reject
-
-    # Calculate the number of rejected requests that could have been forwarded.
-    if forward_reject == 0 and valid_reject > 0:
-
-        # Assume that all rejected requests could have been forwarded because no
-        # forwarded requests were rejected.
-        reject_excess += valid_reject
-        valid_reject = 0
-
-    assert (
-        local_excess >= 0
-        and forward_reject >= 0
-        and forward_excess >= 0
-        and reject_excess >= 0
-    )
-    wrong_reqs = local_excess + forward_reject + forward_excess + reject_excess
-    assert (
-        wrong_reqs <= reqs_total
-    ), f"({local_excess = } + {forward_reject = } + {forward_excess = } + {reject_excess = }) <= {reqs_total}"
-
-    return 1 - (wrong_reqs / reqs_total)
+    local_reward = reqs_local - local_rejects
+    forward_reward = reqs_forward - forward_rejects
+    return float(local_reward - forward_reward - reqs_reject)
 
 
 class DFaaS(MultiAgentEnv):
@@ -106,7 +53,6 @@ class DFaaS(MultiAgentEnv):
 
     - network: the graph structure of the DFaaS network, given as adjacency
       lists to be parsed with NetworkX.
-    - queue_capacity
     - max_steps
     - input_requests_type
     - evaluation
@@ -146,9 +92,6 @@ class DFaaS(MultiAgentEnv):
             }
         )
 
-        # Request queue capacity for each agent.
-        self.queue_capacity = config.get("queue_capacity", 100)
-
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict(
             {
@@ -159,33 +102,29 @@ class DFaaS(MultiAgentEnv):
                     {
                         # Number of input requests to process for a single step.
                         "input_requests": gym.spaces.Box(
-                            low=0, high=150, dtype=np.int32
-                        ),
-                        # Queue current size.
-                        "queue_size": gym.spaces.Box(
-                            low=0,
-                            high=self.queue_capacity,
-                            dtype=np.int32,
+                            low=0, high=9000, dtype=np.int32
                         ),
                         # Local requests in the previous step.
                         "prev_local_requests": gym.spaces.Box(
-                            low=0, high=150, dtype=np.int32
+                            low=0, high=9000, dtype=np.int32
                         ),
                         # Local requests but rejected in the previosu step.
                         # Note prev_local_rejects <= prev_local_requests.
                         "prev_local_rejects": gym.spaces.Box(
-                            low=0, high=150, dtype=np.int32
+                            low=0, high=9000, dtype=np.int32
                         ),
                         # Incoming forwarded requests in the previous step.
                         # Note that the upper limit depends on the number of
                         # node neighbours.
                         "prev_forward_requests": gym.spaces.Box(
-                            low=0, high=150 * self.network.degree[agent], dtype=np.int32
+                            low=0,
+                            high=9000 * self.network.degree[agent],
+                            dtype=np.int32,
                         ),
                         # Forwarded but rejected requests in the previous step.
                         # Note prev_forward_rejects <= prev_forward_requests.
                         "prev_forward_rejects": gym.spaces.Box(
-                            low=0, high=150, dtype=np.int32
+                            low=0, high=9000, dtype=np.int32
                         ),
                     }
                 )
@@ -223,7 +162,6 @@ class DFaaS(MultiAgentEnv):
         """Returns a dictionary with the current configuration of the
         environment."""
         config = {
-            "queue_capacity": self.queue_capacity,
             "max_steps": self.max_steps,
             "input_requests_type": self.input_requests_type,
             "evaluation": self.evaluation,
@@ -296,11 +234,6 @@ class DFaaS(MultiAgentEnv):
             # callbacks.
             self.input_requests_hashes = retval[1]
 
-        # Waiting queue of requests for each agent to process locally. The queue
-        # has a limited capacity (self.queue_capacity) and the requests are
-        # served in FIFO order (left -> first, right -> last).
-        self.queues = {agent: deque() for agent in self.agents}
-
         def info_init_key():
             """Helper function to automatically initialize the keys in the info
             dictionary."""
@@ -346,11 +279,8 @@ class DFaaS(MultiAgentEnv):
         # 3. Calculate the reward for both agents.
         rewards = {}
         for agent in self.agents:
-            excess = additional_rejects[agent]
-            queue_status = (len(self.queues[agent]), self.queue_capacity)
-
-            reward = _reward_fw(action[agent], excess, queue_status)
-            assert isinstance(reward, float), "Unsupported reward type {type(reward)}"
+            reward = _reward_fw(action[agent], additional_rejects[agent])
+            assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             # Make sure the reward is of type float.
             # rewards[agent] = float(rewards[agent])
@@ -424,7 +354,6 @@ class DFaaS(MultiAgentEnv):
             for agent in self.agents:
                 input_requests = self.input_requests[agent][self.current_step]
                 obs[agent] = {
-                    "queue_size": np.array([0], dtype=np.int32),
                     "input_requests": np.array([input_requests], dtype=np.int32),
                     "prev_local_requests": np.array([0], dtype=np.int32),
                     "prev_local_rejects": np.array([0], dtype=np.int32),
@@ -438,10 +367,9 @@ class DFaaS(MultiAgentEnv):
 
         # Normal case.
         for agent in self.agents:
-            queue_size = self.info["queue_size"][agent][self.current_step - 1]
             input_requests = self.input_requests[agent][self.current_step]
             prev_local_reqs = self.info["action_local"][agent][self.current_step - 1]
-            prev_local_rejects = self.info["local_rejects_queue_full"][agent][
+            prev_local_rejects = self.info["local_rejects"][agent][
                 self.current_step - 1
             ]
             prev_forward_reqs = self.info["action_forward"][agent][
@@ -451,7 +379,6 @@ class DFaaS(MultiAgentEnv):
                 self.current_step - 1
             ]
 
-            obs[agent]["queue_size"] = np.array([queue_size], dtype=np.int32)
             obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
 
             obs[agent]["prev_local_requests"] = np.array(
@@ -486,83 +413,35 @@ class DFaaS(MultiAgentEnv):
             self.agents
         ), f"Expected {len(self.agents)} entries, found {len(action)}"
 
-        # CPU shares and RAM available for all requests in a single step.
-        cpu_capacity = {agent: 1000 for agent in self.agents}
-        ram_capacity = {agent: 8000 for agent in self.agents}
+        warm_service_time = 10
+        cold_service_time = 25
+        idle_time_before_kill = 600
 
         # Extract absolute number of requests.
         local = {agent: action[agent][0] for agent in self.agents}
         forward = {agent: action[agent][1] for agent in self.agents}
         reject = {agent: action[agent][2] for agent in self.agents}
 
-        def process_request(agent, request):
-            """Process the specified request for the specified agent. Returns
-            True if the request has been processed in the current step,
-            otherwise returns False."""
-            if (
-                cpu_capacity[agent] >= request.cpu_shares
-                and ram_capacity[agent] >= request.ram_mb
-            ):
-                cpu_capacity[agent] -= request.cpu_shares
-                ram_capacity[agent] -= request.ram_mb
-                return True  # Simulate the processing of the request.
-
-            return False
-
-        def append_queue(agent, request):
-            """Appends the specified requests to the queue of the specified
-            agent. Returns True if the request was appended, otherwise False
-            (the queue is full)."""
-            if len(self.queues[agent]) < self.queue_capacity:
-                self.queues[agent].append(request)
-                return True
-
-            return False  # No available space.
-
-        # 1. First, process the requests in the queue from the previous step.
+        # 1. First, process the local requests.
+        local_props = None
         for agent in self.agents:
-            not_processed = deque()
-            for request in self.queues[agent]:
-                if process_request(agent, request):
-                    self.info["processed_local"][agent][self.current_step] += 1
-                    # Count the number of processed requests forwarded by the
-                    # opposite node.
-                    if request.forwarded:
-                        self.info["processed_local_forward"][agent][
-                            self.current_step
-                        ] += 1
-                else:
-                    not_processed.append(request)
+            local_reqs = local[agent]
 
-            self.queues[agent] = not_processed
-            self.info["queue_size_pre_incoming_local"][agent][self.current_step] = len(
-                not_processed
+            if local_reqs == 0:
+                # Skip this section since no requests to handle.
+                continue
+
+            local_rate = local_reqs / 60
+            local_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
+                local_rate, warm_service_time, cold_service_time, idle_time_before_kill
             )
-
-        # 2. Handle incoming local requests.
-        for agent in self.agents:
-            for request in _sample_workload(local[agent], self.rng):
-                # Try to process incoming requests only when the queue is empty.
-                if len(self.queues[agent]) == 0 and process_request(agent, request):
-                    self.info["processed_local"][agent][self.current_step] += 1
-                    continue
-
-                # Queue is not empty or system does not have enough resources,
-                # try to add the request to the queue.
-                if append_queue(agent, request):
-                    continue
-
-                # Insufficient requests and full queue: the only option left is
-                # to reject.
-                reject[agent] += 1
-                self.info["local_rejects_queue_full"][agent][self.current_step] += 1
-
-            self.info["queue_size_pre_incoming_forward"][agent][self.current_step] = (
-                len(self.queues[agent])
+            local_rejects = local_reqs * local_props["rejection_prob"]
+            self.info["processed_local"][agent][self.current_step] = (
+                local_reqs - local_rejects
             )
+            self.info["local_rejects"][agent][self.current_step] = local_rejects
 
-        # 3. Handle incoming forwarded requests. Same strategy as for incoming
-        # local requests.
+        # 3. Handle incoming forwarded requests.
         for agent in self.agents:
             # Set the default value since the agent may not process any
             # forwarded request.
@@ -580,29 +459,38 @@ class DFaaS(MultiAgentEnv):
                 #
                 # FIXME: The division truncates the fractional part, a request
                 # may be missing!
+                if forward[neighbor] == 0:
+                    # Skip since no requests to handle.
+                    continue
+
                 incoming_reqs = forward[neighbor] // self.network.degree(neighbor)
 
-                for request in _sample_workload(incoming_reqs, self.rng):
-                    request = request._replace(forwarded=True)  # Mark the request.
-                    if len(self.queues[agent]) == 0 and process_request(agent, request):
-                        self.info["processed_local"][agent][self.current_step] += 1
-                        if request.forwarded:
-                            self.info["processed_local_forward"][agent][
-                                self.current_step
-                            ] += 1
-                        continue
-                    if append_queue(agent, request):
-                        continue
+                if local_props != None and local_props["rejection_prob"] > 0:
+                    # Can't process incoming requests.
+                    self.info["forward_rejects"][neighbor][
+                        self.current_step
+                    ] = incoming_reqs
+                    continue
 
-                    self.info["forward_rejects"][neighbor][self.current_step] += 1
+                arrival_rate = incoming_reqs / 60
+                fw_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
+                    arrival_rate,
+                    warm_service_time,
+                    cold_service_time,
+                    idle_time_before_kill,
+                )
 
-            self.info["queue_size"][agent][self.current_step] = len(self.queues[agent])
+                fw_rejects = incoming_reqs * fw_props["rejection_prob"]
+                self.info["processed_local_forward"][agent][self.current_step] += (
+                    incoming_reqs - fw_rejects
+                )
+                self.info["forward_rejects"][neighbor][self.current_step] += fw_rejects
 
         # Fill the dictionary to return.
         retval = {}
         for agent in self.agents:
             retval[agent] = (
-                self.info["local_rejects_queue_full"][agent][self.current_step],
+                self.info["local_rejects"][agent][self.current_step],
                 self.info["forward_rejects"][agent][self.current_step],
             )
 
@@ -648,8 +536,8 @@ def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
     np.ndarray containing the input requests for each step."""
     # These two values are calculated to match the average mean of the real
     # traces.
-    average_requests = 50
-    amplitude_requests = 100
+    average_requests = 2250
+    amplitude_requests = 6750
     noise_ratio = 0.1
     unique_periods = 3  # The periods changes 3 times for each episode.
 
