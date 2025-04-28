@@ -781,49 +781,6 @@ def _convert_distribution_fw(input_requests, action_dist):
     return tuple(actions)
 
 
-def _sample_workload(num_requests, rng):
-    """Samples the given number of requests using the given NumPy RNG generator.
-
-    Returns a deque, each element of which is a namedtuple with the following
-    fields:
-
-        * "type": the class type of the request ("A", "B", or "C"),
-        * "forwarded": True if the request was forwarded by the opposite node,
-        * "cpu_shares": CPU shares used by the request,
-        * "ram_mb": RAM used by the request in megabytes.
-    """
-    workload = deque()
-
-    request_tuple = namedtuple("Request", "type, forwarded, cpu_shares, ram_mb")
-
-    for request_class in rng.choice(["A", "B", "C"], num_requests):
-        # The distribution values are taken from the code of the original
-        # article, see here: https://github.com/unimib-datAI/rl-dfaas-seated24
-        match request_class:
-            case "A":
-                cpu_min, cpu_mean, cpu_max = 1, 5.5, 10
-                ram_min, ram_mean, ram_max = 1, 13, 25
-            case "B":
-                cpu_min, cpu_mean, cpu_max = 11, 15.5, 20
-                ram_min, ram_mean, ram_max = 26, 38, 50
-            case "C":
-                cpu_min, cpu_mean, cpu_max = 21, 25.5, 30
-                ram_min, ram_mean, ram_max = 51, 63, 75
-            case _:
-                assert False, "Unreachable code"
-
-        # TODO: Rewrite the distribution to use only integers.
-        # See here: https://stackoverflow.com/a/50004451
-
-        std_dev = 2.5  # Fixed standard deviation for both CPU and RAM.
-        cpu_shares = np.clip(rng.normal(cpu_mean, std_dev), cpu_min, cpu_max)
-        ram_mb = np.clip(rng.normal(ram_mean, std_dev), ram_min, ram_max)
-
-        workload.append(request_tuple(request_class, False, cpu_shares, ram_mb))
-
-    return workload
-
-
 # Register the environments with Ray so that they can be used automatically when
 # creating experiments.
 def register(env_class):
