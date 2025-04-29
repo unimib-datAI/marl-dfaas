@@ -23,26 +23,18 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
-def _reward_fw(action, additional_rejects):
-    """Reward function for the agents in the DFaaS environment.
-
-    The reward is based on:
-
-        - The action, a 3-length tuple containing the number of requests to
-          process locally, to forward, and to reject.
-
-        - WIP
-    """
+def reward_fn(action, additional_reject):
+    """Reward function for the agents in the DFaaS environment."""
     assert len(action) == 3, "Expected (local, forward, reject)"
-    assert len(additional_rejects) == 2, "Expected (local_rejects, forward_rejects)"
+    assert len(additional_reject) == 2, "Expected (local_reject, forward_reject)"
 
-    reqs_total = sum(action)
-    reqs_local, reqs_forward, reqs_reject = action
-    local_rejects, forward_rejects = additional_rejects
+    arrival_rate_total = sum(action)
+    rate_local, rate_forward, rate_reject = action
+    local_reject, forward_reject = additional_reject
 
-    local_reward = reqs_local - local_rejects
-    forward_reward = reqs_forward - forward_rejects
-    return float(local_reward - forward_reward - reqs_reject)
+    local_reward = rate_local - local_reject
+    forward_reward = rate_forward - forward_reject
+    return float(local_reward + forward_reward - rate_reject)
 
 
 class DFaaS(MultiAgentEnv):
@@ -95,37 +87,29 @@ class DFaaS(MultiAgentEnv):
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict(
             {
-                # The first two observations refer to the current step's
-                # starting point, the next to the previous step (historical
-                # data).
+                # Only the first observation refers to the next step, the others
+                # refers to the previous step (historical data).
                 agent: gym.spaces.Dict(
                     {
-                        # Number of input requests to process for a single step.
-                        "input_requests": gym.spaces.Box(
-                            low=0, high=9000, dtype=np.int32
-                        ),
-                        # Local requests in the previous step.
-                        "prev_local_requests": gym.spaces.Box(
-                            low=0, high=9000, dtype=np.int32
-                        ),
-                        # Local requests but rejected in the previosu step.
-                        # Note prev_local_rejects <= prev_local_requests.
-                        "prev_local_rejects": gym.spaces.Box(
-                            low=0, high=9000, dtype=np.int32
-                        ),
-                        # Incoming forwarded requests in the previous step.
-                        # Note that the upper limit depends on the number of
-                        # node neighbours.
+                        # Arrival rate of input requests per second to process
+                        # for a single step.
+                        # TODO: Change the name.
+                        "input_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+                        # Incoming local requests in the previous step.
+                        "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.float32),
+                        # Incoming local requests but rejected in the previous
+                        # step. Note prev_local_rejects < prev_local_requests.
+                        "prev_local_rejects": gym.spaces.Box(low=0, high=150, dtype=np.float32),
+                        # Forwarded requests in the previosu step.
                         "prev_forward_requests": gym.spaces.Box(
                             low=0,
-                            high=9000 * self.network.degree[agent],
-                            dtype=np.int32,
+                            high=150,
+                            dtype=np.float32,
                         ),
-                        # Forwarded but rejected requests in the previous step.
+                        # Forwarded requests but rejected requests in the
+                        # previous step.
                         # Note prev_forward_rejects <= prev_forward_requests.
-                        "prev_forward_rejects": gym.spaces.Box(
-                            low=0, high=9000, dtype=np.int32
-                        ),
+                        "prev_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.float32),
                     }
                 )
                 for agent in self.agents
@@ -137,18 +121,14 @@ class DFaaS(MultiAgentEnv):
         self.max_steps = config.get("max_steps", 288)
 
         # Type of input requests.
-        self.input_requests_type = config.get(
-            "input_requests_type", "synthetic-sinusoidal"
-        )
+        self.input_requests_type = config.get("input_requests_type", "synthetic-sinusoidal")
         match self.input_requests_type:
             case "synthetic-sinusoidal":
                 pass
             case "synthetic-normal":
                 pass
             case "real":
-                assert (
-                    self.max_steps == 288
-                ), f"With {self.input_requests_type = } only 288 max_steps are supported"
+                assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
             case _:
                 assert False, f"Unsupported {self.input_requests_type = }"
 
@@ -187,9 +167,7 @@ class DFaaS(MultiAgentEnv):
             self.master_seed = seed
             self.master_rng = np.random.default_rng(seed=self.master_seed)
 
-        assert (
-            getattr(self, "master_seed", None) is not None
-        ), "reset() must be called the first time with a seed"
+        assert getattr(self, "master_seed", None) is not None, "reset() must be called the first time with a seed"
 
         # Seed used for this episode.
         if isinstance(options, dict) and "override_seed" in options:
@@ -211,21 +189,12 @@ class DFaaS(MultiAgentEnv):
                 "min": self.observation_space[agent]["input_requests"].low.item(),
                 "max": self.observation_space[agent]["input_requests"].high.item(),
             }
-        if (
-            self.input_requests_type == "synthetic-sinusoidal"
-            or self.input_requests_type == "synthetic"
-        ):
-            self.input_requests = _synthetic_sinusoidal_input_requests(
-                self.max_steps, self.agents, limits, self.rng
-            )
+        if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
+            self.input_requests = _synthetic_sinusoidal_input_requests(self.max_steps, self.agents, limits, self.rng)
         elif self.input_requests_type == "synthetic-normal":
-            self.input_requests = _synthetic_normal_input_requests(
-                self.max_steps, self.agents, limits, self.rng
-            )
+            self.input_requests = _synthetic_normal_input_requests(self.max_steps, self.agents, limits, self.rng)
         else:  # real
-            retval = _real_input_requests(
-                self.max_steps, self.agents, limits, self.rng, self.evaluation
-            )
+            retval = _real_input_requests(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 
             self.input_requests = retval[0]
 
@@ -257,33 +226,40 @@ class DFaaS(MultiAgentEnv):
         return obs, {}
 
     def step(self, action_dict):
-        # 1. Convert the action distribution to absolute number of requests.
+        """Given an action for each agent, executes a step.
+
+        This method overrides the parent class method, see MultiAgentEnv for
+        more information."""
+        # 1. Convert the action distribution to arrival rate for each action.
         action = {}
         for agent in self.agents:
-            # Get input requests.
-            input_requests = self.input_requests[agent][self.current_step]
+            # Get total arrival rate.
+            arrival_rate = self.input_requests[agent][self.current_step]
 
             # Convert the action distribution (a distribution of probabilities)
             # into the number of requests to locally process, to forward and to
             # reject.
-            action[agent] = _convert_distribution_fw(input_requests, action_dict[agent])
+            action[agent] = _convert_arrival_rate_dist(arrival_rate, action_dict[agent])
 
-            # Log the absolute number of requests in the info dict.
+            # Log the arrival rate for each action.
             self.info["action_local"][agent][self.current_step] = action[agent][0]
             self.info["action_forward"][agent][self.current_step] = action[agent][1]
             self.info["action_reject"][agent][self.current_step] = action[agent][2]
 
         # 2. Manage the workload.
-        additional_rejects = self._manage_workload(action)
+        self._manage_workload(action)
 
         # 3. Calculate the reward for both agents.
         rewards = {}
         for agent in self.agents:
-            reward = _reward_fw(action[agent], additional_rejects[agent])
-            assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
+            # Extract some additional info that is used to calculate the reward.
+            additional_rejects = (
+                self.info["incoming_rate_local_reject"][agent][self.current_step],
+                self.info["forward_reject_rate"][agent][self.current_step],
+            )
 
-            # Make sure the reward is of type float.
-            # rewards[agent] = float(rewards[agent])
+            reward = reward_fn(action[agent], additional_rejects)
+            assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
             self.info["reward"][agent][self.current_step] = reward
@@ -323,11 +299,11 @@ class DFaaS(MultiAgentEnv):
                 # Warning: this is also executed at the end of the episode!
                 if self.current_step < self.max_steps:
                     value = self.info[key][agent][self.current_step]
-                    if isinstance(value, np.ndarray):
+                    if isinstance(value, (np.ndarray, np.float64)):
                         self.info[key][agent][self.current_step] = value.item()
 
                 value = self.info[key][agent][self.current_step - 1]
-                if isinstance(value, np.ndarray):
+                if isinstance(value, (np.ndarray, np.float64)):
                     self.info[key][agent][self.current_step - 1] = value.item()
 
         return obs, rewards, terminated, truncated, {}
@@ -354,11 +330,11 @@ class DFaaS(MultiAgentEnv):
             for agent in self.agents:
                 input_requests = self.input_requests[agent][self.current_step]
                 obs[agent] = {
-                    "input_requests": np.array([input_requests], dtype=np.int32),
-                    "prev_local_requests": np.array([0], dtype=np.int32),
-                    "prev_local_rejects": np.array([0], dtype=np.int32),
-                    "prev_forward_requests": np.array([0], dtype=np.int32),
-                    "prev_forward_rejects": np.array([0], dtype=np.int32),
+                    "input_requests": np.array([input_requests], dtype=np.float32),
+                    "prev_local_requests": np.array([0], dtype=np.float32),
+                    "prev_local_rejects": np.array([0], dtype=np.float32),
+                    "prev_forward_requests": np.array([0], dtype=np.float32),
+                    "prev_forward_rejects": np.array([0], dtype=np.float32),
                 }
 
             update_info(obs)
@@ -369,154 +345,101 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             input_requests = self.input_requests[agent][self.current_step]
             prev_local_reqs = self.info["action_local"][agent][self.current_step - 1]
-            prev_local_rejects = self.info["local_rejects"][agent][
-                self.current_step - 1
-            ]
-            prev_forward_reqs = self.info["action_forward"][agent][
-                self.current_step - 1
-            ]
-            prev_forward_rejects = self.info["forward_rejects"][agent][
-                self.current_step - 1
-            ]
+            prev_local_rejects = self.info["incoming_rate_local_reject"][agent][self.current_step - 1]
+            prev_forward_reqs = self.info["action_forward"][agent][self.current_step - 1]
+            prev_forward_rejects = self.info["forward_reject_rate"][agent][self.current_step - 1]
 
-            obs[agent]["input_requests"] = np.array([input_requests], dtype=np.int32)
+            obs[agent]["input_requests"] = np.array([input_requests], dtype=np.float32)
 
-            obs[agent]["prev_local_requests"] = np.array(
-                [prev_local_reqs], dtype=np.int32
-            )
-            obs[agent]["prev_local_rejects"] = np.array(
-                [prev_local_rejects], dtype=np.int32
-            )
+            obs[agent]["prev_local_requests"] = np.array([prev_local_reqs], dtype=np.float32)
+            obs[agent]["prev_local_rejects"] = np.array([prev_local_rejects], dtype=np.float32)
 
-            obs[agent]["prev_forward_requests"] = np.array(
-                [prev_forward_reqs], dtype=np.int32
-            )
-            obs[agent]["prev_forward_rejects"] = np.array(
-                [prev_forward_rejects], dtype=np.int32
-            )
+            obs[agent]["prev_forward_requests"] = np.array([prev_forward_reqs], dtype=np.float32)
+            obs[agent]["prev_forward_rejects"] = np.array([prev_forward_rejects], dtype=np.float32)
 
         update_info(obs)
         return obs
 
     def _manage_workload(self, action):
-        """Simulate one step of the workload management for all agents."""
-        assert len(action) == len(
-            self.agents
-        ), f"Expected {len(self.agents)} entries, found {len(action)}"
+        """Simulate one step of the workload management for all agents.
 
-        warm_service_time = 10
-        cold_service_time = 25
+        At the end, updates the self.info dictionary with all information on the
+        simulation step."""
+        assert len(action) == len(self.agents), f"Expected {len(self.agents)} entries, found {len(action)}"
+
+        warm_service_time = 15
+        cold_service_time = 30
         idle_time_before_kill = 600
 
-        # Extract absolute number of requests.
+        # Extract arrival rate for each action.
         local = {agent: action[agent][0] for agent in self.agents}
         forward = {agent: action[agent][1] for agent in self.agents}
         reject = {agent: action[agent][2] for agent in self.agents}
 
-        # Number of incoming requests for each agent and action. The first is
+        # Rate of incoming requests for each agent and action. The first is
         # always the local requests.
-        incoming_reqs = {agent: [] for agent in self.agents}
+        incoming_rate = {agent: [] for agent in self.agents}
 
-        # Total number of incoming requests for each agent (local + forwarded).
-        incoming_reqs_total = {agent: 0 for agent in self.agents}
+        # Total rate of incoming requests for each agent (local + forwarded).
+        incoming_rate_total = {agent: 0 for agent in self.agents}
 
         # Label (ID) of each agent in the corresponding incoming_reqs key.
-        incoming_reqs_agents = {agent: [] for agent in self.agents}
+        incoming_rate_agents = {agent: [] for agent in self.agents}
 
-        # Before calling the pacsltk's function, collect the total number of
+        # Before calling the pacsltk's function, collect the total rate of
         # requests for each agent.
         for agent in self.agents:
-            incoming_reqs[agent].append(local[agent])
-            incoming_reqs_agents[agent].append(agent)
+            incoming_rate[agent].append(local[agent])
+            incoming_rate_agents[agent].append(agent)
 
             for neighbor in self.network.neighbors(agent):
-                # The forwarded requests are distributed equally to all
+                # The rate of forwarded requests are distributed equally to all
                 # neighbouring nodes, so I need to calculate the share for the
                 # current agent.
-                #
-                # FIXME: The division truncates the fractional part, a request
-                # may be missing!
-                forwarded_reqs = forward[neighbor] // self.network.degree(neighbor)
-                incoming_reqs[agent].append(forwarded_reqs)
-                incoming_reqs_agents[agent].append(neighbor)
+                forwarded_reqs = forward[neighbor] / self.network.degree(neighbor)
+                incoming_rate[agent].append(forwarded_reqs)
+                incoming_rate_agents[agent].append(neighbor)
 
-            incoming_reqs_total[agent] = sum(incoming_reqs[agent])
+            incoming_rate_total[agent] = sum(incoming_rate[agent])
 
-            self.info["incoming_requests"][agent][self.current_step] = (
-                incoming_reqs_total[agent]
-            )
-            self.info["incoming_requests_local"][agent][self.current_step] = (
-                incoming_reqs[agent][0]
-            )
-            self.info["incoming_requests_forward"][agent][self.current_step] = sum(
-                incoming_reqs[agent][1:]
-            )
+            self.info["incoming_rate"][agent][self.current_step] = incoming_rate_total[agent]
+            self.info["incoming_rate_local"][agent][self.current_step] = incoming_rate[agent][0]
+            self.info["incoming_rate_forward"][agent][self.current_step] = sum(incoming_rate[agent][1:])
 
         # Then call the pacsltk's function for each agent.
         for agent in self.agents:
-            if incoming_reqs_total[agent] == 0:
+            if incoming_rate_total[agent] == 0:
                 # Skip this agent since there a no requests to handle.
                 continue
 
-            incoming_rate = incoming_reqs_total[agent] / 60
             result_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
-                incoming_rate,
+                incoming_rate_total[agent],
                 warm_service_time,
                 cold_service_time,
                 idle_time_before_kill,
             )
-            rejects_prob = result_props["rejection_prob"]
-            self.info["rejection_prob"][agent][self.current_step] = rejects_prob
-            total_rejects = incoming_reqs_total[agent] * rejects_prob
+            rejection_rate = result_props["rejection_rate"]
+            self.info["incoming_rate_reject"][agent][self.current_step] = rejection_rate
 
-            # Distribute the rejected requests to all agents (itself and its
-            # neighbors), proportionally to the incoming requests for each
-            # agent.
-            for idx in range(len(incoming_reqs)):
-                # Portions of incoming requests.
-                incoming_dist_agent = incoming_reqs_agents[agent][idx]
-                incoming_dist_reqs = incoming_reqs[agent][idx]
+            # Distribute the rejection rate to all agents (itself and its
+            # neighbors), proportionally to the incoming rate for each agent.
+            for idx in range(len(incoming_rate)):
+                # Portions of incoming rate.
+                incoming_dist_agent = incoming_rate_agents[agent][idx]
+                incoming_dist_rate = incoming_rate[agent][idx]
 
-                # Current agent (local requests).
+                reject = round(rejection_rate * incoming_dist_rate / incoming_rate_total[agent])
+
+                # Current agent (local incoming rate).
                 if incoming_dist_agent == agent:
-                    rejects = round(
-                        total_rejects * incoming_dist_reqs / incoming_reqs_total[agent]
-                    )
-                    self.info["incoming_reqs_local_rejects"][agent][
-                        self.current_step
-                    ] = rejects
-                    continue
+                    self.info["incoming_rate_local_reject"][agent][self.current_step] = reject
+                else:  # Neighbor agent (forwarded requests).
+                    neighbor = incoming_dist_agent
 
-                # Neighbor agent (forwarded requests).
-                rejects = round(
-                    total_rejects * incoming_dist_reqs / incoming_reqs_total[agent]
-                )
-                neighbor = incoming_dist_agent
-                self.info["rejects_forward"][neighbor][self.current_step] += rejects
-                self.info["incoming_reqs_forward_rejects"][agent][
-                    self.current_step
-                ] += rejects
-
-            # Deprecated. TODO: Remove these!
-            self.info["local_rejects"][agent][self.current_step] = self.info[
-                "incoming_reqs_local_rejects"
-            ][agent][self.current_step]
-            self.info["forward_rejects"][agent][self.current_step] = self.info[
-                "rejects_forward"
-            ][neighbor][self.current_step]
-
-        # Fill the dictionary to return.
-        #
-        # TODO: Remove this code, since the same values are logged in
-        # "rejects_local" and "rejects_forward" keys.
-        retval = {}
-        for agent in self.agents:
-            retval[agent] = (
-                self.info["local_rejects"][agent][self.current_step],
-                self.info["forward_rejects"][agent][self.current_step],
-            )
-
-        return retval
+                    # Update the forwarded reject rate for the neighbor and the
+                    # incoming forward reject rate for the receiving agent.
+                    self.info["forward_reject_rate"][neighbor][self.current_step] += reject
+                    self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject
 
 
 def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
@@ -558,15 +481,15 @@ def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
     np.ndarray containing the input requests for each step."""
     # These two values are calculated to match the average mean of the real
     # traces.
-    average_requests = 2250
-    amplitude_requests = 6750
+    average_requests = 50
+    amplitude_requests = 100
     noise_ratio = 0.1
     unique_periods = 3  # The periods changes 3 times for each episode.
 
     input_requests = {}
     steps = np.arange(max_steps)
     for agent in agents:
-        # Note: with default max_stes, the period changes every 96 steps
+        # Note: with default max_steps, the period changes every 96 steps
         # (max_steps = 288). We first generate the periods and expand the array
         # to match the max_steps. If max_steps is not a multiple of 96, some
         # elements must be appended at the end, hence the resize call.
@@ -575,12 +498,8 @@ def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
         periods = np.repeat(periods, repeats)  # Expand the single values.
         periods = np.resize(periods, periods.size + max_steps - periods.size)
 
-        base_input = average_requests + amplitude_requests * np.sin(
-            2 * np.pi * steps / periods
-        )
-        noisy_input = base_input + noise_ratio * rng.normal(
-            0, amplitude_requests, size=max_steps
-        )
+        base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
+        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
         requests = np.asarray(noisy_input, dtype=np.int32)
 
         # Clip the excess values respecting the minimum and maximum values
@@ -621,9 +540,7 @@ def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
         base_input = average_requests + amplitude_requests * function(steps / periods)
 
         # Add some noise.
-        noisy_input = base_input + noise_ratio * rng.normal(
-            0, amplitude_requests, size=max_steps
-        )
+        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
         requests = np.asarray(noisy_input, dtype=np.int32)
 
         # Clip the excess values respecting the minimum and maximum values
@@ -730,9 +647,7 @@ def _real_input_requests(max_steps, agents, limits, rng, evaluation):
         assert reqs.size == max_steps, f"Unsupported given max_steps = {max_steps}"
         min = limits[agent]["min"]
         max = limits[agent]["max"]
-        assert np.all(reqs >= min) and np.all(
-            reqs <= max
-        ), f"Unsupported limits: {limits[agent]}"
+        assert np.all(reqs >= min) and np.all(reqs <= max), f"Unsupported limits: {limits[agent]}"
 
         input_requests[agent] = reqs
         hashes[agent] = hash
@@ -740,45 +655,24 @@ def _real_input_requests(max_steps, agents, limits, rng, evaluation):
     return input_requests, hashes
 
 
-def _convert_distribution_fw(input_requests, action_dist):
-    """Converts the given action distribution (e.g. [.7, .2, .1]) into the
-    absolute number of requests to process locally, to forward and to reject.
-    Returns the result as a tuple."""
+def _convert_arrival_rate_dist(arrival_rate, action_dist):
+    """Distribute the arrival rate to the given action distribution.
+
+    Returns a tuple of three elements: the arrival rate of local requests,
+    forwarded and rejected.
+
+    This function expects an action distribution (e.g. [.7, .2, .1])."""
     assert len(action_dist) == 3, "Expected (local, forward, reject)"
 
-    # Extract the three actions from the action distribution
-    prob_local, prob_forwarded, prob_rejected = action_dist
+    # Extract the three actions from the action distribution.
+    prob_local, prob_forward, prob_reject = action_dist
 
-    # Get the corresponding number of requests for each action. Note: the number
-    # of requests is a discrete number, so there is a fraction of the action
-    # probabilities that is left out of the calculation.
-    actions = [
-        int(prob_local * input_requests),  # local requests
-        int(prob_forwarded * input_requests),  # forwarded requests
-        int(prob_rejected * input_requests),
-    ]  # rejected requests
+    # Get the corresponding arrival rate for each action.
+    rate_local = arrival_rate * prob_local
+    rate_forward = arrival_rate * prob_forward
+    rate_reject = arrival_rate * prob_reject
 
-    processed_requests = sum(actions)
-
-    # There is a fraction of unprocessed input requests. We need to fix this
-    # problem by assigning the remaining requests to the higher fraction for the
-    # three action probabilities, because that action is the one that loses the
-    # most.
-    if processed_requests < input_requests:
-        # Extract the fraction for each action probability.
-        fractions = [
-            prob_local * input_requests - actions[0],
-            prob_forwarded * input_requests - actions[1],
-            prob_rejected * input_requests - actions[2],
-        ]
-
-        # Get the highest fraction index and and assign remaining requests to
-        # that action.
-        max_fraction_index = np.argmax(fractions)
-        actions[max_fraction_index] += input_requests - processed_requests
-
-    assert sum(actions) == input_requests
-    return tuple(actions)
+    return tuple([rate_local, rate_forward, rate_reject])
 
 
 # Register the environments with Ray so that they can be used automatically when
@@ -857,11 +751,17 @@ class DFaaSCallbacks(DefaultCallbacks):
         if algorithm.__class__ == SAC:
             # Only for SAC: log also the status of the replay buffer.
             result["info"]["replay_buffer"] = {}
-            result["info"]["replay_buffer"][
-                "capacity_per_policy"
-            ] = algorithm.local_replay_buffer.capacity
-            result["info"]["replay_buffer"].update(
-                algorithm.local_replay_buffer.stats()
-            )
+            result["info"]["replay_buffer"]["capacity_per_policy"] = algorithm.local_replay_buffer.capacity
+            result["info"]["replay_buffer"].update(algorithm.local_replay_buffer.stats())
 
         result["callbacks_ok"] = True
+
+
+def _run_episode():
+    """Run a test episode of the DFaaS environment."""
+    config = {"network": ["node_0 node_1", "node_1"]}
+    env = DFaaS(config=config)
+    _ = env.reset(seed=42)
+
+    for step in range(env.max_steps):
+        env.step(action_dict=env.action_space.sample())
