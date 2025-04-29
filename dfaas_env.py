@@ -423,7 +423,7 @@ class DFaaS(MultiAgentEnv):
 
             # Distribute the rejection rate to all agents (itself and its
             # neighbors), proportionally to the incoming rate for each agent.
-            for idx in range(len(incoming_rate)):
+            for idx in range(len(incoming_rate[agent])):
                 # Portions of incoming rate.
                 incoming_dist_agent = incoming_rate_agents[agent][idx]
                 incoming_dist_rate = incoming_rate[agent][idx]
@@ -759,9 +759,14 @@ class DFaaSCallbacks(DefaultCallbacks):
 
 def _run_episode():
     """Run a test episode of the DFaaS environment."""
-    config = {"network": ["node_0 node_1", "node_1"]}
+    # config = {"network": ["node_0 node_1", "node_1"]}
+    config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
     env = DFaaS(config=config)
     _ = env.reset(seed=42)
 
     for step in range(env.max_steps):
         env.step(action_dict=env.action_space.sample())
+
+
+if __name__ == "__main__":
+    _run_episode()

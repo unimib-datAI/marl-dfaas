@@ -1,4 +1,4 @@
-"""This module executes a training experiment using a specified algorithm with
+"""This module executes a training experiment using a supported algorithm with
 the DFaaS environment."""
 
 from pathlib import Path
@@ -271,14 +271,16 @@ def build_ppo(**kwargs):
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we must
-    # ensure that we collect at least 864 samples (3 complete episodes).
+    # ensure that we collect at least 288 samples (1 complete episodes).
     #
     # Be careful with train_batch_size: RLlib stops the episodes when this number is
     # reached, it doesn't control each runner. The number should be divisible by the
     # number of runners, otherwise a runner has to collect more (or less) samples
     # and plays one plus or minus episode.
-    episodes_iter = 3 * (runners if runners > 0 else 1)
-    train_batch_size = dummy_env.max_steps * episodes_iter
+    #
+    # In my case I just let each runner to play one episode.
+    episodes_per_iter = 1 * (runners if runners > 0 else 1)
+    train_batch_size = dummy_env.max_steps * episodes_per_iter
 
     config = (
         PPOConfig()
@@ -286,11 +288,12 @@ def build_ppo(**kwargs):
         .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
-        .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
+        .reporting(metrics_num_episodes_for_smoothing=episodes_per_iter)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
         .training(train_batch_size=train_batch_size, model=model)
         .framework("torch")
-        .env_runners(num_env_runners=runners)
+        # Wait max 4 minutes for each iteration to collect the samples.
+        .env_runners(num_env_runners=runners, sample_timeout_s=240)
         .evaluation(
             evaluation_interval=None,
             evaluation_duration=50,
