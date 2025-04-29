@@ -33,12 +33,8 @@ logger = logging.getLogger(Path(__file__).name)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        prog="dfaas_train", formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        dest="suffix", help="A string to append to experiment directory"
-    )
+    parser = argparse.ArgumentParser(prog="dfaas_train", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(dest="suffix", help="A string to append to experiment directory")
     parser.add_argument(
         "--no-gpu",
         help="Disable GPU usage",
@@ -60,9 +56,7 @@ def main():
         type=int,
         help="Number of runners for collecting experencies in each iteration",
     )
-    parser.add_argument(
-        "--model", type=Path, help="Override default neural networks model"
-    )
+    parser.add_argument("--model", type=Path, help="Override default neural networks model")
     parser.add_argument(
         "--skip-evaluation",
         default=False,
@@ -251,15 +245,11 @@ def main():
         evaluation = experiment.evaluate()
         eval_file = logdir / "evaluation.json"
         dfaas_utils.dict_to_json(evaluation, eval_file)
-        logger.info(
-            f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json"
-        )
+        logger.info(f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json")
 
     # Remove unused or problematic files in the result directory.
     Path(logdir / "progress.csv").unlink()  # result.json contains same data.
-    Path(
-        logdir / "params.json"
-    ).unlink()  # params.pkl contains same data (and the JSON is broken).
+    Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
 
     # Move the original experiment directory to a custom directory.
     exp_name = f"DFAAS-MA_{start}_{args.algorithm}_{args.suffix}"
@@ -293,9 +283,7 @@ def build_ppo(**kwargs):
     config = (
         PPOConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
@@ -363,9 +351,7 @@ def build_sac(**kwargs):
     config = (
         SACConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
@@ -378,9 +364,7 @@ def build_sac(**kwargs):
             replay_buffer_config=replay_buffer_config,
         )
         .framework("torch")
-        .env_runners(
-            rollout_fragment_length=rollout_fragment_length, num_env_runners=runners
-        )
+        .env_runners(rollout_fragment_length=rollout_fragment_length, num_env_runners=runners)
         .evaluation(
             evaluation_interval=None,
             evaluation_duration=50,
@@ -412,9 +396,7 @@ def build_apl(**kwargs):
     config = (
         dfaas_apl.APLConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=episodes_iter)

@@ -9,9 +9,7 @@ def dict_to_json(data, file_path):
 
     try:
         with open(file_path, "wb") as file:
-            enc = orjson.dumps(
-                data, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_SORT_KEYS
-            )
+            enc = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_SORT_KEYS)
             file.write(enc)
             file.write(b"\n")
     except IOError as e:

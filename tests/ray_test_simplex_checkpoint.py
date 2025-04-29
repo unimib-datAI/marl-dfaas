@@ -56,9 +56,7 @@ def create_and_save(checkpoint_path=None):
     ppo_config = (
         PPOConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         .environment(env="SimplexTest")
         .framework("torch")
         .env_runners(num_env_runners=0)  # Sample experiences from the main process.

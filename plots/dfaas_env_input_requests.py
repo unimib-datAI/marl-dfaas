@@ -88,9 +88,7 @@ if __name__ == "__main__":
     types = ["real", "sinusoidal", "normal"]
 
     # Create parser and parse command line arguments.
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument(
         "--out",

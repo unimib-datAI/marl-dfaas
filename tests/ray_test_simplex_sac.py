@@ -52,9 +52,7 @@ def main(checkpoint_path=None):
     sac_config = (
         SACConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         .environment(env="SimplexTest")
         .training(
             replay_buffer_config={"type": "MultiAgentPrioritizedReplayBuffer"}

@@ -71,9 +71,7 @@ class SingleDFaaS(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 # Number of input requests to process for a single step.
-                "input_requests": gym.spaces.Box(
-                    low=0, high=self.input_requests_max, dtype=np.int32
-                ),
+                "input_requests": gym.spaces.Box(low=0, high=self.input_requests_max, dtype=np.int32),
                 # Queue current size.
                 "queue_size": gym.spaces.Box(
                     low=0,
@@ -81,14 +79,10 @@ class SingleDFaaS(gym.Env):
                     dtype=np.int32,
                 ),
                 # Local requests in the previous step.
-                "prev_local_requests": gym.spaces.Box(
-                    low=0, high=self.input_requests_max, dtype=np.int32
-                ),
+                "prev_local_requests": gym.spaces.Box(low=0, high=self.input_requests_max, dtype=np.int32),
                 # Local requests but rejected in the previosu step.
                 # Note prev_local_rejects <= prev_local_requests.
-                "prev_local_rejects": gym.spaces.Box(
-                    low=0, high=self.input_requests_max, dtype=np.int32
-                ),
+                "prev_local_rejects": gym.spaces.Box(low=0, high=self.input_requests_max, dtype=np.int32),
             }
         )
 
@@ -221,9 +215,7 @@ class SingleDFaaS(gym.Env):
         queue_size = self.info["queue_size"][self.current_step - 1]
         input_requests = self.input_requests[self.current_step]
         prev_local_reqs = self.info["action_local"][self.current_step - 1]
-        prev_local_rejects = self.info["local_rejects_queue_full"][
-            self.current_step - 1
-        ]
+        prev_local_rejects = self.info["local_rejects_queue_full"][self.current_step - 1]
 
         obs["queue_size"] = np.array([queue_size], dtype=np.int32)
         obs["input_requests"] = np.array([input_requests], dtype=np.int32)
@@ -275,9 +267,7 @@ class SingleDFaaS(gym.Env):
                 not_processed.append(request)
 
         self.queue = not_processed
-        self.info["queue_size_pre_incoming_local"][self.current_step] = len(
-            not_processed
-        )
+        self.info["queue_size_pre_incoming_local"][self.current_step] = len(not_processed)
 
         # 2. Handle incoming local requests.
         #
@@ -329,12 +319,8 @@ dfaas_env.register(SingleDFaaS)
 def main():
     """Execute the training experiment. Mainly copied from dfaas_train.py."""
     # TODO: Merge with dfaas_train.py
-    parser = argparse.ArgumentParser(
-        prog="dfaas_upperbound", formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        dest="suffix", help="A string to append to experiment directory"
-    )
+    parser = argparse.ArgumentParser(prog="dfaas_upperbound", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(dest="suffix", help="A string to append to experiment directory")
     parser.add_argument("--env-config", help="Environment config file")
     parser.add_argument(
         "--iterations",
@@ -400,9 +386,7 @@ def main():
 
     # Get the experiment directory to save other files.
     logdir = Path(experiment.logdir).resolve()
-    logger.info(
-        f"{SingleDFaaS.__name__} experiment directory created at {logdir.as_posix()!r}"
-    )
+    logger.info(f"{SingleDFaaS.__name__} experiment directory created at {logdir.as_posix()!r}")
     # This will be used after the evaluation.
     start = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -450,23 +434,17 @@ def main():
         evaluation = experiment.evaluate()
         eval_file = logdir / "evaluation.json"
         dfaas_utils.dict_to_json(evaluation, eval_file)
-        logger.info(
-            f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json"
-        )
+        logger.info(f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json")
 
     # Remove unused or problematic files in the result directory.
     Path(logdir / "progress.csv").unlink()  # result.json contains same data.
-    Path(
-        logdir / "params.json"
-    ).unlink()  # params.pkl contains same data (and the JSON is broken).
+    Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
 
     # Move the original experiment directory to a custom directory.
     exp_name = f"{SingleDFaaS.__name__}_{start}_{dfaas_apl.APL.__name__}_{args.suffix}"
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
-    logger.info(
-        f"{SingleDFaaS.__name__} experiment results moved to {result_dir.as_posix()!r}"
-    )
+    logger.info(f"{SingleDFaaS.__name__} experiment results moved to {result_dir.as_posix()!r}")
 
 
 def build_algorithm(**kwargs):
@@ -487,9 +465,7 @@ def build_algorithm(**kwargs):
     config = (
         dfaas_apl.APLConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=episodes_iter)

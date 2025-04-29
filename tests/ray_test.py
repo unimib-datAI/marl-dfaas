@@ -9,9 +9,7 @@ from ray.tune.logger import pretty_print
 from ray.tune.registry import register_env
 
 # GuessTheNumberGame is not registered, I have to do it manually.
-register_env(
-    "GuessTheNumberGame", lambda env_config: GuessTheNumberGame(config=env_config)
-)
+register_env("GuessTheNumberGame", lambda env_config: GuessTheNumberGame(config=env_config))
 
 # The first agent can choose a number between 0 and 100. The second agent should
 # find this number in less than 20 steps (13/14 steps using binary search).
@@ -39,12 +37,8 @@ def policy_mapping_fn(agent_id, episode, worker, **kwargs):
 ppo_config = (
     PPOConfig()
     # By default RLlib uses the new API stack, but I use the old one.
-    .api_stack(
-        enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-    )
-    .environment(
-        env="GuessTheNumberGame", env_config=env_config, disable_env_checking=True
-    )
+    .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
+    .environment(env="GuessTheNumberGame", env_config=env_config, disable_env_checking=True)
     .framework("torch")
     .env_runners(num_env_runners=0)  # Sample experiences from the main process.
     .evaluation(evaluation_interval=None)

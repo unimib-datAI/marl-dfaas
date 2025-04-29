@@ -25,9 +25,7 @@ def filter_http(dataset_dir, overwrite):
     """Reads the function invocation datasets and extracts only the functions
     whose trigger is "http" and saves them in new datasets."""
     for src in dataset_dir.glob("invocations_per_function_md.anon.d*.csv"):
-        dst = src.with_name(
-            f"invocations_per_function_md.anon.http{src.suffixes[-2]}.csv"
-        )
+        dst = src.with_name(f"invocations_per_function_md.anon.http{src.suffixes[-2]}.csv")
         if dst.exists() and not overwrite:
             print(f"HTTP filter: file already exist, skipping {dst.as_posix()!r}")
             continue
@@ -56,9 +54,7 @@ def scale(dataset_dir, overwrite):
     respect the DFaaS environment max_steps and input_requests ranges, and saves
     them to new datasets."""
     for src in dataset_dir.glob("invocations_per_function_md.anon.http.d*.csv"):
-        dst = src.with_name(
-            f"invocations_per_function_md.anon.http.scaled{src.suffixes[-2]}.csv"
-        )
+        dst = src.with_name(f"invocations_per_function_md.anon.http.scaled{src.suffixes[-2]}.csv")
         if dst.exists() and not overwrite:
             print(f"scale: file already exist, skipping {dst.as_posix()!r}")
             continue
@@ -111,9 +107,7 @@ def scale(dataset_dir, overwrite):
 
 def select(dataset_dir, overwrite):
     for src in dataset_dir.glob("invocations_per_function_md.anon.http.scaled.d*.csv"):
-        dst = src.with_name(
-            f"invocations_per_function_md.anon.http.scaled.selected{src.suffixes[-2]}.csv"
-        )
+        dst = src.with_name(f"invocations_per_function_md.anon.http.scaled.selected{src.suffixes[-2]}.csv")
         if dst.exists() and not overwrite:
             print(f"select: file already exist, skipping {dst.as_posix()!r}")
             continue
@@ -148,9 +142,7 @@ if __name__ == "__main__":
     # Create parser and parse arguments.
     parser = argparse.ArgumentParser(prog="filter_requests")
 
-    parser.add_argument(
-        "--dataset-dir", help="Directory whith the CSV files", default="dataset/data"
-    )
+    parser.add_argument("--dataset-dir", help="Directory whith the CSV files", default="dataset/data")
     parser.add_argument(
         "--overwrite-all",
         help="Overwrite existing CSV files",

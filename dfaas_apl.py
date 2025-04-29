@@ -30,9 +30,7 @@ class APLPolicy(Policy):
             return
 
         if not isinstance(action_space, Simplex):
-            raise ValueError(
-                f"Only Simplex action space is supported by APLPolicy, found {action_space.__class__!r}"
-            )
+            raise ValueError(f"Only Simplex action space is supported by APLPolicy, found {action_space.__class__!r}")
 
         if action_space.shape != (3,):
             raise ValueError(f"Only shape=(3,) supported, found {action_shape.shape}")
@@ -124,8 +122,6 @@ class APL(Algorithm):
         # There is nothing to train, since APL is a simple deterministic
         # heuristic algorithm.
 
-        self.env_runner.set_global_vars(
-            {"timestep": self._counters[NUM_AGENT_STEPS_SAMPLED]}
-        )
+        self.env_runner.set_global_vars({"timestep": self._counters[NUM_AGENT_STEPS_SAMPLED]})
 
         return {}

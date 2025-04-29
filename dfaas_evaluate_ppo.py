@@ -18,12 +18,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 parser = argparse.ArgumentParser(prog="dfaas_evaluate_ppo")
 parser.add_argument("experiment_dir", help="Existing experiment directory")
 parser.add_argument("suffix", help="A string to append to the evaluation directory")
-parser.add_argument(
-    "--env-config", help="Use this env config file to update the original env config"
-)
-parser.add_argument(
-    "--seed", help="Use given seed instead of experiment original one", type=int
-)
+parser.add_argument("--env-config", help="Use this env config file to update the original env config")
+parser.add_argument("--seed", help="Use given seed instead of experiment original one", type=int)
 parser.add_argument(
     "--runners",
     help="Number of evaluation runners (non-negative integer)",
@@ -111,9 +107,7 @@ assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment
 ppo_config = (
     PPOConfig()
     # By default RLlib uses the new API stack, but I use the old one.
-    .api_stack(
-        enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-    )
+    .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
     .environment(env=DFaaS.__name__, env_config=env_config)
     .framework("torch")
     .env_runners(num_env_runners=0)  # Only evaluate.

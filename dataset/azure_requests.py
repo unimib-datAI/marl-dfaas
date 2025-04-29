@@ -17,9 +17,7 @@ def _get_data(data_file, function_hash):
 
     # Only and only 1 trace can be selected.
     if (rows := fn.shape[0]) > 1:
-        print(
-            f"Given hash {function_hash!r} is ambiguous, {rows} traces are selected in {data_file.as_posix()!r}"
-        )
+        print(f"Given hash {function_hash!r} is ambiguous, {rows} traces are selected in {data_file.as_posix()!r}")
         exit(1)
     elif rows == 0:
         print(f"Given hash {function_hash!r} not found in {data_file.as_posix()!r}")
@@ -67,9 +65,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="experiment_duration")
 
     parser.add_argument(dest="output_dir", type=Path, help="Where to save the plot")
-    parser.add_argument(
-        dest="data_file", type=Path, help="CSV file with function invocations"
-    )
+    parser.add_argument(dest="data_file", type=Path, help="CSV file with function invocations")
     parser.add_argument(
         dest="function_hash",
         nargs="+",

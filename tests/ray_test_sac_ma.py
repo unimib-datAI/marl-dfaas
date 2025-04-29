@@ -37,9 +37,7 @@ class MultiEnvTest(MultiAgentEnv):
 
         # Each agent has a different action space.
         self._action_space_in_preferred_format = True
-        self.action_space = gym.spaces.Dict(
-            {"agent_0": Simplex(shape=(3,)), "agent_1": Simplex(shape=(2,))}
-        )
+        self.action_space = gym.spaces.Dict({"agent_0": Simplex(shape=(3,)), "agent_1": Simplex(shape=(2,))})
 
         # Each agent has a different observation space.
         self._obs_space_in_preferred_format = True
@@ -119,9 +117,7 @@ def main(checkpoint_path=None):
     sac_config = (
         SACConfig()
         # By default RLlib uses the new API stack, but I use the old one.
-        .api_stack(
-            enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False
-        )
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         .environment(env="MultiEnvTest")
         .framework("torch")
         .training(

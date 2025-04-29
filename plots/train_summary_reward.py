@@ -24,9 +24,7 @@ def _average_reward_step(iter, agent):
 
     tmp = np.empty(episodes, dtype=np.float32)
     for epi_idx in range(episodes):
-        tmp[epi_idx] = np.average(
-            iter["env_runners"]["hist_stats"]["reward"][epi_idx][agent]
-        )
+        tmp[epi_idx] = np.average(iter["env_runners"]["hist_stats"]["reward"][epi_idx][agent])
 
     return np.average(tmp)
 
@@ -56,9 +54,7 @@ def _get_data(exp_dir):
         # Index starts from one in log files, but Python list from zero.
         iter_idx = iter["training_iteration"] - 1
 
-        reward_total_avg["all"][iter_idx] = np.average(
-            iter["env_runners"]["hist_stats"]["episode_reward"]
-        )
+        reward_total_avg["all"][iter_idx] = np.average(iter["env_runners"]["hist_stats"]["episode_reward"])
 
         for agent in data["agents"]:
             reward_total_avg[agent][iter_idx] = np.average(
@@ -133,13 +129,9 @@ if __name__ == "__main__":
     types = ["real", "sinusoidal", "normal"]
 
     # Create parser and parse command line arguments.
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument(
-        "experiment_dir", nargs="+", type=Path, help="DFaaS experiment directory"
-    )
+    parser.add_argument("experiment_dir", nargs="+", type=Path, help="DFaaS experiment directory")
 
     args = parser.parse_args()
 

@@ -51,9 +51,7 @@ def main(env_config, seed, num_episodes):
 
 if __name__ == "__main__":
     # Create parser and parse arguments from the command line.
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument(
         "--seeds",
@@ -62,9 +60,7 @@ if __name__ == "__main__":
         type=int,
         help="Seeds used to generated synthetic requests",
     )
-    parser.add_argument(
-        "--episodes", default=10000, type=int, help="Number of episodes to generate"
-    )
+    parser.add_argument("--episodes", default=10000, type=int, help="Number of episodes to generate")
     parser.add_argument(
         "--env-config",
         type=Path,
