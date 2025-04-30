@@ -105,7 +105,6 @@ nvidia-nvtx-cu12==12.4.127
 orjson==3.10.13
 overrides==7.7.0
 packaging==24.2
-pacsltk==0.2.0
 pandas==2.2.3
 pandocfilters==1.5.1
 parso==0.8.4

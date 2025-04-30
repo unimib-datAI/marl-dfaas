@@ -7,13 +7,14 @@ from collections import deque, namedtuple, defaultdict
 import pandas as pd
 import numpy as np
 import networkx as nx
-import pacsltk
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.algorithms.sac import SAC
+
+import perfmodel
 
 # Initialize logger for this module.
 logging.basicConfig(
@@ -412,7 +413,7 @@ class DFaaS(MultiAgentEnv):
                 # Skip this agent since there a no requests to handle.
                 continue
 
-            result_props, _ = pacsltk.perfmodel.get_sls_warm_count_dist(
+            result_props, _ = perfmodel.get_sls_warm_count_dist(
                 incoming_rate_total[agent],
                 warm_service_time,
                 cold_service_time,
@@ -759,8 +760,8 @@ class DFaaSCallbacks(DefaultCallbacks):
 
 def _run_episode():
     """Run a test episode of the DFaaS environment."""
-    # config = {"network": ["node_0 node_1", "node_1"]}
-    config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+    config = {"network": ["node_0 node_1", "node_1"]}
+    # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
     env = DFaaS(config=config)
     _ = env.reset(seed=42)
 

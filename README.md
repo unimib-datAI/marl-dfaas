@@ -47,9 +47,6 @@ To run the experiments, the main dependencies are:
   GPUs and CPUs. It is used by Ray RLlib when training models with deep learning
   reinforcement learning algorithms.
 
-* [pacsltk](https://github.com/pacslab/serverless-performance-modeling): is a
-  library used as performance model in the simulated DFaaS environment.
-
 * [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
   than the standard library. Used because the experiments generate large JSON
   files that slow down the encoding/decoding processes.
