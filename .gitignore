@@ -7,3 +7,4 @@ results
 *.tar
 .ipynb_checkpoints
 *.pdf
+*.cprofile

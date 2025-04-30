@@ -12,12 +12,35 @@ Original repo: https://github.com/pacslab/serverless-performance-modeling
 
 # For computing the blocking probability
 from math import factorial, inf, exp
+from functools import lru_cache
 
 from scipy.stats import expon
 import numpy as np
 
 
-def ErlangB(Rho, m):
+@lru_cache(maxsize=2048)
+def erlangb_inner_loop(rho, m):
+    """Perform an internal loop of the calculation of the ErlangB formula."""
+    if m == 0:
+        return 1.0
+
+    return 1.0 + erlangb_inner_loop(rho, m - 1) * (m / rho)
+
+
+def ErlangB(rho, m):
+    """ErlangB calculates the blocking probability for a M/G/m/m loss system.
+
+    The probability returned is in range [0-1]."""
+    # The implementation is similar to the original code, but the calls are
+    # cached to speed up execution. The original author was inspired by the
+    # following two sources:
+    #
+    # - https://en.wikipedia.org/wiki/Erlang_%28unit%29#Erlang_B_formula
+    # - https://stackoverflow.com/a/23528626
+    return 1.0 / erlangb_inner_loop(rho, m)
+
+
+def ErlangB_old(Rho, m):
     """ErlangB calculates the blocking probability for a M/G/m/m loss system.
     The probability returned is in range [0-1].
     It is easy to prove the correctness of the value.
@@ -33,6 +56,7 @@ def ErlangB(Rho, m):
     :return: The blocking probability for incoming requests.
     :rtype: double
     """
+
     InvB = 1.0
     for j in range(1, m + 1):
         InvB = 1.0 + InvB * (j / Rho)
@@ -80,6 +104,8 @@ def get_sls_warm_count_dist(
         server_count += 1
 
         # The blocking probability, the blocked requests are cold starts.
+        # prob_block = ErlangB_old(rho, server_count)
+        # assert new == prob_block, f"{rho = } {server_count = } {new = } {prob_block = }"
         prob_block = ErlangB(rho, server_count)
         block_rate = prob_block * arrival_rate
 
