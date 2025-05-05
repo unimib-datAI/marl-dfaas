@@ -24,10 +24,11 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
-def reward_fn(action, additional_reject):
+def reward_fn(action, additional_reject, action_range=(0, 150)):
     """Reward function for the agents in the DFaaS environment."""
     assert len(action) == 3, "Expected (local, forward, reject)"
     assert len(additional_reject) == 2, "Expected (local_reject, forward_reject)"
+    assert len(action_range) == 2, "Expected (min_action, max_action)"
 
     arrival_rate_total = sum(action)
     rate_local, rate_forward, rate_reject = action
@@ -35,7 +36,14 @@ def reward_fn(action, additional_reject):
 
     local_reward = rate_local - local_reject
     forward_reward = rate_forward - forward_reject
-    return float(local_reward + forward_reward - rate_reject)
+    reward = local_reward + forward_reward - rate_reject
+
+    # Normalize the reward around [-1, 1].
+    assert action_range == (0, 150)
+    min_reward, max_reward = (-150, 150)
+    norm_reward = 2 * (reward - min_reward) / (max_reward - min_reward) - 1
+
+    return float(norm_reward)
 
 
 class DFaaS(MultiAgentEnv):
@@ -67,7 +75,7 @@ class DFaaS(MultiAgentEnv):
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
-        self.reward_range = (0.0, 1.0)
+        self.reward_range = (-1.0, 1.0)
 
         # Provide full (preferred format) observation and action spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
@@ -116,6 +124,13 @@ class DFaaS(MultiAgentEnv):
                 for agent in self.agents
             }
         )
+
+        # Save the action range that is based on the minimium and maximium
+        # possibile value of input requests for all agents.
+        #
+        # Note: This assumes that all agents have the same input request range.
+        input_requests_space = self.observation_space["node_0"]["input_requests"]
+        self.action_range = (input_requests_space.low.item(), input_requests_space.high.item())
 
         # Number of steps in the environment. The default is one step for every
         # 5 minutes of a 24-hour day.
@@ -259,7 +274,7 @@ class DFaaS(MultiAgentEnv):
                 self.info["forward_reject_rate"][agent][self.current_step],
             )
 
-            reward = reward_fn(action[agent], additional_rejects)
+            reward = reward_fn(action[agent], additional_rejects, self.action_range)
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
