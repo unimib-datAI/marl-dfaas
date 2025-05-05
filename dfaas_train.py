@@ -282,6 +282,14 @@ def build_ppo(**kwargs):
     episodes_per_iter = 1 * (runners if runners > 0 else 1)
     train_batch_size = dummy_env.max_steps * episodes_per_iter
 
+    # Since we are only playing one episode for the iteration, we also need to
+    # reduce the number of epochs and minibatch size.
+    #
+    # Note that even if we have a minibatch size of 64, since the environment
+    # length is not a multiple, the last batch will have a smaller size.
+    num_epochs = 5
+    minibatch_size = 64
+
     config = (
         PPOConfig()
         # By default RLlib uses the new API stack, but I use the old one.
@@ -290,7 +298,7 @@ def build_ppo(**kwargs):
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=episodes_per_iter)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
-        .training(train_batch_size=train_batch_size, model=model)
+        .training(train_batch_size=train_batch_size, num_epochs=num_epochs, minibatch_size=minibatch_size, model=model)
         .framework("torch")
         # Wait max 4 minutes for each iteration to collect the samples.
         .env_runners(num_env_runners=runners, sample_timeout_s=240)
