@@ -296,7 +296,7 @@ def build_ppo(**kwargs):
         .env_runners(num_env_runners=runners, sample_timeout_s=240)
         .evaluation(
             evaluation_interval=None,
-            evaluation_duration=50,
+            evaluation_duration=10,
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
@@ -370,7 +370,7 @@ def build_sac(**kwargs):
         .env_runners(rollout_fragment_length=rollout_fragment_length, num_env_runners=runners)
         .evaluation(
             evaluation_interval=None,
-            evaluation_duration=50,
+            evaluation_duration=10,
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
@@ -393,7 +393,7 @@ def build_apl(**kwargs):
     policy_mapping_fn = kwargs["policy_mapping_fn"]
 
     # See build_ppo function.
-    episodes_iter = 3 * (runners if runners > 0 else 1)
+    episodes_iter = 1 * (runners if runners > 0 else 1)
     train_batch_size = dummy_env.max_steps * episodes_iter
 
     config = (
@@ -408,7 +408,7 @@ def build_apl(**kwargs):
         .env_runners(num_env_runners=runners)
         .evaluation(
             evaluation_interval=None,
-            evaluation_duration=50,
+            evaluation_duration=10,
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
