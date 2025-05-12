@@ -212,11 +212,18 @@ def main():
             out.write_text(f"{policy.model}")
             logger.info(f"Policy '{policy_name}' model saved to: {out.as_posix()!r}")
 
-    # Copy the environment source file into the experiment directory. This ensures
-    # that the original environment used for the experiment is preserved.
-    dfaas_env_dst = logdir / Path(dfaas_env.__file__).name
-    shutil.copy2(dfaas_env.__file__, dfaas_env_dst)
-    logger.info(f"Environment source file saved to: {dfaas_env_dst.as_posix()!r}")
+    # Copy the environment source file (and its associated code) into the
+    # experiment directory. This ensures that the original environment used for
+    # the experiment is preserved.
+    for filename in ["dfaas_env.py", "perfmodel.py", "dfaas_input_rate.py"]:
+        src_path = Path.cwd() / filename
+        dst_path = logdir / filename
+
+        try:
+            shutil.copy2(src_path, dst_path)
+            logger.info(f"Environment source file {filename!r} copied to {dst_path.as_posix()!r}")
+        except FileNotFoundError:
+            logger.warning(f"Failed to copy {filename!r}: file not found")
 
     # Run the training phase for n iterations.
     logger.info("Training start")

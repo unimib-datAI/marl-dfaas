@@ -1,4 +1,8 @@
-# This file contains the DFaaS multi-agent environment and associated callbacks.
+"""This module contains the DFaaS multi-agent environment, a reinforcement
+learning environment to train agents using different RL (and not) algorithms. It
+also includes functions or methods strictly related to the environment, like the
+associated callbacks."""
+
 import gymnasium as gym
 import logging
 from pathlib import Path
@@ -15,6 +19,7 @@ from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.algorithms.sac import SAC
 
 import perfmodel
+import dfaas_input_rate
 
 # Initialize logger for this module.
 logging.basicConfig(
@@ -206,11 +211,11 @@ class DFaaS(MultiAgentEnv):
                 "max": self.observation_space[agent]["input_requests"].high.item(),
             }
         if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
-            self.input_requests = _synthetic_sinusoidal_input_requests(self.max_steps, self.agents, limits, self.rng)
+            self.input_requests = dfaas_input_rate.synthetic_sinusoidal(self.max_steps, self.agents, limits, self.rng)
         elif self.input_requests_type == "synthetic-normal":
-            self.input_requests = _synthetic_normal_input_requests(self.max_steps, self.agents, limits, self.rng)
+            self.input_requests = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
         else:  # real
-            retval = _real_input_requests(self.max_steps, self.agents, limits, self.rng, self.evaluation)
+            retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 
             self.input_requests = retval[0]
 
@@ -458,219 +463,6 @@ class DFaaS(MultiAgentEnv):
                     self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject
 
 
-def _synthetic_normal_input_requests(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
-
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
-
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
-    mean = 61
-    std = 32
-
-    input_requests = {}
-    for agent in agents:
-        requests = rng.normal(loc=mean, scale=std, size=max_steps)
-        input_requests[agent] = np.asarray(requests, dtype=np.int32)
-
-        # Clip the excess values respecting the minimum and maximum values
-        # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        np.clip(input_requests[agent], min, max, out=input_requests[agent])
-
-    return input_requests
-
-
-def _synthetic_sinusoidal_input_requests(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
-
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
-
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
-    # These two values are calculated to match the average mean of the real
-    # traces.
-    average_requests = 50
-    amplitude_requests = 100
-    noise_ratio = 0.1
-    unique_periods = 3  # The periods changes 3 times for each episode.
-
-    input_requests = {}
-    steps = np.arange(max_steps)
-    for agent in agents:
-        # Note: with default max_steps, the period changes every 96 steps
-        # (max_steps = 288). We first generate the periods and expand the array
-        # to match the max_steps. If max_steps is not a multiple of 96, some
-        # elements must be appended at the end, hence the resize call.
-        repeats = max_steps // unique_periods
-        periods = rng.uniform(15, high=100, size=unique_periods)
-        periods = np.repeat(periods, repeats)  # Expand the single values.
-        periods = np.resize(periods, periods.size + max_steps - periods.size)
-
-        base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
-        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
-        requests = np.asarray(noisy_input, dtype=np.int32)
-
-        # Clip the excess values respecting the minimum and maximum values
-        # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        np.clip(requests, min, max, out=requests)
-
-        input_requests[agent] = requests
-
-    return input_requests
-
-
-def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
-
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
-
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
-    average_requests = np.clip(rng.normal(loc=70), 60, 80)
-    amplitude_requests = 60
-    noise_ratio = 0.2
-
-    input_requests = {}
-    steps = np.arange(max_steps)
-    for agent in agents:
-        # Sample the function.
-        function = rng.choice([np.sin, np.cos])
-
-        # Sample the period in a fixed range.
-        periods = rng.uniform(5, high=30)
-
-        # Sample the requests.
-        base_input = average_requests + amplitude_requests * function(steps / periods)
-
-        # Add some noise.
-        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
-        requests = np.asarray(noisy_input, dtype=np.int32)
-
-        # Clip the excess values respecting the minimum and maximum values
-        # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        assert min == 0 and max == 150, "Unsupported [min, max] input request range!"
-        np.clip(requests, min, max, out=requests)
-
-        input_requests[agent] = requests
-
-    return input_requests
-
-
-# This list contains all fourteen real input request dataset files as Pandas
-# DataFrame. Each DataFrame has a special attribute "idx", a string that
-# indicates which file was read.
-_real_input_requests_pool = None
-
-
-def _init_real_input_requests_pool():
-    """Initializes the _real_input_requests_pool module variable and reads the
-    record files from a known path. It stops the application if a dataset file
-    cannot be found."""
-    # Generates the file names.
-    total_datasets = 14
-    datasets = []
-    for idx in range(1, total_datasets + 1):
-        item = (
-            f"d{idx:02}",
-            f"invocations_per_function_md.anon.http.scaled.selected.d{idx:02}.csv",
-        )
-        datasets.append(item)
-
-    # Read each CSV file as a data frame.
-    pool = []
-    for idx, dataset in datasets:
-        # Prefer absolute paths.
-        path = (Path.cwd() / "dataset" / "data" / dataset).resolve()
-        if not path.exists():
-            _logger.critical(f"Dataset file not found: {path.as_posix()!r}")
-            raise FileNotFoundError(path)
-
-        frame = pd.read_csv(path)
-        frame.idx = idx  # Special metadata to know the original file.
-
-        pool.append(frame)
-
-    global _real_input_requests_pool
-    _real_input_requests_pool = np.array(pool, dtype=object)
-
-
-def _real_input_requests(max_steps, agents, limits, rng, evaluation):
-    """Randomly selects a real input request from the pool for each of the given
-    agents.
-
-    Since the steps and values of the real input requests are fixed, if the
-    given values don't respect the fixed values, there will be an assertion
-    error.
-
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
-
-    The boolean evaluation parameter can be used to select the subpool from
-    which input requests are selected. Note that the evaluation pool is smaller
-    than the training pool.
-
-    Returns a tuple: the first element is a dictionary whose keys are the agent
-    ids and whose value is a NumPy array containing the input requests for each
-    step, the second element is a dictionary whose keys are the agent ids and
-    whose value is the hash string of the selected function from the pool."""
-    if _real_input_requests_pool is None:
-        _init_real_input_requests_pool()
-
-    # Separate the evaluation pool (two dataframes) from the training pool.
-    if evaluation:
-        pool = _real_input_requests_pool[-2:]
-    else:
-        pool = _real_input_requests_pool[:-2]
-
-    # Randomly select a dataframe for each agent. Note: It is important to
-    # avoid choosing the same dataframe to avoid correlations between functions
-    # in one day.
-    dataframes = rng.choice(pool, size=len(agents), replace=False)
-    functions = {}
-    for agent, dataframe in zip(agents, dataframes):
-        row = dataframe.sample(random_state=rng)
-        functions[agent] = {"dataframe": row, "idx": dataframe.idx}
-
-    # Extract the input requests and function hashes from the dataframe.
-    input_requests, hashes = {}, {}
-    for agent in agents:
-        dataframe = functions[agent]["dataframe"]
-
-        # The new hash is the concatenation of the function hash and the day
-        # (from 01 to 14).
-        hash = f"{dataframe['HashFunction'].item()}-{functions[agent]['idx']}"
-
-        # Get only the columns related to the input requests and convert to a
-        # NumPy array.
-        reqs = dataframe.loc[:, "0":].to_numpy(dtype=np.int32).flatten()
-
-        # Do some sanity checks to avoid nasty bugs.
-        assert reqs.size == max_steps, f"Unsupported given max_steps = {max_steps}"
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        assert np.all(reqs >= min) and np.all(reqs <= max), f"Unsupported limits: {limits[agent]}"
-
-        input_requests[agent] = reqs
-        hashes[agent] = hash
-
-    return input_requests, hashes
-
-
 def _convert_arrival_rate_dist(arrival_rate, action_dist):
     """Distribute the arrival rate to the given action distribution.
 
@@ -773,7 +565,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def _run_episode():
+def _run_one_episode():
     """Run a test episode of the DFaaS environment."""
     config = {"network": ["node_0 node_1", "node_1"]}
     # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
@@ -785,4 +577,4 @@ def _run_episode():
 
 
 if __name__ == "__main__":
-    _run_episode()
+    _run_one_episode()
