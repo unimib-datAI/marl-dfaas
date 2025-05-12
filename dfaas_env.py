@@ -576,12 +576,17 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def _run_one_episode():
+def _run_one_episode(verbose=False):
     """Run a test episode of the DFaaS environment."""
     config = {"network": ["node_0 node_1", "node_1"]}
     # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
     env = DFaaS(config=config)
     _ = env.reset(seed=42)
+
+    if verbose:
+        from tqdm import trange
+
+        range = trange
 
     for step in range(env.max_steps):
         env.step(action_dict=env.action_space.sample())
