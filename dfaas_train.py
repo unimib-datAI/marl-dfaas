@@ -282,12 +282,13 @@ def build_ppo(**kwargs):
     episodes_per_iter = 1 * (runners if runners > 0 else 1)
     train_batch_size = dummy_env.max_steps * episodes_per_iter
 
-    # Since we are only playing one episode for the iteration, we also need to
-    # reduce the number of epochs and minibatch size.
+    # Keep the default number of SGD iterations but reduce the minibatch size,
+    # since we play only one episode. This may let the agent to overfit, but for
+    # now it is ok.
     #
     # Note that even if we have a minibatch size of 64, since the environment
     # length is not a multiple, the last batch will have a smaller size.
-    num_epochs = 5
+    num_epochs = 30
     minibatch_size = 64
 
     config = (
