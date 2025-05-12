@@ -44,7 +44,7 @@ def reward_fn(action, additional_reject, action_range=(0, 150)):
     reward = local_reward + forward_reward - rate_reject
 
     # Normalize the reward around [-1, 1].
-    assert action_range == (0, 150)
+    assert action_range == (1, 150)
     min_reward, max_reward = (-150, 150)
     norm_reward = 2 * (reward - min_reward) / (max_reward - min_reward) - 1
 
@@ -108,7 +108,7 @@ class DFaaS(MultiAgentEnv):
                         # Arrival rate of input requests per second to process
                         # for a single step.
                         # TODO: Change the name.
-                        "input_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+                        "input_requests": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Incoming local requests in the previous step.
                         "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.float32),
                         # Incoming local requests but rejected in the previous

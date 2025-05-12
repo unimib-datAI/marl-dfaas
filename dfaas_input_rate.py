@@ -36,6 +36,19 @@ def synthetic_normal(max_steps, agents, limits, rng):
     return input_requests
 
 
+def _gen_synthetic_sinusoidal(rng):
+    """Returns a single generated synthetic input rate trace. Usually used for
+    tests."""
+    # These are just fixed values for one trace.
+    agents = ["node_0"]
+    max_steps, min_reqs, max_reqs = 288, 1, 150
+    limits = {"node_0": {"min": min_reqs, "max": max_reqs}}
+
+    trace = synthetic_sinusoidal(max_steps, agents, limits, rng)
+
+    return trace["node_0"]
+
+
 def synthetic_sinusoidal(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
@@ -226,19 +239,9 @@ def _gen_example_input_rate(seed):
     """Generate a sample trace and print it to standard output."""
     rng = np.random.default_rng(seed=seed)  # RNG used to generate the requests.
 
-    # These are just fixed values for one trace.
-    agents = ["node_0"]
-    max_steps, min_reqs, max_reqs = 288, 0, 150
-    limits = {"node_0": {"min": min_reqs, "max": max_reqs}}
+    trace = _gen_synthetic_sinusoidal(rng)
 
-    # Generate a specific seed for this trace.
-    iinfo = np.iinfo(np.uint32)
-    seed = rng.integers(0, high=iinfo.max, size=1)[0].item()
-    specific_rng = np.random.default_rng(seed=seed)
-
-    trace = synthetic_sinusoidal_input_requests(max_steps, agents, limits, specific_rng)
-
-    print(trace["node_0"])
+    print(trace)
 
 
 if __name__ == "__main__":
