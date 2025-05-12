@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import tomllib
 
 import orjson
 
@@ -15,6 +16,20 @@ def dict_to_json(data, file_path):
     except IOError as e:
         print(
             f"Failed to write dict to json file to {file_path.as_posix()!r}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def toml_to_dict(file_path):
+    file_path = to_pathlib(file_path)
+
+    try:
+        with open(file_path, "rb") as file:
+            return tomllib.load(file)
+    except IOError as e:
+        print(
+            f"Failed to read toml file from {file_path.as_posix()!r}: {e}",
             file=sys.stderr,
         )
         sys.exit(1)

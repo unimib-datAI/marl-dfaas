@@ -42,7 +42,7 @@ def main():
         dest="no_gpu",
         action="store_true",
     )
-    parser.add_argument("--env-config", help="Environment config file")
+    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
     parser.add_argument(
         "--iterations",
         default=500,
@@ -94,7 +94,7 @@ def main():
 
     # Environment configuration.
     if args.env_config is not None:
-        env_config = dfaas_utils.json_to_dict(args.env_config)
+        env_config = dfaas_utils.toml_to_dict(args.env_config)
     else:
         env_config = {}
 

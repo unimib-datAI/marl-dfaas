@@ -140,17 +140,21 @@ class DFaaS(MultiAgentEnv):
         # 5 minutes of a 24-hour day.
         self.max_steps = config.get("max_steps", 288)
 
-        # Type of input requests.
-        self.input_requests_type = config.get("input_requests_type", "synthetic-sinusoidal")
-        match self.input_requests_type:
-            case "synthetic-sinusoidal":
-                pass
-            case "synthetic-normal":
-                pass
-            case "real":
-                assert self.max_steps == 288, f"With {self.input_requests_type = } only 288 max_steps are supported"
-            case _:
-                assert False, f"Unsupported {self.input_requests_type = }"
+        # Generation method of input rate.
+        self.input_rate_same_method = config.get("input_rate_same_method", True)
+        if self.input_rate_same_method:
+            self.input_rate_method = config.get("input_rate_method", "synthetic-sinusoidal")
+            match self.input_rate_method:
+                case "synthetic-sinusoidal":
+                    pass
+                case "synthetic-normal":
+                    pass
+                case "real":
+                    assert self.max_steps == 288, f"With {self.input_rate_method = } only 288 max_steps are supported"
+                case _:
+                    assert False, f"Unsupported {self.input_rate_method = }"
+        else:
+            assert False, f"Unsupported {self.input_rate_same_method = }"
 
         # Is the env created for evaluation only? If so, the input requests may
         # differ from the training ones.
@@ -163,7 +167,8 @@ class DFaaS(MultiAgentEnv):
         environment."""
         config = {
             "max_steps": self.max_steps,
-            "input_requests_type": self.input_requests_type,
+            "input_rate_same_method": self.input_rate_same_method,
+            "input_rate_method": self.input_rate_method,
             "evaluation": self.evaluation,
             "network": list(nx.generate_adjlist(self.network)),
         }
@@ -202,26 +207,33 @@ class DFaaS(MultiAgentEnv):
         self.rng = np.random.default_rng(seed=self.seed)
         self.np_random = self.rng  # Required by the Gymnasium API
 
-        # Generate all input requests for the environment.
+        # Generate all input rates for the environment.
         limits = {}
         for agent in self.agents:
             limits[agent] = {
                 "min": self.observation_space[agent]["input_requests"].low.item(),
                 "max": self.observation_space[agent]["input_requests"].high.item(),
             }
-        if self.input_requests_type == "synthetic-sinusoidal" or self.input_requests_type == "synthetic":
-            self.input_requests = dfaas_input_rate.synthetic_sinusoidal(self.max_steps, self.agents, limits, self.rng)
-        elif self.input_requests_type == "synthetic-normal":
-            self.input_requests = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
-        else:  # real
-            retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
+        match self.input_rate_method:
+            case "synthetic-sinusoidal":
+                self.input_requests = dfaas_input_rate.synthetic_sinusoidal(
+                    self.max_steps, self.agents, limits, self.rng
+                )
+                pass
+            case "synthetic-normal":
+                self.input_requests = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
+                pass
+            case "real":
+                retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 
-            self.input_requests = retval[0]
+                self.input_requests = retval[0]
 
-            # Special attribute, not returned in the observation: contains the
-            # hashes of the selected input requests. It is used by the
-            # callbacks.
-            self.input_requests_hashes = retval[1]
+                # Special attribute, not returned in the observation: contains
+                # the hashes of the selected input requests. It is used by the
+                # callbacks.
+                self.input_requests_hashes = retval[1]
+            case _:
+                assert False, f"Unreachable code"
 
         def info_init_key():
             """Helper function to automatically initialize the keys in the info
@@ -525,7 +537,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         # If the environment has real input requests, we need to store the
         # hashes of all the requests used in the episode (one for each agent) in
         # order to identify the individual requests.
-        if env.input_requests_type == "real":
+        if env.input_rate_same_method and env.input_rate_method == "real":
             episode.hist_data["hashes"] = [env.input_requests_hashes]
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
