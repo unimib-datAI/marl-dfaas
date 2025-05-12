@@ -29,11 +29,11 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
-def reward_fn(action, additional_reject, action_range=(0, 150)):
-    """Reward function for the agents in the DFaaS environment."""
+def reward_fn(action, additional_reject):
+    """Returns the reward for the given action and additional rejects. The
+    reward is in the range [-1, 1]."""
     assert len(action) == 3, "Expected (local, forward, reject)"
     assert len(additional_reject) == 2, "Expected (local_reject, forward_reject)"
-    assert len(action_range) == 2, "Expected (min_action, max_action)"
 
     arrival_rate_total = sum(action)
     rate_local, rate_forward, rate_reject = action
@@ -44,9 +44,8 @@ def reward_fn(action, additional_reject, action_range=(0, 150)):
     reward = local_reward + forward_reward - rate_reject
 
     # Normalize the reward around [-1, 1].
-    assert action_range == (1, 150)
-    min_reward, max_reward = (-150, 150)
-    norm_reward = 2 * (reward - min_reward) / (max_reward - min_reward) - 1
+    assert arrival_rate_total > 0
+    norm_reward = reward / arrival_rate_total
 
     return float(norm_reward)
 
@@ -279,7 +278,7 @@ class DFaaS(MultiAgentEnv):
                 self.info["forward_reject_rate"][agent][self.current_step],
             )
 
-            reward = reward_fn(action[agent], additional_rejects, self.action_range)
+            reward = reward_fn(action[agent], additional_rejects)
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
