@@ -135,6 +135,22 @@ def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
     return input_requests
 
 
+def synthetic_constant(max_steps, agents):
+    """Generates a constant input rate trace for each agent for the given
+    length.
+
+    Current limitations: only two-agent environments are supported, and the
+    constat rates are hardcoded as 30 and 100."""
+    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+
+    input_rate = {}
+    constant_rates = [30, 100]
+    for agent, rate in zip(agents, [30, 100]):
+        input_rate[agent] = np.repeat(rate, max_steps)
+
+    return input_rate
+
+
 # This list contains all fourteen real input request dataset files as Pandas
 # DataFrame. Each DataFrame has a special attribute "idx", a string that
 # indicates which file was read.

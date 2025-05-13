@@ -140,6 +140,8 @@ class DFaaS(MultiAgentEnv):
             match self.input_rate_method:
                 case "synthetic-sinusoidal":
                     pass
+                case "synthetic-constant":
+                    pass
                 case "synthetic-normal":
                     pass
                 case "real":
@@ -215,6 +217,9 @@ class DFaaS(MultiAgentEnv):
                 pass
             case "synthetic-normal":
                 self.input_requests = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
+                pass
+            case "synthetic-constant":
+                self.input_requests = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
                 pass
             case "real":
                 retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
@@ -569,21 +574,46 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def _run_one_episode(verbose=False):
+def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
-    config = {"network": ["node_0 node_1", "node_1"]}
-    # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+    if config is None:
+        config = {"network": ["node_0 node_1", "node_1"]}
+        # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+    if seed is None:
+        seed = 42
+
     env = DFaaS(config=config)
-    _ = env.reset(seed=42)
+    _ = env.reset(seed=seed)
 
     if verbose:
         from tqdm import trange
 
-        range = trange
+        loop = trange
+    else:
+        loop = range
 
-    for step in range(env.max_steps):
+    for step in loop(env.max_steps):
         env.step(action_dict=env.action_space.sample())
 
 
 if __name__ == "__main__":
-    _run_one_episode()
+    # Import these modules only if this module is called as main script.
+    import argparse
+    import dfaas_utils
+
+    desc = "Run a single DFaaS episode with random actions"
+
+    parser = argparse.ArgumentParser(prog="dfaas_env", description=desc)
+
+    parser.add_argument("--env-config", help="Override default environment configuration (TOML file)", type=Path)
+    parser.add_argument("--seed", type=int, help="Override default seed of input rate generation")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+
+    args = parser.parse_args()
+
+    if args.env_config is not None:
+        config = dfaas_utils.toml_to_dict(args.env_config)
+    else:
+        config = None
+
+    _run_one_episode(args.verbose, config, args.seed)
