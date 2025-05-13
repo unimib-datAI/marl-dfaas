@@ -1,5 +1,4 @@
 .env*
-RL4CC
 __pycache__
 results
 *.swp
@@ -8,3 +7,4 @@ results
 .ipynb_checkpoints
 *.pdf
 *.cprofile
+*.html
