@@ -51,17 +51,10 @@ def reward_fn(action, additional_reject):
 
 
 class DFaaS(MultiAgentEnv):
-    """DFaaS environment.
+    """DFaaS multi-agent reinforcement learning environment.
 
-    The constructor accepts a config dictionary with the following keys (see the
-    source code for defaults):
-
-    - network: the graph structure of the DFaaS network, given as adjacency
-      lists to be parsed with NetworkX.
-    - max_steps
-    - input_requests_type
-    - evaluation
-    """
+    The constructor accepts a config dictionary with the environment
+    configuration."""
 
     def __init__(self, config={}):
         # By default, the network has two interconnected agents.
