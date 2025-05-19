@@ -33,61 +33,55 @@ logger = logging.getLogger(Path(__file__).name)
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="dfaas_train", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(dest="suffix", help="A string to append to experiment directory")
-    parser.add_argument(
-        "--no-gpu",
-        help="Disable GPU usage",
-        default=False,
-        dest="no_gpu",
-        action="store_true",
-    )
+    epilog = """Command line arguments always override the configuration of
+    --exp-config argument, if provided."""
+    description = "Run a training experiment on the DFaaS environment."
+
+    parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
+
+    parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
+    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
     parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
     parser.add_argument(
         "--iterations",
-        default=500,
         type=int,
         help="Number of iterations to run (non-negative integer)",
     )
-    parser.add_argument("--algorithm", default="PPO", help="Algorithm to use")
-    parser.add_argument(
-        "--runners",
-        default=5,
-        type=int,
-        help="Number of runners for collecting experencies in each iteration",
-    )
+    parser.add_argument("--algorithm", help="Algorithm to use")
+    parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
     parser.add_argument("--model", type=Path, help="Override default neural networks model")
-    parser.add_argument("--seed", default=42, type=int, help="Seed of the experiment")
+    parser.add_argument("--seed", type=int, help="Seed of the experiment")
 
     args = parser.parse_args()
 
-    if args.seed < 0:
-        print("seed must be a non-negative number")
-        exit(1)
+    # Initialize the experiment configuration from exp-config argument.
+    if args.exp_config is not None:
+        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
+    else:
+        exp_config = {}
 
-    # By default, there are five runners collecting samples, each running 3 complete
-    # episodes (for a total of 4320 samples, 864 for each runner).
-    #
-    # The number of runners can be changed. Each runner is a process. If set to
-    # zero, sampling is done on the main process.
-    runners = args.runners
+    # Override experiment configuration from CLI arguments.
+    for arg in dir(args):
+        if arg.startswith("_"):
+            # It is a built-in name.
+            continue
 
-    # Experiment configuration.
-    # TODO: make this configurable!
-    # TODO: Add custom model option.
-    exp_config = {
-        "algorithm": args.algorithm,
-        "seed": args.seed,  # Seed of the experiment.
-        "max_iterations": args.iterations,  # Number of iterations.
-        "env": dfaas_env.DFaaS.__name__,  # Environment.
-        "gpu": not args.no_gpu,
-        "runners": runners,
-    }
+        if getattr(args, arg) is not None:
+            # The argparse module always sets the argument to None.
+            exp_config[arg] = getattr(args, arg)
+
+    # Set default experiment configuration values if not provided.
+    exp_config["iterations"] = exp_config.get("iterations", 100)
+    exp_config["disable_gpu"] = exp_config.get("disable_gpu", False)
+    exp_config["runners"] = exp_config.get("runners", 1)
+    exp_config["seed"] = exp_config.get("seed", 42)
+    exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
+
     logger.info(f"Experiment configuration = {exp_config}")
 
     # Environment configuration.
-    if args.env_config is not None:
-        env_config = dfaas_utils.toml_to_dict(args.env_config)
+    if exp_config.get("env_config") is not None:
+        env_config = dfaas_utils.toml_to_dict(exp_config["env_config"])
     else:
         env_config = {}
 
@@ -132,23 +126,23 @@ def main():
     # Must be False to have a different network for the Critic.
     model["vf_share_layers"] = False
 
-    if args.model is not None:
+    if exp_config.get("model") is not None:
         # Update the model with the given options.
-        given_model = dfaas_utils.json_to_dict(args.model)
+        given_model = dfaas_utils.json_to_dict(exp_config.get("model"))
         model = model | given_model
 
     assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
-    match args.algorithm:
+    match exp_config["algorithm"]:
         case "PPO":
             experiment = build_ppo(
-                runners=runners,
+                runners=exp_config["runners"],
                 dummy_env=dummy_env,
                 env_config=env_config,
                 model=model,
                 env_eval_config=env_eval_config,
                 exp_config=exp_config,
-                no_gpu=args.no_gpu,
+                no_gpu=False,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
             )
@@ -157,19 +151,19 @@ def main():
             # doesn't work very well because I have to tune the hyperparameters,
             # the neural network and the sampling method.
             experiment = build_sac(
-                runners=runners,
+                runners=exp_config["runners"],
                 dummy_env=dummy_env,
                 env_config=env_config,
                 model=model,
                 env_eval_config=env_eval_config,
                 exp_config=exp_config,
-                no_gpu=args.no_gpu,
+                no_gpu=False,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
             )
         case "APL":
             experiment = build_apl(
-                runners=runners,
+                runners=exp_config["runners"],
                 dummy_env=dummy_env,
                 env_config=env_config,
                 env_eval_config=env_eval_config,
@@ -178,7 +172,7 @@ def main():
                 policy_mapping_fn=policy_mapping_fn,
             )
         case _:
-            raise ValueError(f"Algorithm {args.algorithm!r} not found")
+            raise ValueError(f"Algorithm {exp_config['algorithm']!r} not found")
 
     # Get the experiment directory to save other files.
     logdir = Path(experiment.logdir).resolve()
@@ -197,7 +191,7 @@ def main():
 
     # Save the model architecture for all policies (if the algorithm provides
     # one).
-    if args.algorithm != "APL":
+    if exp_config["algorithm"] != "APL":
         policies_dir = logdir / "policy_model"
         policies_dir.mkdir()
         for policy_name, policy in experiment.env_runner.policy_map.items():
@@ -225,7 +219,7 @@ def main():
 
     # Run the training phase for n iterations.
     logger.info("Training start")
-    max_iterations = exp_config["max_iterations"]
+    max_iterations = exp_config["iterations"]
     with tqdm.tqdm(total=max_iterations) as progress_bar:
         for iteration in range(max_iterations):
             experiment.train()
@@ -249,7 +243,7 @@ def main():
             progress_bar.update(1)
 
     # Save always the latest training iteration.
-    latest_iteration = exp_config["max_iterations"] - 1
+    latest_iteration = exp_config["iterations"] - 1
     checkpoint_path = logdir / f"checkpoint_{latest_iteration:03d}"
     if not checkpoint_path.exists():  # May exist if max_iter is a multiple of 50.
         checkpoint_path = checkpoint_path.as_posix()
@@ -270,7 +264,7 @@ def main():
     Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
 
     # Move the original experiment directory to a custom directory.
-    exp_name = f"DFAAS-MA_{start}_{args.algorithm}_{args.suffix}"
+    exp_name = f"DFAAS-MA_{start}_{exp_config['algorithm']}_{args.suffix}"
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
     logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")

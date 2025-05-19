@@ -1,0 +1,6 @@
+disable_gpu = false
+iterations = 2000
+algorithm = "PPO"
+runners = 1
+model = "configs/models/softplus.json"
+seed = 42

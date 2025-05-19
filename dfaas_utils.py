@@ -8,6 +8,16 @@ import orjson
 def dict_to_json(data, file_path):
     file_path = to_pathlib(file_path)
 
+    # Since orjson does not support serializing Path objects, I need to manually
+    # convert those values to plain strings.
+    #
+    # We assume that these values can only appear at the top level of the
+    # dictionary.
+    if isinstance(data, dict):
+        for key in data:
+            if isinstance(data[key], Path):
+                data[key] = data[key].as_posix()
+
     try:
         with open(file_path, "wb") as file:
             enc = orjson.dumps(data, option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_SORT_KEYS)
