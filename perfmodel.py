@@ -71,6 +71,7 @@ def print_props(props):
     print("------------------\n")
 
 
+@lru_cache(maxsize=2048)
 def get_sls_warm_count_dist(
     arrival_rate,
     warm_service_time,
