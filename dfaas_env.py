@@ -102,20 +102,20 @@ class DFaaS(MultiAgentEnv):
                         # TODO: Change the name.
                         "input_requests": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Incoming local requests in the previous step.
-                        "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.float32),
+                        "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
                         # Incoming local requests but rejected in the previous
                         # step. Note prev_local_rejects < prev_local_requests.
-                        "prev_local_rejects": gym.spaces.Box(low=0, high=150, dtype=np.float32),
+                        "prev_local_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32),
                         # Forwarded requests in the previosu step.
                         "prev_forward_requests": gym.spaces.Box(
                             low=0,
                             high=150,
-                            dtype=np.float32,
+                            dtype=np.int32,
                         ),
                         # Forwarded requests but rejected requests in the
                         # previous step.
                         # Note prev_forward_rejects <= prev_forward_requests.
-                        "prev_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.float32),
+                        "prev_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32),
                     }
                 )
                 for agent in self.agents
@@ -406,90 +406,162 @@ class DFaaS(MultiAgentEnv):
         forward = {agent: action[agent][1] for agent in self.agents}
         reject = {agent: action[agent][2] for agent in self.agents}
 
-        # Rate of incoming requests for each agent and action. The first is
-        # always the local requests.
+        # Incoming rate for each agent. Each value is a list of incoming rates
+        # for that agent.
         incoming_rate = {agent: [] for agent in self.agents}
 
-        # Total rate of incoming requests for each agent (local + forwarded).
-        incoming_rate_total = {agent: 0 for agent in self.agents}
-
-        # Label (ID) of each agent in the corresponding incoming_reqs key.
+        # The label (ID) of the agent for each incoming rate.
+        #
+        # E.g.: incoming_rate["node_0"] = [30, 10, 15]
+        #       incoming_rate_agents["node_0"] = ["node_1", "node_0", "node_2"]
         incoming_rate_agents = {agent: [] for agent in self.agents}
 
-        # Before calling the pacsltk's function, collect the total rate of
-        # requests for each agent.
+        # Before calling the pacsltk's function, collect the total incoming rate
+        # of requests for each agent.
         for agent in self.agents:
             incoming_rate[agent].append(local[agent])
             incoming_rate_agents[agent].append(agent)
 
-            for neighbor in self.network.neighbors(agent):
-                # The rate of forwarded requests are distributed equally to all
-                # neighbouring nodes, so I need to calculate the share for the
-                # current agent.
-                forwarded_reqs = forward[neighbor] / self.network.degree(neighbor)
-                incoming_rate[agent].append(forwarded_reqs)
-                incoming_rate_agents[agent].append(neighbor)
+            self.info["incoming_rate_local"][agent][self.current_step] = local[agent]
 
-            incoming_rate_total[agent] = sum(incoming_rate[agent])
-
-            self.info["incoming_rate"][agent][self.current_step] = incoming_rate_total[agent]
-            self.info["incoming_rate_local"][agent][self.current_step] = incoming_rate[agent][0]
-            self.info["incoming_rate_forward"][agent][self.current_step] = sum(incoming_rate[agent][1:])
+        for agent in self.agents:
+            # Distribute the forwarding rate to its neighbors. Since it is an
+            # integer division, add one extra rate for some neighbors until the
+            # remainder is accounted for.
+            neighbors = self.network.degree(agent)
+            share, remainder = divmod(forward[agent], neighbors)
+            shares = [share + 1 if i < remainder else share for i in range(neighbors)]
+            for neighbor, share in zip(self.network.neighbors(agent), shares):
+                incoming_rate[neighbor].append(share)
+                incoming_rate_agents[neighbor].append(agent)
+                self.info["incoming_rate_forward"][neighbor][self.current_step] += share
 
         # Then call the pacsltk's function for each agent.
         for agent in self.agents:
-            if incoming_rate_total[agent] == 0:
-                # Skip this agent since there a no requests to handle.
+            incoming_rate_total = sum(incoming_rate[agent])
+            self.info["incoming_rate"][agent][self.current_step] = incoming_rate_total
+            if incoming_rate_total == 0:
+                # Skip this agent since there are no requests to handle.
                 continue
 
             result_props, _ = perfmodel.get_sls_warm_count_dist(
-                incoming_rate_total[agent],
+                incoming_rate_total,
                 warm_service_time,
                 cold_service_time,
                 idle_time_before_kill,
             )
             rejection_rate = result_props["rejection_rate"]
-            self.info["incoming_rate_reject"][agent][self.current_step] = rejection_rate
 
             # Distribute the rejection rate to all agents (itself and its
-            # neighbors), proportionally to the incoming rate for each agent.
-            for idx in range(len(incoming_rate[agent])):
-                # Portions of incoming rate.
-                incoming_dist_agent = incoming_rate_agents[agent][idx]
-                incoming_dist_rate = incoming_rate[agent][idx]
+            # neighbors).
+            rejects = _distribute_rejects(rejection_rate, incoming_rate[agent])
 
-                reject = round(rejection_rate * incoming_dist_rate / incoming_rate_total[agent])
+            self.info["incoming_rate_reject"][agent][self.current_step] = sum(rejects)
+            for idx in range(len(incoming_rate)):
+                reject_share = rejects[idx]
+                reject_agent = incoming_rate_agents[agent][idx]
+
+                assert reject_share <= incoming_rate[agent][idx]
 
                 # Current agent (local incoming rate).
-                if incoming_dist_agent == agent:
-                    self.info["incoming_rate_local_reject"][agent][self.current_step] = reject
+                if reject_agent == agent:
+                    self.info["incoming_rate_local_reject"][agent][self.current_step] = reject_share
                 else:  # Neighbor agent (forwarded requests).
-                    neighbor = incoming_dist_agent
+                    neighbor = reject_agent
 
                     # Update the forwarded reject rate for the neighbor and the
                     # incoming forward reject rate for the receiving agent.
-                    self.info["forward_reject_rate"][neighbor][self.current_step] += reject
-                    self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject
+                    self.info["forward_reject_rate"][neighbor][self.current_step] += reject_share
+                    self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject_share
+
+
+def _distribute_rejects(reject_rate, incoming_rate):
+    """Distributes a given number of rejects proportionally among agents based
+    on their incoming rates.
+
+    Args:
+        - reject_rate (float or int): the total number of rejects to distribute.
+        - incoming_rate (list of int): the list of incoming rates from each
+          agent.
+
+    Returns:
+        - list of int: a list where each element represents the number of rejects
+        allocated to each agent.
+    """
+    agents = len(incoming_rate)
+    reject_rate = round(reject_rate)
+
+    if reject_rate == 0:  # Special (and rare) case.
+        return [0 for i in range(agents)]
+
+    # First, we need to convert the raw incoming rate, which is a list of
+    # integers, into proportions of the incoming rate.
+    incoming_rate = np.array(incoming_rate)
+    proportions = incoming_rate / incoming_rate.sum()
+    assert incoming_rate.sum() >= reject_rate
+
+    # Distribute the rejects proportionally among all agents according to the
+    # incoming rate. Since we want integers, we must account for the fractional
+    # parts.
+    raw_rates = proportions * reject_rate
+    floored = np.floor(raw_rates).astype(int)
+    remainder = int(round(reject_rate - floored.sum()))
+
+    # Find the indices with the largest fractional parts and add one more rate
+    # until the remainder is zero.
+    fractional_parts = raw_rates - floored
+    for _ in range(remainder):
+        max_idx = np.argmax(fractional_parts)
+        floored[max_idx] += 1
+        fractional_parts[max_idx] = -1  # Dummy value to avoid picking this id again.
+    assert floored.sum() == reject_rate
+
+    return floored.tolist()
 
 
 def _convert_arrival_rate_dist(arrival_rate, action_dist):
     """Distribute the arrival rate to the given action distribution.
 
     Returns a tuple of three elements: the arrival rate of local requests,
-    forwarded and rejected.
+    forwarded and rejected. They are always integer values.
 
     This function expects an action distribution (e.g. [.7, .2, .1])."""
     assert len(action_dist) == 3, "Expected (local, forward, reject)"
 
-    # Extract the three actions from the action distribution.
-    prob_local, prob_forward, prob_reject = action_dist
+    # Extract the three actions from the action distribution
+    prob_local, prob_forwarded, prob_rejected = action_dist
 
-    # Get the corresponding arrival rate for each action.
-    rate_local = arrival_rate * prob_local
-    rate_forward = arrival_rate * prob_forward
-    rate_reject = arrival_rate * prob_reject
+    # Get the corresponding arrival rate for each action. Note: the arrival rate
+    # is a discrete number, so there is a fraction of the action probabilities
+    # that is left out of the calculation.
+    actions = [
+        int(prob_local * arrival_rate),
+        int(prob_forwarded * arrival_rate),
+        int(prob_rejected * arrival_rate),
+    ]
 
-    return tuple([rate_local, rate_forward, rate_reject])
+    arrival_rate_conv = sum(actions)
+
+    if arrival_rate_conv < arrival_rate:
+        # There is a fraction of unassigned arrival rate. We need to fix this
+        # problem by assigning the remaining arrival rate to the higher fraction
+        # for the three action probabilities, because that action is the one
+        # that loses the most.
+
+        # Extract the fraction for each action probability.
+        fractions = [
+            prob_local * arrival_rate - actions[0],
+            prob_forwarded * arrival_rate - actions[1],
+            prob_rejected * arrival_rate - actions[2],
+        ]
+
+        # Get the highest fraction index and and assign the remaining rate to
+        # that action.
+        max_fraction_index = np.argmax(fractions)
+        actions[max_fraction_index] += arrival_rate - arrival_rate_conv
+
+    assert sum(actions) == arrival_rate
+    return tuple(actions)
 
 
 # Register the environments with Ray so that they can be used automatically when
