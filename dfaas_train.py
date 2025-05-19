@@ -57,12 +57,6 @@ def main():
         help="Number of runners for collecting experencies in each iteration",
     )
     parser.add_argument("--model", type=Path, help="Override default neural networks model")
-    parser.add_argument(
-        "--skip-evaluation",
-        default=False,
-        action="store_true",
-        help="Skip final evaluation",
-    )
     parser.add_argument("--seed", default=42, type=int, help="Seed of the experiment")
 
     args = parser.parse_args()
@@ -87,7 +81,6 @@ def main():
         "max_iterations": args.iterations,  # Number of iterations.
         "env": dfaas_env.DFaaS.__name__,  # Environment.
         "gpu": not args.no_gpu,
-        "final_evaluation": not args.skip_evaluation,
         "runners": runners,
     }
     logger.info(f"Experiment configuration = {exp_config}")
@@ -225,17 +218,35 @@ def main():
         except FileNotFoundError:
             logger.warning(f"Failed to copy {filename!r}: file not found")
 
+    # Each item is an evaluation result dictionary. This will be saved to the
+    # disk at the end of the experiment.
+    eval_result = []
+    eval_file = logdir / "evaluation.json"
+
     # Run the training phase for n iterations.
     logger.info("Training start")
     max_iterations = exp_config["max_iterations"]
-    for iteration in tqdm.trange(max_iterations):
-        result = experiment.train()
+    with tqdm.tqdm(total=max_iterations) as progress_bar:
+        for iteration in range(max_iterations):
+            experiment.train()
 
-        # Save a checkpoint every 50 iterations.
-        if ((iteration + 1) % 50) == 0:
-            checkpoint_path = (logdir / f"checkpoint_{iteration:03d}").as_posix()
-            experiment.save(checkpoint_path)
-            logger.info(f"Checkpoint saved to {checkpoint_path!r}")
+            # Exclude checkpoint and evaluation from progress bar timings.
+            progress_bar.update(0)
+
+            # Save a checkpoint every 50 iterations.
+            if ((iteration + 1) % 50) == 0:
+                checkpoint_path = (logdir / f"checkpoint_{iteration:03d}").as_posix()
+                experiment.save(checkpoint_path)
+                logger.info(f"Checkpoint saved to {checkpoint_path!r}")
+
+            # Evaluate the trained agents every 25 iterations.
+            if ((iteration + 1) % 25) == 0:
+                logger.info(f"Evaluation of the {iteration}-th iteration")
+                evaluation = experiment.evaluate()
+                evaluation["iteration"] = iteration
+                eval_result.append(evaluation)
+
+            progress_bar.update(1)
 
     # Save always the latest training iteration.
     latest_iteration = exp_config["max_iterations"] - 1
@@ -243,16 +254,16 @@ def main():
     if not checkpoint_path.exists():  # May exist if max_iter is a multiple of 50.
         checkpoint_path = checkpoint_path.as_posix()
         experiment.save(checkpoint_path)
-        logger.info(f"Checkpoint saved to {checkpoint_path!r}")
-    logger.info(f"Iterations data saved to: {experiment.logdir}/result.json")
+        logger.info(f"Final checkpoint saved to {checkpoint_path!r}")
+    logger.info(f"Training results data saved to: {experiment.logdir}/result.json")
 
     # Do a final evaluation.
-    if not args.skip_evaluation:
-        logger.info("Final evaluation start")
-        evaluation = experiment.evaluate()
-        eval_file = logdir / "evaluation.json"
-        dfaas_utils.dict_to_json(evaluation, eval_file)
-        logger.info(f"Final evaluation saved to: {experiment.logdir}/final_evaluation.json")
+    logger.info("Evaluation of the final iteration")
+    evaluation = experiment.evaluate()
+    evaluation["iteration"] = latest_iteration
+    eval_result.append(evaluation)
+    dfaas_utils.dict_to_json(eval_result, eval_file)
+    logger.info(f"Evaluation results data saved to: {eval_file.as_posix()}")
 
     # Remove unused or problematic files in the result directory.
     Path(logdir / "progress.csv").unlink()  # result.json contains same data.
