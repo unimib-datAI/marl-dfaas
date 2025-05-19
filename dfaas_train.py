@@ -217,6 +217,11 @@ def main():
     eval_result = []
     eval_file = logdir / "evaluation.json"
 
+    # Create the experiment name. At the end of the experiment this name will be
+    # used as output directory name.
+    exp_name = f"DFAAS-MA_{start}_{exp_config['algorithm']}_{args.suffix}"
+    logger.info(f"Experiment name: {exp_name}")
+
     # Run the training phase for n iterations.
     logger.info("Training start")
     max_iterations = exp_config["iterations"]
@@ -264,7 +269,6 @@ def main():
     Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
 
     # Move the original experiment directory to a custom directory.
-    exp_name = f"DFAAS-MA_{start}_{exp_config['algorithm']}_{args.suffix}"
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
     logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
