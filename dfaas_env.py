@@ -457,7 +457,7 @@ class DFaaS(MultiAgentEnv):
             rejects = _distribute_rejects(rejection_rate, incoming_rate[agent])
 
             self.info["incoming_rate_reject"][agent][self.current_step] = sum(rejects)
-            for idx in range(len(incoming_rate)):
+            for idx in range(len(incoming_rate[agent])):
                 reject_share = rejects[idx]
                 reject_agent = incoming_rate_agents[agent][idx]
 
@@ -492,7 +492,7 @@ def _distribute_rejects(reject_rate, incoming_rate):
     reject_rate = round(reject_rate)
 
     if reject_rate == 0:  # Special (and rare) case.
-        return [0 for i in range(agents)]
+        return np.repeat(0, agents).tolist()
 
     # First, we need to convert the raw incoming rate, which is a list of
     # integers, into proportions of the incoming rate.
