@@ -144,7 +144,7 @@ def synthetic_constant(max_steps, agents):
     assert len(agents) == 2, "Only two agents supported by this input rate generation method"
 
     input_rate = {}
-    constant_rates = [30, 100]
+    constant_rates = np.array([30, 100], dtype=np.int32)
     for agent, rate in zip(agents, [30, 100]):
         input_rate[agent] = np.repeat(rate, max_steps)
 
