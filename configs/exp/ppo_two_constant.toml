@@ -1,0 +1,14 @@
+disable_gpu = false
+iterations = 2000
+algorithm = "PPO"
+runners = 1
+model = "configs/models/softplus.json"
+seed = 42
+
+[[policies]]
+name = "policy_node_0"
+class = "dfaas_apl.APLPolicy"
+
+[[policies]]
+name = "policy_node_1"
+# Use default policy (PPO) (class = None).

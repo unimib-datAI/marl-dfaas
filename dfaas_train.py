@@ -12,6 +12,7 @@ import tqdm
 import ray
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.algorithms.ppo import PPOConfig
+from ray.rllib.algorithms.registry import get_policy_class
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.models.catalog import MODEL_DEFAULTS
 
@@ -115,6 +116,29 @@ def main():
             action_space=dummy_env.action_space[agent],
             config=None,
         )
+
+    # Allow to overwrite the default policies with the TOML config file.
+    if exp_config.get("policies") is not None:
+        policies = {}
+
+        for policy_cfg in exp_config["policies"]:
+            policy_name = policy_cfg["name"]
+
+            # PolicySpec expects the Python class of the policy, not the raw
+            # string!
+            if policy_cfg.get("class"):
+                policy_class = get_policy_class(policy_cfg["class"])
+            else:
+                policy_class = None
+
+            policies[policy_name] = PolicySpec(
+                policy_class=policy_class,
+                observation_space=dummy_env.observation_space[agent],
+                action_space=dummy_env.action_space[agent],
+                config=None,
+            )
+
+        assert len(policies) == len(dummy_env.agents), "Each policy should be mapped to an agent (and viceversa)"
 
     def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         """Called by RLlib at each step to map an agent to a policy (defined above).
