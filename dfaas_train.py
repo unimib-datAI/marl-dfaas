@@ -76,6 +76,7 @@ def main():
     exp_config["runners"] = exp_config.get("runners", 1)
     exp_config["seed"] = exp_config.get("seed", 42)
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
+    exp_config["env"] = dfaas_env.DFaaS.__name__
 
     logger.info(f"Experiment configuration = {exp_config}")
 
