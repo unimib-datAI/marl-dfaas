@@ -138,6 +138,10 @@ Just run:
 
 Then open http://localhost:8888/tree in a Web browser.
 
+To export a notebook as HTML file:
+
+    $ jupyter nbconvert notebook.ipynb --no-input --to html
+
 ## Patching Ray
 
 The selected version of Ray RLlib needs to be patched to fix some bugs or
