@@ -108,6 +108,7 @@ def main():
     # Note that if no option is given to PolicySpec, it will inherit the
     # configuration/algorithm from the main configuration.
     policies = {}
+    policies_to_train = []
     for agent in dummy_env.agents:
         policy_name = f"policy_{agent}"
         policies[policy_name] = PolicySpec(
@@ -116,10 +117,12 @@ def main():
             action_space=dummy_env.action_space[agent],
             config=None,
         )
+        policies_to_train.append(policy_name)
 
     # Allow to overwrite the default policies with the TOML config file.
     if exp_config.get("policies") is not None:
-        policies = {}
+        policies.clear()
+        policies_to_train.clear()
 
         for policy_cfg in exp_config["policies"]:
             policy_name = policy_cfg["name"]
@@ -127,9 +130,12 @@ def main():
             # PolicySpec expects the Python class of the policy, not the raw
             # string!
             if policy_cfg.get("class"):
-                policy_class = get_policy_class(policy_cfg["class"])
+                assert policy_cfg["class"] == "APLPolicy", "Only APLPolicy is supported as custom policy"
+                policy_class = dfaas_apl.APLPolicy
             else:
+                # It uses PPO (default if None).
                 policy_class = None
+                policies_to_train.append(policy_name)
 
             policies[policy_name] = PolicySpec(
                 policy_class=policy_class,
@@ -139,6 +145,11 @@ def main():
             )
 
         assert len(policies) == len(dummy_env.agents), "Each policy should be mapped to an agent (and viceversa)"
+
+    # Log policies data.
+    for policy_name, policy in policies.items():
+        logger.info(f"Policy: name = {policy_name!r}, class = {policy.policy_class!r}")
+    logger.info(f"Policies to train: {policies_to_train}")
 
     def policy_mapping_fn(agent_id, episode, worker, **kwargs):
         """Called by RLlib at each step to map an agent to a policy (defined above).
@@ -170,6 +181,7 @@ def main():
                 no_gpu=False,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
+                policies_to_train=policies_to_train,
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -309,6 +321,7 @@ def build_ppo(**kwargs):
     no_gpu = kwargs["no_gpu"]
     policies = kwargs["policies"]
     policy_mapping_fn = kwargs["policy_mapping_fn"]
+    policies_to_train = kwargs["policies_to_train"]
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we must
@@ -353,7 +366,7 @@ def build_ppo(**kwargs):
         .debugging(seed=exp_config["seed"])
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
-        .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
+        .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
     )
 
     return config.build()

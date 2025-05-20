@@ -29,6 +29,10 @@ class APLPolicy(Policy):
             # This is a special env, it does not take any action.
             return
 
+        # There is no NN model with this policy, but make sure to have this
+        # attribute since dfaas_train call it to save to disk.
+        self.model = None
+
         if not isinstance(action_space, Simplex):
             raise ValueError(f"Only Simplex action space is supported by APLPolicy, found {action_space.__class__!r}")
 

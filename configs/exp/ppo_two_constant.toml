@@ -7,7 +7,7 @@ seed = 42
 
 [[policies]]
 name = "policy_node_0"
-class = "dfaas_apl.APLPolicy"
+class = "APLPolicy"
 
 [[policies]]
 name = "policy_node_1"
