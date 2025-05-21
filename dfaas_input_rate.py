@@ -140,12 +140,12 @@ def synthetic_constant(max_steps, agents):
     length.
 
     Current limitations: only two-agent environments are supported, and the
-    constat rates are hardcoded as 30 and 100."""
+    constat rates are hardcoded as 5 and 100."""
     assert len(agents) == 2, "Only two agents supported by this input rate generation method"
 
     input_rate = {}
-    constant_rates = np.array([30, 100], dtype=np.int32)
-    for agent, rate in zip(agents, [30, 100]):
+    constant_rates = np.array([5, 100], dtype=np.int32)
+    for agent, rate in zip(agents, [5, 100]):
         input_rate[agent] = np.repeat(rate, max_steps)
 
     return input_rate
