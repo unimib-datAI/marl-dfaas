@@ -155,7 +155,7 @@ import numpy as np
 
 """
 obs = {
-    "input_requests": np.array([100], dtype=np.int32),
+    "input_rate": np.array([100], dtype=np.int32),
     "prev_forward_rejects": np.array([0.0], dtype=np.float32),
     "prev_forward_requests": np.array([42.0], dtype=np.float32),
     "prev_local_rejects": np.array([0.0], dtype=np.float32),
@@ -164,7 +164,7 @@ obs = {
 """
 
 obs = {
-    "input_requests": np.array([100], dtype=np.int32),
+    "input_rate": np.array([100], dtype=np.int32),
     "prev_forward_rejects": np.array([0.0], dtype=np.float32),
     "prev_forward_requests": np.array([46.0], dtype=np.float32),
     "prev_local_rejects": np.array([0.0], dtype=np.float32),

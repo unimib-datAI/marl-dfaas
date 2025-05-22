@@ -99,8 +99,7 @@ class DFaaS(MultiAgentEnv):
                     {
                         # Arrival rate of input requests per second to process
                         # for a single step.
-                        # TODO: Change the name.
-                        "input_requests": gym.spaces.Box(low=1, high=150, dtype=np.int32),
+                        "input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Incoming local requests in the previous step.
                         "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
                         # Incoming local requests but rejected in the previous
@@ -123,11 +122,11 @@ class DFaaS(MultiAgentEnv):
         )
 
         # Save the action range that is based on the minimium and maximium
-        # possibile value of input requests for all agents.
+        # possibile value of input rate for all agents.
         #
-        # Note: This assumes that all agents have the same input request range.
-        input_requests_space = self.observation_space["node_0"]["input_requests"]
-        self.action_range = (input_requests_space.low.item(), input_requests_space.high.item())
+        # Note: This assumes that all agents have the same input rate range.
+        input_rate_space = self.observation_space["node_0"]["input_rate"]
+        self.action_range = (input_rate_space.low.item(), input_rate_space.high.item())
 
         # Number of steps in the environment. The default is one step for every
         # 5 minutes of a 24-hour day.
@@ -206,30 +205,28 @@ class DFaaS(MultiAgentEnv):
         limits = {}
         for agent in self.agents:
             limits[agent] = {
-                "min": self.observation_space[agent]["input_requests"].low.item(),
-                "max": self.observation_space[agent]["input_requests"].high.item(),
+                "min": self.observation_space[agent]["input_rate"].low.item(),
+                "max": self.observation_space[agent]["input_rate"].high.item(),
             }
         match self.input_rate_method:
             case "synthetic-sinusoidal":
-                self.input_requests = dfaas_input_rate.synthetic_sinusoidal(
-                    self.max_steps, self.agents, limits, self.rng
-                )
+                self.input_rate = dfaas_input_rate.synthetic_sinusoidal(self.max_steps, self.agents, limits, self.rng)
                 pass
             case "synthetic-normal":
-                self.input_requests = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
+                self.input_rate = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
                 pass
             case "synthetic-constant":
-                self.input_requests = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
+                self.input_rate = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
                 pass
             case "real":
                 retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 
-                self.input_requests = retval[0]
+                self.input_rate = retval[0]
 
                 # Special attribute, not returned in the observation: contains
                 # the hashes of the selected input requests. It is used by the
                 # callbacks.
-                self.input_requests_hashes = retval[1]
+                self.input_rate_hashes = retval[1]
             case _:
                 assert False, f"Unreachable code"
 
@@ -264,7 +261,7 @@ class DFaaS(MultiAgentEnv):
         action = {}
         for agent in self.agents:
             # Get total arrival rate.
-            arrival_rate = self.input_requests[agent][self.current_step]
+            arrival_rate = self.input_rate[agent][self.current_step]
 
             # Convert the action distribution (a distribution of probabilities)
             # into the number of requests to locally process, to forward and to
@@ -358,9 +355,9 @@ class DFaaS(MultiAgentEnv):
         # Special case: there is no data from the previous step at the start.
         if self.current_step == 0:
             for agent in self.agents:
-                input_requests = self.input_requests[agent][self.current_step]
+                input_rate = self.input_rate[agent][self.current_step]
                 obs[agent] = {
-                    "input_requests": np.array([input_requests], dtype=np.float32),
+                    "input_rate": np.array([input_rate], dtype=np.float32),
                     "prev_local_requests": np.array([0], dtype=np.float32),
                     "prev_local_rejects": np.array([0], dtype=np.float32),
                     "prev_forward_requests": np.array([0], dtype=np.float32),
@@ -373,13 +370,13 @@ class DFaaS(MultiAgentEnv):
 
         # Normal case.
         for agent in self.agents:
-            input_requests = self.input_requests[agent][self.current_step]
+            input_rate = self.input_rate[agent][self.current_step]
             prev_local_reqs = self.info["action_local"][agent][self.current_step - 1]
             prev_local_rejects = self.info["incoming_rate_local_reject"][agent][self.current_step - 1]
             prev_forward_reqs = self.info["action_forward"][agent][self.current_step - 1]
             prev_forward_rejects = self.info["forward_reject_rate"][agent][self.current_step - 1]
 
-            obs[agent]["input_requests"] = np.array([input_requests], dtype=np.float32)
+            obs[agent]["input_rate"] = np.array([input_rate], dtype=np.float32)
 
             obs[agent]["prev_local_requests"] = np.array([prev_local_reqs], dtype=np.float32)
             obs[agent]["prev_local_rejects"] = np.array([prev_local_rejects], dtype=np.float32)
@@ -608,7 +605,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         # hashes of all the requests used in the episode (one for each agent) in
         # order to identify the individual requests.
         if env.input_rate_same_method and env.input_rate_method == "real":
-            episode.hist_data["hashes"] = [env.input_requests_hashes]
+            episode.hist_data["hashes"] = [env.input_rate_hashes]
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
         """Called when an episode is done (after terminated/truncated have been
