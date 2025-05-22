@@ -1,0 +1,15 @@
+--- .env/lib/python3.12/site-packages/ray/rllib/policy/policy.py	2025-05-22 15:02:53.657371092 +0200
++++ .env/lib/python3.12/site-packages/ray/rllib/policy/policy_new.py	2025-05-22 15:21:07.271887779 +0200
+@@ -1030,8 +1030,10 @@
+             if policy_spec.config:
+                 self.config = policy_spec.config
+ 
+-        # Override NN weights.
+-        self.set_weights(state["weights"])
++        # FIXME: Temporary fix to load APLPolicy from checkpoints.
++        if state["policy_spec"]["policy_class"] != "APLPolicy":
++            # Override NN weights.
++            self.set_weights(state["weights"])
+         self.restore_connectors(state)
+ 
+     def apply(

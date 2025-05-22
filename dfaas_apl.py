@@ -68,9 +68,9 @@ class APLPolicy(Policy):
         pass
 
 
-# Register the APLPolicy in the global registry to ensure that checkpointed
-# experiments can be loaded in the future.
-registry.POLICIES["APLPolicy"] = f"{__name__}.APLPolicy"
+# Register this module in the global registry to ensure that checkpointed
+# experiments can be loaded in the future using APLPolicy.
+registry.POLICIES["APLPolicy"] = f"{__name__}"
 
 
 class APLConfig(AlgorithmConfig):

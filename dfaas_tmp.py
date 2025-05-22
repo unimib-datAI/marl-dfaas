@@ -155,9 +155,9 @@ import numpy as np
 obs = {
     "input_requests": np.array([100], dtype=np.int32),
     "prev_forward_rejects": np.array([0.0], dtype=np.float32),
-    "prev_forward_requests": np.array([30.9], dtype=np.float32),
+    "prev_forward_requests": np.array([31.0], dtype=np.float32),
     "prev_local_rejects": np.array([0.0], dtype=np.float32),
-    "prev_local_requests": np.array([31.0], dtype=np.float32),
+    "prev_local_requests": np.array([61.0], dtype=np.float32),
 }
 
 obs_pp = preprocess(obs, policy)
