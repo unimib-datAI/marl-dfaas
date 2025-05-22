@@ -125,7 +125,8 @@ ppo_config = (
 ppo_algo = ppo_config.build()
 
 # Load by default the latest checkpoint.
-checkpoint_path = sorted(exp_dir.glob("checkpoint_*"))[-1]
+# FIXME: if checkpoint_99 vs checkpoint_099 vs checkpoint_1999
+checkpoint_path = sorted(exp_dir.glob("checkpoint_1*"))[-1]
 exp_config["from_checkpoint"] = checkpoint_path.name
 ppo_algo.restore(checkpoint_path.as_posix())
 logger.info(f"Algorithm restored from {checkpoint_path.name!r}")
@@ -152,16 +153,34 @@ def preprocess(obs, policy):
 
 import numpy as np
 
+"""
 obs = {
     "input_requests": np.array([100], dtype=np.int32),
     "prev_forward_rejects": np.array([0.0], dtype=np.float32),
-    "prev_forward_requests": np.array([31.0], dtype=np.float32),
+    "prev_forward_requests": np.array([42.0], dtype=np.float32),
     "prev_local_rejects": np.array([0.0], dtype=np.float32),
-    "prev_local_requests": np.array([61.0], dtype=np.float32),
+    "prev_local_requests": np.array([43.0], dtype=np.float32),
+}
+"""
+
+obs = {
+    "input_requests": np.array([100], dtype=np.int32),
+    "prev_forward_rejects": np.array([0.0], dtype=np.float32),
+    "prev_forward_requests": np.array([46.0], dtype=np.float32),
+    "prev_local_rejects": np.array([0.0], dtype=np.float32),
+    "prev_local_requests": np.array([53.0], dtype=np.float32),
 }
 
 obs_pp = preprocess(obs, policy)
 
-action, _, extra_info = policy.compute_single_action(obs=obs_pp)
-print(action)
-print(extra_info)
+from pprint import pprint
+
+pprint(obs)
+
+for x in range(10):
+    action, _, extra_info = policy.compute_single_action(obs=obs_pp)
+    pprint(action)
+    pprint(extra_info)
+
+    print()
+    print()
