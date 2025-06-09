@@ -1,11 +1,11 @@
 disable_gpu = false
-iterations = 20000
+iterations = 10000
 algorithm = "PPO"
 runners = 1
 model = "configs/models/softplus.json"
 seed = 42
-checkpoint_interval = 1000
-evaluation_interval = 1000
+checkpoint_interval = 500
+evaluation_interval = 500
 
 [[policies]]
 name = "policy_node_0"
