@@ -100,11 +100,8 @@ class DFaaS(MultiAgentEnv):
                         # Arrival rate of input requests per second to process
                         # for a single step.
                         "input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
-                        # Incoming local requests in the previous step.
-                        "prev_local_requests": gym.spaces.Box(low=0, high=150, dtype=np.int32),
-                        # Incoming local requests but rejected in the previous
-                        # step. Note prev_local_rejects < prev_local_requests.
-                        "prev_local_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+                        # Arrival rate of the previous step.
+                        "prev_input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Forwarded requests in the previosu step.
                         "prev_forward_requests": gym.spaces.Box(
                             low=0,
@@ -358,8 +355,7 @@ class DFaaS(MultiAgentEnv):
                 input_rate = self.input_rate[agent][self.current_step]
                 obs[agent] = {
                     "input_rate": np.array([input_rate], dtype=np.float32),
-                    "prev_local_requests": np.array([0], dtype=np.float32),
-                    "prev_local_rejects": np.array([0], dtype=np.float32),
+                    "prev_input_rate": np.array([1], dtype=np.float32),
                     "prev_forward_requests": np.array([0], dtype=np.float32),
                     "prev_forward_rejects": np.array([0], dtype=np.float32),
                 }
@@ -371,18 +367,14 @@ class DFaaS(MultiAgentEnv):
         # Normal case.
         for agent in self.agents:
             input_rate = self.input_rate[agent][self.current_step]
-            prev_local_reqs = self.info["action_local"][agent][self.current_step - 1]
-            prev_local_rejects = self.info["incoming_rate_local_reject"][agent][self.current_step - 1]
+            prev_input_rate = self.input_rate[agent][self.current_step - 1]
             prev_forward_reqs = self.info["action_forward"][agent][self.current_step - 1]
             prev_forward_rejects = self.info["forward_reject_rate"][agent][self.current_step - 1]
 
-            obs[agent]["input_rate"] = np.array([input_rate], dtype=np.float32)
-
-            obs[agent]["prev_local_requests"] = np.array([prev_local_reqs], dtype=np.float32)
-            obs[agent]["prev_local_rejects"] = np.array([prev_local_rejects], dtype=np.float32)
-
-            obs[agent]["prev_forward_requests"] = np.array([prev_forward_reqs], dtype=np.float32)
-            obs[agent]["prev_forward_rejects"] = np.array([prev_forward_rejects], dtype=np.float32)
+            obs[agent]["input_rate"] = np.array([input_rate], dtype=np.int32)
+            obs[agent]["prev_input_rate"] = np.array([prev_input_rate], dtype=np.int32)
+            obs[agent]["prev_forward_requests"] = np.array([prev_forward_reqs], dtype=np.int32)
+            obs[agent]["prev_forward_rejects"] = np.array([prev_forward_rejects], dtype=np.int32)
 
         update_info(obs)
         return obs
