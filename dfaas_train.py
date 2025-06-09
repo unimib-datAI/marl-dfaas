@@ -34,8 +34,8 @@ logger = logging.getLogger(Path(__file__).name)
 
 
 def main():
-    epilog = """Command line arguments always override the configuration of
-    --exp-config argument, if provided."""
+    epilog = """Some command line options can override the configuration of
+    --exp-config option, if provided."""
     description = "Run a training experiment on the DFaaS environment."
 
     parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
@@ -45,6 +45,11 @@ def main():
     parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
     parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
     parser.add_argument("--seed", type=int, help="Seed of the experiment")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stop after one training iteration (useful for debugging purposes). Default is False",
+    )
 
     args = parser.parse_args()
 
@@ -84,6 +89,7 @@ def main():
 
     # Create a dummy environment, used as reference.
     dummy_env = dfaas_env.DFaaS(config=env_config)
+    logger.info(f"Environment configuration")
     for key, value in dummy_env.get_config().items():
         logger.info(f"{key:>25}: {value}")
 
@@ -261,12 +267,16 @@ def main():
     checkpoint_interval = exp_config["checkpoint_interval"]
     assert checkpoint_interval >= 0, "Checkpoint interval must be non negative!"
     logger.info("Training start")
+    dry_run = args.dry_run
     with tqdm.tqdm(total=max_iterations) as progress_bar:
         for iteration in range(max_iterations):
             experiment.train()
 
             # Exclude checkpoint and evaluation from progress bar timings.
             progress_bar.update(0)
+
+            if dry_run:
+                break
 
             # Save a checkpoint every checkpoint_interval iterations (0 means
             # disabled).
