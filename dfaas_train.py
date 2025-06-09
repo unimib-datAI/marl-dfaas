@@ -43,14 +43,7 @@ def main():
     parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
     parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
     parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        help="Number of iterations to run (non-negative integer)",
-    )
-    parser.add_argument("--algorithm", help="Algorithm to use")
     parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
-    parser.add_argument("--model", type=Path, help="Override default neural networks model")
     parser.add_argument("--seed", type=int, help="Seed of the experiment")
 
     args = parser.parse_args()
@@ -80,7 +73,9 @@ def main():
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
-    logger.info(f"Experiment configuration = {exp_config}")
+    logger.info(f"Experiment configuration")
+    for key, value in exp_config.items():
+        logger.info(f"{key:>25}: {value}")
 
     # Environment configuration.
     if exp_config.get("env_config") is not None:
@@ -90,7 +85,8 @@ def main():
 
     # Create a dummy environment, used as reference.
     dummy_env = dfaas_env.DFaaS(config=env_config)
-    logger.info(f"Environment configuration = {dummy_env.get_config()}")
+    for key, value in dummy_env.get_config().items():
+        logger.info(f"{key:>25}: {value}")
 
     # For the evaluation phase at the end, the env_config is different than the
     # training one.

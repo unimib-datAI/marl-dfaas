@@ -1,0 +1,33 @@
+# This is the default configuration file used for running experiments.
+
+# Algorithm to use. Supported values: "PPO".
+algorithm = "PPO"
+
+# Do not use the GPU to train neural networks.
+disable_gpu = false
+
+# Number of training iterations to run.
+iterations = 100
+
+# The number of parallel runners that will be launched to collect experiences in
+# a training iteration. If the number is 0, the master process will collect
+# experiences.
+runners = 1
+
+# Model configuration.
+model = "configs/models/softplus.json"
+
+# Base seed for the various RNGs used in the experiment.
+seed = 42
+
+# Create a checkpoint after the specified number of iterations. If the number is
+# 0, then no checkpoints are created except for the final one.
+checkpoint_interval = 25
+
+[[policies]]
+name = "policy_node_0"
+class = "APLPolicy"
+
+[[policies]]
+name = "policy_node_1"
+# Use default policy (PPO) (class = None).
