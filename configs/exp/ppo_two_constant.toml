@@ -4,6 +4,7 @@ algorithm = "PPO"
 runners = 1
 model = "configs/models/softplus.json"
 seed = 42
+checkpoint_interval = 100
 
 [[policies]]
 name = "policy_node_0"

@@ -77,6 +77,7 @@ def main():
     exp_config["runners"] = exp_config.get("runners", 1)
     exp_config["seed"] = exp_config.get("seed", 42)
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
+    exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
     logger.info(f"Experiment configuration = {exp_config}")
@@ -259,9 +260,12 @@ def main():
     exp_name = f"DFAAS-MA_{start}_{exp_config['algorithm']}_{args.suffix}"
     logger.info(f"Experiment name: {exp_name}")
 
-    # Run the training phase for n iterations.
-    logger.info("Training start")
+    # Run the training phase.
     max_iterations = exp_config["iterations"]
+    assert max_iterations > 0, "Iterations must be a positive number!"
+    checkpoint_interval = exp_config["checkpoint_interval"]
+    assert checkpoint_interval >= 0, "Checkpoint interval must be non negative!"
+    logger.info("Training start")
     with tqdm.tqdm(total=max_iterations) as progress_bar:
         for iteration in range(max_iterations):
             experiment.train()
@@ -269,11 +273,13 @@ def main():
             # Exclude checkpoint and evaluation from progress bar timings.
             progress_bar.update(0)
 
-            # Save a checkpoint every 50 iterations.
-            if ((iteration + 1) % 50) == 0:
-                checkpoint_path = (logdir / f"checkpoint_{iteration:03d}").as_posix()
+            # Save a checkpoint every checkpoint_interval iterations (0 means
+            # disabled).
+            if checkpoint_interval > 0 and ((iteration + 1) % checkpoint_interval) == 0:
+                checkpoint_name = f"checkpoint_{iteration:04d}"
+                checkpoint_path = (logdir / checkpoint_name).as_posix()
                 experiment.save(checkpoint_path)
-                logger.info(f"Checkpoint saved to {checkpoint_path!r}")
+                logger.info(f"Checkpoint {checkpoint_name!r} saved")
 
             # Evaluate the trained agents every 25 iterations.
             if ((iteration + 1) % 25) == 0:
