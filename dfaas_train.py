@@ -75,6 +75,7 @@ def main():
     exp_config["seed"] = exp_config.get("seed", 42)
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
+    exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
@@ -267,6 +268,8 @@ def main():
     assert max_iterations > 0, "Iterations must be a positive number!"
     checkpoint_interval = exp_config["checkpoint_interval"]
     assert checkpoint_interval >= 0, "Checkpoint interval must be non negative!"
+    evaluation_interval = exp_config["evaluation_interval"]
+    assert evaluation_interval >= 0, "Evaluation interval must be non negative!"
     logger.info("Training start")
     dry_run = args.dry_run
     with tqdm.tqdm(total=max_iterations) as progress_bar:
@@ -287,8 +290,9 @@ def main():
                 experiment.save(checkpoint_path)
                 logger.info(f"Checkpoint {checkpoint_name!r} saved")
 
-            # Evaluate the trained agents every 25 iterations.
-            if ((iteration + 1) % 25) == 0:
+            # Evaluate every evaluate_interval iterations (0 means no
+            # evaluation).
+            if evaluation_interval > 0 and ((iteration + 1) % evaluation_interval) == 0:
                 logger.info(f"Evaluation of the {iteration}-th iteration")
                 evaluation = experiment.evaluate()
                 evaluation["iteration"] = iteration

@@ -24,6 +24,10 @@ seed = 42
 # 0, then no checkpoints are created except for the final one.
 checkpoint_interval = 25
 
+# Run an evaluation after the specified number of iterations. If the number is
+# 0, then no evaluation is done except for the final one.
+evaluation_interval = 25
+
 # Disable the final evaluation.
 final_evaluation = true
 
