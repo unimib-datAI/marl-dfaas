@@ -54,15 +54,14 @@ def main():
     else:
         exp_config = {}
 
-    # Override experiment configuration from CLI arguments.
-    for arg in dir(args):
-        if arg.startswith("_"):
-            # It is a built-in name.
-            continue
-
-        if getattr(args, arg) is not None:
-            # The argparse module always sets the argument to None.
-            exp_config[arg] = getattr(args, arg)
+    # Override experiment configuration from CLI arguments. Only a limited
+    # subset of options can be overrode.
+    override_options = ["env_config", "runners", "seed"]
+    for option in override_options:
+        if getattr(args, option) is not None:
+            # The argparse module always sets the argument to None if not
+            # provided.
+            exp_config[option] = getattr(args, option)
 
     # Set default experiment configuration values if not provided.
     exp_config["iterations"] = exp_config.get("iterations", 100)
