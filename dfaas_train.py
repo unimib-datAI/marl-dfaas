@@ -99,6 +99,7 @@ def main():
     # training one.
     env_eval_config = env_config.copy()
     env_eval_config["evaluation"] = True
+    env_eval_config["seed"] = exp_config["seed"]
 
     ray.init(include_dashboard=False)
 
@@ -186,6 +187,7 @@ def main():
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
                 policies_to_train=policies_to_train,
+                evaluation_num_episodes=10,
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -262,6 +264,28 @@ def main():
     # used as output directory name.
     exp_name = f"DF_{start}_{exp_config['algorithm']}_{args.suffix}"
     logger.info(f"Experiment name: {exp_name}")
+
+    # Prepare the evaluation environment for each evaluation runner.
+    #
+    # The following code calls self.set_master_seed once for each evaluation
+    # runner. However, we only have one evaluation runner. We also know the
+    # number of evaluation episodes for each iteration.
+    #
+    # This is necessary to ensure that each evaluation iteration uses the same
+    # generation seeds. Ray is not flexible in this regard, which is why I need
+    # to write this hack: pre-generate all the seeds for one iteration and cycle
+    # through them within each iteration. See the DFaaS env for more
+    # information.
+    evaluation_num_episodes = 10  # TODO: make this configurable!
+
+    def reset_env(env):
+        master_seed = env.master_seed
+        env.set_master_seed(master_seed, evaluation_num_episodes)
+
+    def reset_env_worker(worker):
+        worker.foreach_env(reset_env)
+
+    experiment.eval_env_runner_group.foreach_worker(reset_env_worker)
 
     # Run the training phase.
     max_iterations = exp_config["iterations"]
@@ -344,6 +368,7 @@ def build_ppo(**kwargs):
     policies = kwargs["policies"]
     policy_mapping_fn = kwargs["policy_mapping_fn"]
     policies_to_train = kwargs["policies_to_train"]
+    evaluation_num_episodes = kwargs["evaluation_num_episodes"]
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we must
@@ -381,7 +406,7 @@ def build_ppo(**kwargs):
         .env_runners(num_env_runners=runners, sample_timeout_s=240)
         .evaluation(
             evaluation_interval=None,
-            evaluation_duration=10,
+            evaluation_duration=evaluation_num_episodes,
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )

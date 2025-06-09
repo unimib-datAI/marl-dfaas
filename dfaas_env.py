@@ -194,6 +194,11 @@ class DFaaS(MultiAgentEnv):
             iinfo = np.iinfo(np.uint32)
             self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)[0]
 
+        if self.evaluation:
+            # See self.set_master_seed() method.
+            self.seed = self.eval_seeds[self.eval_seeds_index]
+            self.eval_seeds_index = (self.eval_seeds_index + 1) % len(self.eval_seeds)
+
         # Create the RNG used to generate input requests.
         self.rng = np.random.default_rng(seed=self.seed)
         self.np_random = self.rng  # Required by the Gymnasium API
@@ -462,6 +467,16 @@ class DFaaS(MultiAgentEnv):
                     # incoming forward reject rate for the receiving agent.
                     self.info["forward_reject_rate"][neighbor][self.current_step] += reject_share
                     self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject_share
+
+    def set_master_seed(self, master_seed, episodes):
+        """Set the master seed of the environment. This function is usually
+        called once when creating the environment to ensure to use the same
+        seeds for every evaluation iteration."""
+        self.master_seed = master_seed
+        self.master_rng = np.random.default_rng(seed=self.master_seed)
+        iinfo = np.iinfo(np.uint32)
+        self.eval_seeds = self.master_rng.integers(0, high=iinfo.max, size=episodes)
+        self.eval_seeds_index = 0
 
 
 def _distribute_rejects(reject_rate, incoming_rate):
