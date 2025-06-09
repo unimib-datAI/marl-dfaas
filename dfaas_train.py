@@ -75,6 +75,7 @@ def main():
     exp_config["seed"] = exp_config.get("seed", 42)
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
+    exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
     logger.info(f"Experiment configuration")
@@ -305,12 +306,18 @@ def main():
     logger.info(f"Training results data saved to: {experiment.logdir}/result.json")
 
     # Do a final evaluation.
-    logger.info("Evaluation of the final iteration")
-    evaluation = experiment.evaluate()
-    evaluation["iteration"] = latest_iteration
-    eval_result.append(evaluation)
-    dfaas_utils.dict_to_json(eval_result, eval_file)
-    logger.info(f"Evaluation results data saved to: {eval_file.as_posix()}")
+    if exp_config["final_evaluation"]:
+        logger.info("Evaluation of the final iteration")
+        evaluation = experiment.evaluate()
+        evaluation["iteration"] = latest_iteration
+        eval_result.append(evaluation)
+
+    # Save the evaluation data (if present).
+    if len(eval_result) > 0:
+        dfaas_utils.dict_to_json(eval_result, eval_file)
+        logger.info(f"Evaluation results data saved to: {eval_file.as_posix()}")
+    else:
+        logger.info(f"Evaluation results empty, skip saving")
 
     # Remove unused or problematic files in the result directory.
     Path(logdir / "progress.csv").unlink()  # result.json contains same data.

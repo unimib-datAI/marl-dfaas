@@ -24,6 +24,9 @@ seed = 42
 # 0, then no checkpoints are created except for the final one.
 checkpoint_interval = 25
 
+# Disable the final evaluation.
+final_evaluation = true
+
 [[policies]]
 name = "policy_node_0"
 class = "APLPolicy"
