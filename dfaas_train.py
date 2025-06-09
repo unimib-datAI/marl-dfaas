@@ -218,7 +218,7 @@ def main():
     logdir = Path(experiment.logdir).resolve()
     logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
     # This will be used after the evaluation.
-    start = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    start = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     exp_file = logdir / "exp_config.json"
     dfaas_utils.dict_to_json(exp_config, exp_file)
@@ -259,7 +259,7 @@ def main():
 
     # Create the experiment name. At the end of the experiment this name will be
     # used as output directory name.
-    exp_name = f"DFAAS-MA_{start}_{exp_config['algorithm']}_{args.suffix}"
+    exp_name = f"DF_{start}_{exp_config['algorithm']}_{args.suffix}"
     logger.info(f"Experiment name: {exp_name}")
 
     # Run the training phase.
