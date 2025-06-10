@@ -76,6 +76,7 @@ def main():
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
+    exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
@@ -276,7 +277,8 @@ def main():
     # to write this hack: pre-generate all the seeds for one iteration and cycle
     # through them within each iteration. See the DFaaS env for more
     # information.
-    evaluation_num_episodes = 10  # TODO: make this configurable!
+    evaluation_num_episodes = exp_config["evaluation_num_episodes"]
+    assert evaluation_num_episodes > 0, "At least one eval. episodes must be run"
 
     def reset_env(env):
         master_seed = env.master_seed

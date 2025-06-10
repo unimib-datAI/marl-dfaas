@@ -28,6 +28,9 @@ checkpoint_interval = 25
 # 0, then no evaluation is done except for the final one.
 evaluation_interval = 25
 
+# Number of episodes to play for each evaluation interval.
+evaluation_num_episodes = 10
+
 # Disable the final evaluation.
 final_evaluation = true
 

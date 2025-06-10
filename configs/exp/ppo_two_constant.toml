@@ -6,6 +6,7 @@ model = "configs/models/softplus.json"
 seed = 42
 checkpoint_interval = 500
 evaluation_interval = 500
+evaluation_num_episodes = 10
 
 [[policies]]
 name = "policy_node_0"
