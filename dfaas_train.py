@@ -344,7 +344,7 @@ def main():
             # Evaluation already done due to evaluation_interval.
             logger.info(f"Final evaluation is already done ({last_iteration}-th iter.)")
         else:
-            logger.info("Evaluation of the final ({last_iteration}-th) iteration")
+            logger.info(f"Evaluation of the final ({last_iteration}-th) iteration")
             evaluation = experiment.evaluate()
             evaluation["iteration"] = last_iteration
             eval_result.append(evaluation)
