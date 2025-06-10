@@ -114,9 +114,6 @@ The [`requirements.txt`](requirements.txt) also contains some development tools:
 * [`nbstripout`](https://github.com/kynan/nbstripout): to clean the output of
   notebooks before committing them.
 
-I also use [Quarto](https://quarto.org/) to export Jupyter notebooks as HTML
-files. This is an optional dependencies.
-
 ## How to run the experiments
 
 **Important**: always run Python scripts from the project root directory to
