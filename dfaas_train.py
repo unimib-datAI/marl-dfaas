@@ -309,9 +309,9 @@ def main():
             # Save a checkpoint every checkpoint_interval iterations (0 means
             # disabled).
             if checkpoint_interval > 0 and ((iteration + 1) % checkpoint_interval) == 0:
-                checkpoint_name = f"checkpoint_{iteration:04d}"
-                checkpoint_path = (logdir / checkpoint_name).as_posix()
-                experiment.save(checkpoint_path)
+                checkpoint_name = f"checkpoint_{iteration:05d}"
+                checkpoint_path = logdir / checkpoint_name
+                experiment.save(checkpoint_path.as_posix())
                 logger.info(f"Checkpoint {checkpoint_name!r} saved")
 
             # Evaluate every evaluate_interval iterations (0 means no
@@ -324,21 +324,28 @@ def main():
 
             progress_bar.update(1)
 
-    # Save always the latest training iteration.
-    latest_iteration = exp_config["iterations"] - 1
-    checkpoint_path = logdir / f"checkpoint_{latest_iteration:03d}"
-    if not checkpoint_path.exists():  # May exist if max_iter is a multiple of 50.
-        checkpoint_path = checkpoint_path.as_posix()
-        experiment.save(checkpoint_path)
-        logger.info(f"Final checkpoint saved to {checkpoint_path!r}")
+    # Save always a checkpoint for the last training iteration.
+    last_iteration = exp_config["iterations"] - 1
+    checkpoint_name = f"{last_iteration:05d}"
+    checkpoint_path = logdir / checkpoint_name
+    if checkpoint_path.exists():
+        # The last checkpoint may already exists due to checkpoint_interval.
+        logger.info(f"Final checkpoint is {checkpoint_name!r} (already saved)")
+    else:
+        experiment.save(checkpoint_path.as_posix())
+        logger.info(f"Checkpoint {checkpoint_name!r} saved")
     logger.info(f"Training results data saved to: {experiment.logdir}/result.json")
 
     # Do a final evaluation.
     if exp_config["final_evaluation"]:
-        logger.info("Evaluation of the final iteration")
-        evaluation = experiment.evaluate()
-        evaluation["iteration"] = latest_iteration
-        eval_result.append(evaluation)
+        if len(eval_result) > 0 and eval_result[-1]["iteration"] == last_iteration:
+            # Evaluation already done due to evaluation_interval.
+            logger.info(f"Final evaluation is already done ({last_iteration}-th iter.)")
+        else:
+            logger.info("Evaluation of the final ({last_iteration}-th) iteration")
+            evaluation = experiment.evaluate()
+            evaluation["iteration"] = last_iteration
+            eval_result.append(evaluation)
 
     # Save the evaluation data (if present).
     if len(eval_result) > 0:
