@@ -1,7 +1,8 @@
 disable_gpu = false
 iterations = 10000
 algorithm = "PPO"
-runners = 1
+training_num_episodes = 6
+runners = 3
 model = "configs/models/softplus.json"
 seed = 42
 checkpoint_interval = 500

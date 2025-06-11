@@ -9,10 +9,16 @@ disable_gpu = false
 # Number of training iterations to run.
 iterations = 100
 
+# Number of episodes to play for each training iteration.
+#
+# This number must be divisible by the number of runners (all runners must play
+# the same number of episodes).
+training_num_episodes = 6
+
 # The number of parallel runners that will be launched to collect experiences in
 # a training iteration. If the number is 0, the master process will collect
 # experiences.
-runners = 1
+runners = 3
 
 # Model configuration.
 model = "configs/models/softplus.json"

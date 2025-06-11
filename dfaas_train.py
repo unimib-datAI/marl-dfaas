@@ -71,6 +71,7 @@ def main():
     # Set default experiment configuration values if not provided.
     exp_config["iterations"] = exp_config.get("iterations", 100)
     exp_config["disable_gpu"] = exp_config.get("disable_gpu", False)
+    exp_config["training_num_episodes"] = exp_config.get("training_num_episodes", 1)
     exp_config["runners"] = exp_config.get("runners", 1)
     exp_config["seed"] = exp_config.get("seed", 42)
     exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
@@ -189,6 +190,7 @@ def main():
                 policy_mapping_fn=policy_mapping_fn,
                 policies_to_train=policies_to_train,
                 evaluation_num_episodes=10,
+                training_num_episodes=exp_config["training_num_episodes"],
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -378,28 +380,39 @@ def build_ppo(**kwargs):
     policy_mapping_fn = kwargs["policy_mapping_fn"]
     policies_to_train = kwargs["policies_to_train"]
     evaluation_num_episodes = kwargs["evaluation_num_episodes"]
+    training_num_episodes = kwargs["training_num_episodes"]
+
+    # Checks for the training_num_episodes and runners parameters.
+    assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
+    assert runners >= 0, "The number of runners must be non-negative!"
+    if runners == 0:
+        episodes_per_runner = training_num_episodes
+    else:
+        episodes_per_runner, remainder = divmod(training_num_episodes, runners)
+        assert remainder == 0, f"Each runner must play the same number of episodes ({remainder} != 0)!"
 
     # The train_batch_size is the total number of samples to collect for each
-    # iteration across all runners. Since the user can specify 0 runners, we must
-    # ensure that we collect at least 288 samples (1 complete episodes).
+    # iteration across all runners. Since the user can specify 0 runners, we
+    # must ensure that we collect at least 288 samples (1 complete episode).
     #
-    # Be careful with train_batch_size: RLlib stops the episodes when this number is
-    # reached, it doesn't control each runner. The number should be divisible by the
-    # number of runners, otherwise a runner has to collect more (or less) samples
-    # and plays one plus or minus episode.
-    #
-    # In my case I just let each runner to play one episode.
-    episodes_per_iter = 1 * (runners if runners > 0 else 1)
-    train_batch_size = dummy_env.max_steps * episodes_per_iter
+    # Be careful with train_batch_size: RLlib stops the episodes when this
+    # number is reached, it doesn't control each runner. The number must be
+    # divisible by the number of runners, otherwise a runner has to collect more
+    # (or less) samples and plays one plus or minus episode.
+    train_batch_size = dummy_env.max_steps * training_num_episodes
 
-    # Keep the default number of SGD iterations but reduce the minibatch size,
-    # since we play only one episode. This may let the agent to overfit, but for
-    # now it is ok.
+    # Run 30 SGD iteration over the training batch (num_epochs). For each
+    # iteration, the training batch is divided in minibatches with defined size
+    # (minibatch_size), so the number of updates can vary. The minibatch size
+    # should divide the training batch, to have all equal-size batches.
     #
-    # Note that even if we have a minibatch size of 64, since the environment
-    # length is not a multiple, the last batch will have a smaller size.
+    # Note: if the minibatch size does not divide the training batch size, the
+    # last minibatch will have a smaller size.
     num_epochs = 30
-    minibatch_size = 64
+    minibatch_size = 144
+
+    updates_per_epoch = train_batch_size // minibatch_size
+    total_gradient_updates = num_epochs * updates_per_epoch
 
     config = (
         PPOConfig()
@@ -407,7 +420,7 @@ def build_ppo(**kwargs):
         .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
-        .reporting(metrics_num_episodes_for_smoothing=episodes_per_iter)
+        .reporting(metrics_num_episodes_for_smoothing=training_num_episodes)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
         .training(train_batch_size=train_batch_size, num_epochs=num_epochs, minibatch_size=minibatch_size, model=model)
         .framework("torch")
@@ -424,6 +437,14 @@ def build_ppo(**kwargs):
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
     )
+
+    # Add custom properties to the algoritm configuration, these will be dumped
+    # in the result.json file, useful for debugging after an experiment has
+    # done.
+    config.custom_properties = {}
+    config.custom_properties["episodes_per_runner"] = episodes_per_runner
+    config.custom_properties["updates_per_epoch"] = updates_per_epoch
+    config.custom_properties["total_gradient_updates"] = total_gradient_updates
 
     return config.build()
 
