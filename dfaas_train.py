@@ -103,7 +103,8 @@ def main():
     env_eval_config["evaluation"] = True
     env_eval_config["seed"] = exp_config["seed"]
 
-    ray.init(include_dashboard=False)
+    ray_info = ray.init(include_dashboard=False)
+    logger.info(f"Ray address: {ray_info['address']}")
 
     # PolicySpec is required to specify the action/observation space for each
     # policy. In this case, each policy has the same spaces.
