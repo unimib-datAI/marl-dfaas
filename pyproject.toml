@@ -2,3 +2,6 @@
 # I found this value better for some long statement that it is better not to
 # break in the code.
 line-length = 120
+
+# Do not format pactches!
+exclude = "patches/"
