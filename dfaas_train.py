@@ -86,6 +86,7 @@ def main():
         logger.info(f"{key:>25}: {value}")
 
     # Environment configuration.
+    # FIXME: Save the env config inside exp config before be dumped to JSON.
     if exp_config.get("env_config") is not None:
         env_config = dfaas_utils.toml_to_dict(exp_config["env_config"])
     else:
@@ -185,7 +186,7 @@ def main():
                 env_config=env_config,
                 model=model,
                 env_eval_config=env_eval_config,
-                exp_config=exp_config,
+                seed=exp_config["seed"],
                 no_gpu=False,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
@@ -331,7 +332,7 @@ def main():
 
     # Save always a checkpoint for the last training iteration.
     last_iteration = exp_config["iterations"] - 1
-    checkpoint_name = f"{last_iteration:05d}"
+    checkpoint_name = f"checkpoint_{last_iteration:05d}"
     checkpoint_path = logdir / checkpoint_name
     if checkpoint_path.exists():
         # The last checkpoint may already exists due to checkpoint_interval.
@@ -375,7 +376,7 @@ def build_ppo(**kwargs):
     env_config = kwargs["env_config"]
     model = kwargs["model"]
     env_eval_config = kwargs["env_eval_config"]
-    exp_config = kwargs["exp_config"]
+    seed = kwargs["seed"]
     no_gpu = kwargs["no_gpu"]
     policies = kwargs["policies"]
     policy_mapping_fn = kwargs["policy_mapping_fn"]
@@ -430,10 +431,10 @@ def build_ppo(**kwargs):
         .evaluation(
             evaluation_interval=None,
             evaluation_duration=evaluation_num_episodes,
-            evaluation_num_env_runners=1,
+            evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=exp_config["seed"])
+        .debugging(seed=seed)
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
