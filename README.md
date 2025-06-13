@@ -140,7 +140,7 @@ Then open http://localhost:8888/tree in a Web browser.
 
 To export a notebook as HTML file:
 
-    $ jupyter nbconvert notebook.ipynb --no-input --to html
+    $ jupyter nbconvert --no-input --to html notebook.ipynb
 
 ## Patching Ray
 
