@@ -12,6 +12,18 @@ algorithm.name = "PPO"
 # immediate ones.
 algorithm.gamma = 0.99
 
+# In Generalized Advantage Estimation (GAE), lambda controls the bias-variance
+# tradeoff in advantage estimation. It determines the weight of multi-step
+# temporal differences when computing the advantage.
+#
+#
+# Values closer to 1 spread credit over many past states/actions (lower bias,
+# higher variance), while values closer to 0 allocate most of the credit to
+# recent steps (higher bias, lower variance).
+#
+# It is supported only by the PPO algorithm.
+algorithm.lambda = 0.3
+
 # Do not use the GPU to train neural networks.
 disable_gpu = false
 

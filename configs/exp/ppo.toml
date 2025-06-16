@@ -1,7 +1,11 @@
 # Algorithm to use. Supported values: "PPO".
 algorithm.name = "PPO"
 
+# The reward is not delayed based on how the environment works; it is the direct
+# result of the previous action. Therefore, we can use lower gamma and lambda
+# hyperparameter values.
 algorithm.gamma = 0.7
+algorithm.lambda = 0.3
 
 # Do not use the GPU to train neural networks.
 disable_gpu = false
