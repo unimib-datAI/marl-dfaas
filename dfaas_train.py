@@ -77,6 +77,8 @@ def main():
     exp_config["algorithm"] = exp_config.get("algorithm", dict())
     exp_config["algorithm"]["name"] = exp_config["algorithm"].get("name", "PPO")
     exp_config["algorithm"]["gamma"] = exp_config["algorithm"].get("gamma", 0.99)
+    if exp_config["algorithm"]["name"] == "PPO":
+        exp_config["algorithm"]["lambda"] = exp_config["algorithm"].get("lambda", 1)
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
@@ -196,6 +198,7 @@ def main():
                 evaluation_num_episodes=10,
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
+                lambda_=exp_config["algorithm"]["lambda"],
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -333,8 +336,12 @@ def main():
 
             progress_bar.update(1)
 
+    # We can get the latest done iteration from the for ... range loop. Note tha
+    # can be different from exp_config["iterations"] - 1, since we can make
+    # fewer iterations (like with the --dry-run flag).
+    last_iteration = iteration
+
     # Save always a checkpoint for the last training iteration.
-    last_iteration = exp_config["iterations"] - 1
     checkpoint_name = f"checkpoint_{last_iteration:05d}"
     checkpoint_path = logdir / checkpoint_name
     if checkpoint_path.exists():
@@ -387,8 +394,10 @@ def build_ppo(**kwargs):
     evaluation_num_episodes = kwargs["evaluation_num_episodes"]
     training_num_episodes = kwargs["training_num_episodes"]
     gamma = kwargs["gamma"]
+    lambda_ = kwargs["lambda_"]
 
     assert 0 <= gamma <= 1, "Gamma (discount factor) must be between 0 and 1"
+    assert 0 <= lambda_ <= 1, "Lambda must be between 0 and 1"
 
     # Checks for the training_num_episodes and runners parameters.
     assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
@@ -436,6 +445,7 @@ def build_ppo(**kwargs):
             num_epochs=num_epochs,
             minibatch_size=minibatch_size,
             model=model,
+            lambda_=lambda_,
         )
         .framework("torch")
         # Wait max 4 minutes for each iteration to collect the samples.
