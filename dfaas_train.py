@@ -74,7 +74,9 @@ def main():
     exp_config["training_num_episodes"] = exp_config.get("training_num_episodes", 1)
     exp_config["runners"] = exp_config.get("runners", 1)
     exp_config["seed"] = exp_config.get("seed", 42)
-    exp_config["algorithm"] = exp_config.get("algorithm", "PPO")
+    exp_config["algorithm"] = exp_config.get("algorithm", dict())
+    exp_config["algorithm"]["name"] = exp_config["algorithm"].get("name", "PPO")
+    exp_config["algorithm"]["gamma"] = exp_config["algorithm"].get("gamma", 0.99)
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
@@ -178,7 +180,7 @@ def main():
 
     assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
 
-    match exp_config["algorithm"]:
+    match exp_config["algorithm"]["name"]:
         case "PPO":
             experiment = build_ppo(
                 runners=exp_config["runners"],
@@ -193,6 +195,7 @@ def main():
                 policies_to_train=policies_to_train,
                 evaluation_num_episodes=10,
                 training_num_episodes=exp_config["training_num_episodes"],
+                gamma=exp_config["algorithm"]["gamma"],
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -220,7 +223,7 @@ def main():
                 policy_mapping_fn=policy_mapping_fn,
             )
         case _:
-            raise ValueError(f"Algorithm {exp_config['algorithm']!r} not found")
+            raise ValueError(f"Algorithm {exp_config['algorithm']['name']!r} not found")
 
     # Get the experiment directory to save other files.
     logdir = Path(experiment.logdir).resolve()
@@ -239,7 +242,7 @@ def main():
 
     # Save the model architecture for all policies (if the algorithm provides
     # one).
-    if exp_config["algorithm"] != "APL":
+    if exp_config["algorithm"]["name"] != "APL":
         policies_dir = logdir / "policy_model"
         policies_dir.mkdir()
         for policy_name, policy in experiment.env_runner.policy_map.items():
@@ -267,7 +270,7 @@ def main():
 
     # Create the experiment name. At the end of the experiment this name will be
     # used as output directory name.
-    exp_name = f"DF_{start}_{exp_config['algorithm']}_{args.suffix}"
+    exp_name = f"DF_{start}_{exp_config['algorithm']['name']}_{args.suffix}"
     logger.info(f"Experiment name: {exp_name}")
 
     # Prepare the evaluation environment for each evaluation runner.
@@ -383,6 +386,9 @@ def build_ppo(**kwargs):
     policies_to_train = kwargs["policies_to_train"]
     evaluation_num_episodes = kwargs["evaluation_num_episodes"]
     training_num_episodes = kwargs["training_num_episodes"]
+    gamma = kwargs["gamma"]
+
+    assert 0 <= gamma <= 1, "Gamma (discount factor) must be between 0 and 1"
 
     # Checks for the training_num_episodes and runners parameters.
     assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
@@ -424,7 +430,13 @@ def build_ppo(**kwargs):
         # iteration in the log result.
         .reporting(metrics_num_episodes_for_smoothing=training_num_episodes)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
-        .training(train_batch_size=train_batch_size, num_epochs=num_epochs, minibatch_size=minibatch_size, model=model)
+        .training(
+            gamma=gamma,
+            train_batch_size=train_batch_size,
+            num_epochs=num_epochs,
+            minibatch_size=minibatch_size,
+            model=model,
+        )
         .framework("torch")
         # Wait max 4 minutes for each iteration to collect the samples.
         .env_runners(num_env_runners=runners, sample_timeout_s=240)

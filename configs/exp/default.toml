@@ -1,7 +1,16 @@
 # This is the default configuration file used for running experiments.
 
 # Algorithm to use. Supported values: "PPO".
-algorithm = "PPO"
+algorithm.name = "PPO"
+
+# Gamma is the discount factor. It defines the weights of future rewards when
+# calculating the return, which is the cumulative reward that an agent learns to
+# maximize.
+#
+# When gamma is closer to 0, the agent considers only immediate rewards. When
+# gamma is closer to 1, the agent considers future rewards to be as important as
+# immediate ones.
+algorithm.gamma = 0.99
 
 # Do not use the GPU to train neural networks.
 disable_gpu = false
@@ -13,7 +22,7 @@ iterations = 100
 #
 # This number must be divisible by the number of runners (all runners must play
 # the same number of episodes).
-training_num_episodes = 6
+training_num_episodes = 3
 
 # The number of parallel runners that will be launched to collect experiences in
 # a training iteration. If the number is 0, the master process will collect

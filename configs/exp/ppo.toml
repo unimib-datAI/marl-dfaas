@@ -1,5 +1,7 @@
 # Algorithm to use. Supported values: "PPO".
-algorithm = "PPO"
+algorithm.name = "PPO"
+
+algorithm.gamma = 0.7
 
 # Do not use the GPU to train neural networks.
 disable_gpu = false

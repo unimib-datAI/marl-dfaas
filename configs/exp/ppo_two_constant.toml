@@ -1,6 +1,7 @@
 disable_gpu = false
 iterations = 10000
-algorithm = "PPO"
+algorithm.name = "PPO"
+algorithm.gamma = 0.7
 training_num_episodes = 3
 runners = 3
 model = "configs/models/softplus.json"
