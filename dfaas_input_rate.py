@@ -151,6 +151,25 @@ def synthetic_constant(max_steps, agents):
     return input_rate
 
 
+def synthetic_linear_growth(max_steps, agents):
+    """Generates an input rate trace where the first agent's rate is constant
+    (5), and the second agent's rate grows linearly from 1 to 150.
+
+    Only two-agent environments are supported.
+    """
+    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+
+    input_rate = {}
+    input_rate[agents[0]] = np.repeat(5, max_steps)
+
+    # Generate linear growth from 1 to 150 (inclusive) over max_steps, using
+    # integers.
+    linear = np.linspace(1, 150, max_steps)
+    input_rate[agents[1]] = np.round(linear).astype(np.int32)
+
+    return input_rate
+
+
 # This list contains all fourteen real input request dataset files as Pandas
 # DataFrame. Each DataFrame has a special attribute "idx", a string that
 # indicates which file was read.

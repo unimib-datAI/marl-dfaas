@@ -136,6 +136,8 @@ class DFaaS(MultiAgentEnv):
             match self.input_rate_method:
                 case "synthetic-sinusoidal":
                     pass
+                case "synthetic-linear-growth":
+                    pass
                 case "synthetic-constant":
                     pass
                 case "synthetic-normal":
@@ -219,6 +221,9 @@ class DFaaS(MultiAgentEnv):
                 pass
             case "synthetic-constant":
                 self.input_rate = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
+                pass
+            case "synthetic-linear-growth":
+                self.input_rate = dfaas_input_rate.synthetic_linear_growth(self.max_steps, self.agents)
                 pass
             case "real":
                 retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
