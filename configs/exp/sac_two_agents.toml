@@ -1,14 +1,13 @@
 disable_gpu = false
-iterations = 500
-algorithm.name = "PPO"
+iterations = 3000
+algorithm.name = "SAC"
 algorithm.gamma = 0.7
-algorithm.lambda = 0.3
 training_num_episodes = 1
 runners = 1
 model = "configs/models/softplus.json"
 seed = 42
-checkpoint_interval = 0
-evaluation_interval = 25
+checkpoint_interval = 500
+evaluation_interval = 20
 evaluation_num_episodes = 10
 
 [[policies]]
@@ -17,4 +16,4 @@ class = "APLPolicy"
 
 [[policies]]
 name = "policy_node_1"
-# Use default policy (PPO) (class = None).
+# Use default policy (SAC) (class = None).

@@ -195,7 +195,7 @@ def main():
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
                 policies_to_train=policies_to_train,
-                evaluation_num_episodes=10,
+                evaluation_num_episodes=exp_config["evaluation_num_episodes"],
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
                 lambda_=exp_config["algorithm"]["lambda"],
@@ -210,10 +210,14 @@ def main():
                 env_config=env_config,
                 model=model,
                 env_eval_config=env_eval_config,
-                exp_config=exp_config,
+                seed=exp_config["seed"],
                 no_gpu=False,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
+                policies_to_train=policies_to_train,
+                evaluation_num_episodes=exp_config["evaluation_num_episodes"],
+                training_num_episodes=exp_config["training_num_episodes"],
+                gamma=exp_config["algorithm"]["gamma"],
             )
         case "APL":
             experiment = build_apl(
@@ -479,29 +483,57 @@ def build_sac(**kwargs):
     env_config = kwargs["env_config"]
     model = kwargs["model"]
     env_eval_config = kwargs["env_eval_config"]
-    exp_config = kwargs["exp_config"]
+    seed = kwargs["seed"]
     no_gpu = kwargs["no_gpu"]
     policies = kwargs["policies"]
     policy_mapping_fn = kwargs["policy_mapping_fn"]
+    policies_to_train = kwargs["policies_to_train"]
+    evaluation_num_episodes = kwargs["evaluation_num_episodes"]
+    training_num_episodes = kwargs["training_num_episodes"]
+    gamma = kwargs["gamma"]
 
-    # Replay buffer configuration.
-    # Other values are set to the default.
+    assert 0 <= gamma <= 1, "Gamma (discount factor) must be between 0 and 1"
+
+    # Assume 288 steps because I want to set buffer'size accordingly.
+    assert dummy_env.max_steps == 288, "SAC supports only environments with 288 steps"
+
+    assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
+
+    # Replay buffer configuration (other values are set to the default).
+    # By default save the latest 10 episodes' data in the buffer.
     replay_buffer_config = {
         "type": "MultiAgentPrioritizedReplayBuffer",
-        "capacity": 4 * int(1e5),
+        "capacity": dummy_env.max_steps * training_num_episodes,
         "num_shards": 1,  # Each agent has it is own buffer of full capacity.
-        # "num_shards": len(dummy_env.agents)  # TODO
     }
 
-    # In each iteration, each runner plays exactly three complete episodes.
-    episodes_iter = 3 * (runners if runners > 0 else 1)
-    episodes_runner = 3
-    rollout_fragment_length = dummy_env.max_steps * episodes_runner
+    # Fill the replay buffer before to start the agents' training.
+    warm_up_size = replay_buffer_config["capacity"]
 
-    # Collect random exploratory experience before starting training, to help
-    # initialize the replay buffer.
-    warm_up_size = int(1e4)
+    assert runners >= 0, "The number of runners must be non-negative!"
+    if runners == 0:
+        episodes_per_runner = training_num_episodes
+        runners = 1  # Same as 0, just one single runner.
+    else:
+        episodes_per_runner, remainder = divmod(training_num_episodes, runners)
+        assert remainder == 0, f"Each runner must play the same number of episodes ({remainder} != 0)!"
 
+    # In every training iteration collects all expected steps before training
+    # starts. This ensures to wait all runners to finish.
+    min_sample_timesteps_per_iteration = episodes_per_runner * dummy_env.max_steps * runners
+
+    # Ensure only complete episodes are collected.
+    batch_mode = "complete_episodes"
+
+    # Each runner collects the same number of episodes, given as steps.
+    rollout_fragment_length = dummy_env.max_steps * episodes_per_runner
+
+    # For SAC, the train batch size is built by sampling the replay buffer. So
+    # we should always have a value equal or greater than the collected data for
+    # one iteration.
+    train_batch_size = rollout_fragment_length * 2
+
+    # WIP
     # In each iteration, we do 12 mini-batch update epochs on the models. Each
     # batch has a size of 256.
     #
@@ -512,8 +544,8 @@ def build_sac(**kwargs):
     #   epochs = training_intensity / native_ratio
     #
     # See calculate_rr_weights() in rllib/algorithms/dqn/dqn.py
-    train_batch_size = 256
-    training_intensity = 0.6
+    # train_batch_size = 256
+    # training_intensity = 0.6
 
     config = (
         SACConfig()
@@ -521,28 +553,38 @@ def build_sac(**kwargs):
         .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
         # For each iteration, store only the episodes calculated in that
         # iteration in the log result.
-        .reporting(metrics_num_episodes_for_smoothing=episodes_iter)
+        .reporting(metrics_num_episodes_for_smoothing=training_num_episodes)
         .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
         .training(
             num_steps_sampled_before_learning_starts=warm_up_size,
-            training_intensity=training_intensity,
             train_batch_size=train_batch_size,
             policy_model_config=model,
             replay_buffer_config=replay_buffer_config,
+            gamma=gamma,
         )
+        .reporting(min_sample_timesteps_per_iteration=min_sample_timesteps_per_iteration)
         .framework("torch")
-        .env_runners(rollout_fragment_length=rollout_fragment_length, num_env_runners=runners)
+        .env_runners(
+            rollout_fragment_length=rollout_fragment_length,
+            num_env_runners=runners,
+            batch_mode=batch_mode,
+            sample_timeout_s=240,  # Wait max 4 minutes for each runners.
+        )
         .evaluation(
             evaluation_interval=None,
-            evaluation_duration=10,
-            evaluation_num_env_runners=1,
+            evaluation_duration=evaluation_num_episodes,
+            evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=exp_config["seed"])
+        .debugging(seed=seed)
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
-        .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
+        .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
     )
+
+    # See build_ppo().
+    config.custom_properties = {}
+    config.custom_properties["episodes_per_runner"] = episodes_per_runner
 
     return config.build()
 
