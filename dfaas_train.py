@@ -503,7 +503,7 @@ def build_sac(**kwargs):
     # By default save the latest 10 episodes' data in the buffer.
     replay_buffer_config = {
         "type": "MultiAgentPrioritizedReplayBuffer",
-        "capacity": dummy_env.max_steps * training_num_episodes,
+        "capacity": dummy_env.max_steps * 10,
         "num_shards": 1,  # Each agent has it is own buffer of full capacity.
     }
 
@@ -520,7 +520,7 @@ def build_sac(**kwargs):
 
     # In every training iteration collects all expected steps before training
     # starts. This ensures to wait all runners to finish.
-    min_sample_timesteps_per_iteration = episodes_per_runner * dummy_env.max_steps * runners
+    min_sample_timesteps_per_iteration = training_num_episodes * dummy_env.max_steps
 
     # Ensure only complete episodes are collected.
     batch_mode = "complete_episodes"
@@ -531,7 +531,7 @@ def build_sac(**kwargs):
     # For SAC, the train batch size is built by sampling the replay buffer. So
     # we should always have a value equal or greater than the collected data for
     # one iteration.
-    train_batch_size = rollout_fragment_length * 2
+    train_batch_size = rollout_fragment_length * 3
 
     # WIP
     # In each iteration, we do 12 mini-batch update epochs on the models. Each
