@@ -1,5 +1,5 @@
 disable_gpu = false
-iterations = 3000
+iterations = 10000
 algorithm.name = "SAC"
 algorithm.gamma = 0.7
 training_num_episodes = 1
@@ -7,7 +7,7 @@ runners = 1
 model = "configs/models/softplus.json"
 seed = 42
 checkpoint_interval = 500
-evaluation_interval = 20
+evaluation_interval = 50
 evaluation_num_episodes = 10
 
 [[policies]]
