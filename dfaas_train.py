@@ -146,7 +146,7 @@ def main():
                 assert policy_cfg["class"] == "APLPolicy", "Only APLPolicy is supported as custom policy"
                 policy_class = dfaas_apl.APLPolicy
             else:
-                # It uses PPO (default if None).
+                # It uses the default algorithm.
                 policy_class = None
                 policies_to_train.append(policy_name)
 

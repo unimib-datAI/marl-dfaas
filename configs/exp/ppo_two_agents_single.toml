@@ -1,5 +1,5 @@
 disable_gpu = false
-iterations = 1000
+iterations = 500
 algorithm.name = "PPO"
 algorithm.gamma = 0.7
 algorithm.lambda = 0.3
@@ -10,3 +10,11 @@ seed = 42
 checkpoint_interval = 0
 evaluation_interval = 25
 evaluation_num_episodes = 10
+
+[[policies]]
+name = "policy_node_0"
+class = "APLPolicy"
+
+[[policies]]
+name = "policy_node_1"
+# Use default policy (PPO) (class = None).
