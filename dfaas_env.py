@@ -142,6 +142,8 @@ class DFaaS(MultiAgentEnv):
                     pass
                 case "synthetic-normal":
                     pass
+                case "synthetic-step-change":
+                    pass
                 case "real":
                     assert self.max_steps == 288, f"With {self.input_rate_method = } only 288 max_steps are supported"
                 case _:
@@ -221,6 +223,9 @@ class DFaaS(MultiAgentEnv):
                 pass
             case "synthetic-constant":
                 self.input_rate = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
+                pass
+            case "synthetic-step-change":
+                self.input_rate = dfaas_input_rate.synthetic_step_change(self.max_steps, self.agents)
                 pass
             case "synthetic-linear-growth":
                 self.input_rate = dfaas_input_rate.synthetic_linear_growth(self.max_steps, self.agents)

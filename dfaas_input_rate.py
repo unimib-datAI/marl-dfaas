@@ -170,6 +170,39 @@ def synthetic_linear_growth(max_steps, agents):
     return input_rate
 
 
+def synthetic_step_change(max_steps, agents, rates_before=[5, 100], rates_after=[70, 30]):
+    """Generates a step-change input rate trace for each agent for the given
+    length.
+
+    Limitations: at the midpoint of the episode, the input rate for each agent
+    switches from an initial value to a final value. Only two-agent environments
+    are supported, and the rates must be specified. The sum of the input rates
+    for both agents at any time must not exceed 120.
+
+    Args:
+        max_steps: Length of the trace.
+        agents: List of agent IDs.
+        rates_before (list): List of rates before change.
+        rates_after (list): List of rates after change.
+
+    Returns:
+        dict: agent -> array of input rates
+    """
+    assert len(agents) == 2, "Only two agents supported"
+    assert len(rates_before) == len(rates_after) == 2, "Rates must be length 2"
+    assert sum(rates_before) <= 120, "Sum of initial rates exceeds 120"
+    assert sum(rates_after) <= 120, "Sum of final rates exceeds 120"
+
+    change_point = max_steps // 2
+
+    input_rate = {}
+    for agent, before, after in zip(agents, rates_before, rates_after):
+        trace = np.concatenate([np.repeat(before, change_point), np.repeat(after, max_steps - change_point)])
+        input_rate[agent] = trace
+
+    return input_rate
+
+
 # This list contains all fourteen real input request dataset files as Pandas
 # DataFrame. Each DataFrame has a special attribute "idx", a string that
 # indicates which file was read.
