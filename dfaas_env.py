@@ -144,6 +144,8 @@ class DFaaS(MultiAgentEnv):
                     pass
                 case "synthetic-step-change":
                     pass
+                case "synthetic-double-linear-growth":
+                    pass
                 case "real":
                     assert self.max_steps == 288, f"With {self.input_rate_method = } only 288 max_steps are supported"
                 case _:
@@ -217,19 +219,21 @@ class DFaaS(MultiAgentEnv):
         match self.input_rate_method:
             case "synthetic-sinusoidal":
                 self.input_rate = dfaas_input_rate.synthetic_sinusoidal(self.max_steps, self.agents, limits, self.rng)
-                pass
             case "synthetic-normal":
                 self.input_rate = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
-                pass
             case "synthetic-constant":
                 self.input_rate = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
-                pass
             case "synthetic-step-change":
                 self.input_rate = dfaas_input_rate.synthetic_step_change(self.max_steps, self.agents)
-                pass
             case "synthetic-linear-growth":
                 self.input_rate = dfaas_input_rate.synthetic_linear_growth(self.max_steps, self.agents)
-                pass
+            case "synthetic-double-linear-growth":
+                # The max_per_agent argument is taken from perfmodel: with the
+                # current input values a node starts to drop requests from about
+                # 63 input requests per step.
+                self.input_rate = dfaas_input_rate.synthetic_double_linear_growth(
+                    self.max_steps, self.agents, max_per_agent=63, rng=self.rng
+                )
             case "real":
                 retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 

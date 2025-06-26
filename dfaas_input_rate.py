@@ -170,6 +170,53 @@ def synthetic_linear_growth(max_steps, agents):
     return input_rate
 
 
+def synthetic_double_linear_growth(max_steps, agents, max_per_agent=63, rng=None):
+    """Generates input rate traces for two agents, both following linear growth
+    with random start/end points and slopes (in [1, 150]). The sum of requests
+    for both agents at any step does not exceed 2*max_per_agent.
+
+    Args:
+        max_steps: Number of steps in the trace.
+        agents: List of agent IDs.
+        max_per_agent: Maximum requests per agent per step (single value for all).
+        rng: An optional Numpy RNG for reproducibility.
+
+    Returns:
+        dict: agent -> array of input rates.
+    """
+    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+
+    if rng is None:
+        rng = np.random.default_rng()
+
+    # Min and max rates taken from the environment observation space.
+    min_rate, max_rate = 1, 150
+
+    # First agent: random linear growth in [1, 150]
+    start1, end1 = rng.integers(min_rate, max_rate, size=2)
+    trace1 = np.round(np.linspace(start1, end1, max_steps)).astype(np.int32)
+
+    # Second agent: random linear growth in [1, 150], but clipped.
+    start2, end2 = rng.integers(min_rate, max_rate, size=2)
+    trace2 = np.round(np.linspace(start2, end2, max_steps)).astype(np.int32)
+    for step in range(max_steps):
+        # Clip the input trace based on the other trace and the max for step.
+        allowed = min(trace2[step], 2 * max_per_agent - trace1[step], max_per_agent)
+
+        # Ensure that the min value is contained in the min range. This may
+        # exceed the condition that both input traces must be lesser or equal
+        # than 2*max_per_agent, but one rate is excess it not problematic.
+        trace2[step] = max(1, allowed)
+
+    # Randomly assign the traces to the agents.
+    agents = rng.permutation(agents)
+    input_rate = {}
+    input_rate[str(agents[0])] = trace1
+    input_rate[str(agents[1])] = trace2
+
+    return input_rate
+
+
 def synthetic_step_change(max_steps, agents, rates_before=[5, 100], rates_after=[70, 30]):
     """Generates a step-change input rate trace for each agent for the given
     length.
