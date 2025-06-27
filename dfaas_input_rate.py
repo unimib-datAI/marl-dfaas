@@ -166,7 +166,9 @@ def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
         # for the input requests observation.
         min = limits[agent]["min"]
         max = limits[agent]["max"]
-        assert min == 0 and max == 150, "Unsupported [min, max] input request range!"
+        if max < min or min < 1 or max > 150:
+            raise ValueError(f"Unsupported [{min}, {max}] input rate range!")
+
         np.clip(requests, min, max, out=requests)
 
         input_requests[agent] = requests
@@ -181,7 +183,8 @@ def synthetic_constant(max_steps, agents):
 
     Current limitations: only two-agent environments are supported, and the
     constat rates are hardcoded as 5 and 100."""
-    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+    if len(agents) != 2:
+        raise ValueError("Only two agents supported by this input rate generation method")
 
     input_rate = {}
     constant_rates = np.array([5, 100], dtype=np.int32)
@@ -198,7 +201,8 @@ def synthetic_linear_growth(max_steps, agents):
 
     Only two-agent environments are supported.
     """
-    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+    if len(agents) != 2:
+        raise ValueError("Only two agents supported by this input rate generation method")
 
     input_rate = {}
     input_rate[agents[0]] = np.repeat(5, max_steps)
@@ -226,7 +230,8 @@ def synthetic_double_linear_growth(max_steps, agents, max_per_agent=63, rng=None
     Returns:
         dict: agent -> array of input rates.
     """
-    assert len(agents) == 2, "Only two agents supported by this input rate generation method"
+    if len(agents) != 2:
+        raise ValueError("Only two agents supported by this input rate generation method")
 
     if rng is None:
         rng = np.random.default_rng()
@@ -278,10 +283,12 @@ def synthetic_step_change(max_steps, agents, rates_before=[5, 100], rates_after=
     Returns:
         dict: agent -> array of input rates
     """
-    assert len(agents) == 2, "Only two agents supported"
-    assert len(rates_before) == len(rates_after) == 2, "Rates must be length 2"
-    assert sum(rates_before) <= 120, "Sum of initial rates exceeds 120"
-    assert sum(rates_after) <= 120, "Sum of final rates exceeds 120"
+    if len(agents) != 2:
+        raise ValueError("Only two agents supported by this input rate generation method")
+    if len(rates_before) != len(rates_after) != 2:
+        raise ValueError("Rates must be of length 2")
+    if sum(rates_before) > 120 or sum(rates_after) > 120:
+        raise ValueError("Sum of initial or final rates exceeds 120")
 
     change_point = max_steps // 2
 
@@ -336,8 +343,7 @@ def real(max_steps, agents, limits, rng, evaluation):
     agents.
 
     Since the steps and values of the real input requests are fixed, if the
-    given values don't respect the fixed values, there will be an assertion
-    error.
+    given values don't respect the fixed values, an exception will be raised.
 
     limits must be a dictionary whose keys are the agent ids, and each agent has
     two sub-keys: "min" for the minimum value and "max" for the maximum value.
@@ -382,10 +388,12 @@ def real(max_steps, agents, limits, rng, evaluation):
         reqs = dataframe.loc[:, "0":].to_numpy(dtype=np.int32).flatten()
 
         # Do some sanity checks to avoid nasty bugs.
-        assert reqs.size == max_steps, f"Unsupported given max_steps = {max_steps}"
+        if reqs.size != max_steps:
+            raise ValueError(f"Unsupported given max_steps = {max_steps}")
         min = limits[agent]["min"]
         max = limits[agent]["max"]
-        assert np.all(reqs >= min) and np.all(reqs <= max), f"Unsupported limits: {limits[agent]}"
+        if np.all(reqs < min) or np.all(reqs > max):
+            raise ValueError(f"Unsupported limits: {limits[agent]}")
 
         input_requests[agent] = reqs
         hashes[agent] = hash

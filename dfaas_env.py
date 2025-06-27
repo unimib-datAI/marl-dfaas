@@ -32,8 +32,10 @@ _logger = logging.getLogger(Path(__file__).name)
 def reward_fn(action, additional_reject):
     """Returns the reward for the given action and additional rejects. The
     reward is in the range [-1, 1]."""
-    assert len(action) == 3, "Expected (local, forward, reject)"
-    assert len(additional_reject) == 2, "Expected (local_reject, forward_reject)"
+    if len(action) != 3:
+        raise ValueError("Expected action = (local, forward, reject)")
+    if len(additional_reject) != 2:
+        raise ValueError("Expected additiona_reject = (local_reject, forward_reject)")
 
     arrival_rate_total = sum(action)
     rate_local, rate_forward, rate_reject = action
@@ -44,7 +46,8 @@ def reward_fn(action, additional_reject):
     reward = local_reward + forward_reward - rate_reject
 
     # Normalize the reward around [-1, 1].
-    assert arrival_rate_total > 0
+    if arrival_rate_total <= 0:
+        raise ValueError("The sum of actions must be positive!")
     norm_reward = reward / arrival_rate_total
 
     return float(norm_reward)

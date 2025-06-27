@@ -143,7 +143,8 @@ def main():
             # PolicySpec expects the Python class of the policy, not the raw
             # string!
             if policy_cfg.get("class"):
-                assert policy_cfg["class"] == "APLPolicy", "Only APLPolicy is supported as custom policy"
+                if policy_cfg["class"] != "APLPolicy":
+                    raise ValueError("Only APLPolicy is supported as custom policy")
                 policy_class = dfaas_apl.APLPolicy
             else:
                 # It uses the default algorithm.
@@ -157,7 +158,8 @@ def main():
                 config=None,
             )
 
-        assert len(policies) == len(dummy_env.agents), "Each policy should be mapped to an agent (and viceversa)"
+        if len(policies) != len(dummy_env.agents):
+            raise ValueError("Each policy should be mapped to an agent (and viceversa)")
 
     # Log policies data.
     for policy_name, policy in policies.items():
@@ -180,7 +182,8 @@ def main():
         given_model = dfaas_utils.json_to_dict(exp_config.get("model"))
         model = model | given_model
 
-    assert dummy_env.max_steps == 288, "Only 288 steps supported for the environment"
+    if dummy_env.max_steps != 288:
+        raise ValueError("Only 288 steps supported for the environment")
 
     match exp_config["algorithm"]["name"]:
         case "PPO":
@@ -292,7 +295,8 @@ def main():
     # through them within each iteration. See the DFaaS env for more
     # information.
     evaluation_num_episodes = exp_config["evaluation_num_episodes"]
-    assert evaluation_num_episodes > 0, "At least one eval. episodes must be run"
+    if evaluation_num_episodes <= 0:
+        raise ValueError("At least one eval. episodes must be run")
 
     def reset_env(env):
         master_seed = env.master_seed
@@ -305,11 +309,14 @@ def main():
 
     # Run the training phase.
     max_iterations = exp_config["iterations"]
-    assert max_iterations > 0, "Iterations must be a positive number!"
+    if max_iterations <= 0:
+        raise ValueError("Iterations must be a positive number!")
     checkpoint_interval = exp_config["checkpoint_interval"]
-    assert checkpoint_interval >= 0, "Checkpoint interval must be non negative!"
+    if checkpoint_interval < 0:
+        raise ValueError("Checkpoint interval must be non negative!")
     evaluation_interval = exp_config["evaluation_interval"]
-    assert evaluation_interval >= 0, "Evaluation interval must be non negative!"
+    if evaluation_interval < 0:
+        raise ValueError("Evaluation interval must be non negative!")
     logger.info("Training start")
     dry_run = args.dry_run
     with tqdm.tqdm(total=max_iterations) as progress_bar:
@@ -400,17 +407,22 @@ def build_ppo(**kwargs):
     gamma = kwargs["gamma"]
     lambda_ = kwargs["lambda_"]
 
-    assert 0 <= gamma <= 1, "Gamma (discount factor) must be between 0 and 1"
-    assert 0 <= lambda_ <= 1, "Lambda must be between 0 and 1"
+    if not 0 <= gamma <= 1:
+        raise ValueError("Gamma (discount factor) must be between 0 and 1")
+    if not 0 <= lambda_ <= 1:
+        raise ValueError("Lambda must be between 0 and 1")
 
     # Checks for the training_num_episodes and runners parameters.
-    assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
-    assert runners >= 0, "The number of runners must be non-negative!"
+    if training_num_episodes <= 0:
+        raise ValueError("Must play at least one episode for each iteration!")
+    if runners < 0:
+        raise ValueError("The number of runners must be non-negative!")
     if runners == 0:
         episodes_per_runner = training_num_episodes
     else:
         episodes_per_runner, remainder = divmod(training_num_episodes, runners)
-        assert remainder == 0, f"Each runner must play the same number of episodes ({remainder} != 0)!"
+        if remainder != 0:
+            raise ValueError(f"Each runner must play the same number of episodes ({remainder} != 0)!")
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we
@@ -492,12 +504,15 @@ def build_sac(**kwargs):
     training_num_episodes = kwargs["training_num_episodes"]
     gamma = kwargs["gamma"]
 
-    assert 0 <= gamma <= 1, "Gamma (discount factor) must be between 0 and 1"
+    if not 0 <= gamma <= 1:
+        raise ValueError("Gamma (discount factor) must be between 0 and 1")
 
     # Assume 288 steps because I want to set buffer'size accordingly.
-    assert dummy_env.max_steps == 288, "SAC supports only environments with 288 steps"
+    if dummy_env.max_steps != 288:
+        raise ValueError("SAC supports only environments with 288 steps")
 
-    assert training_num_episodes > 0, "Must play at least one episode for each iteration!"
+    if training_num_episodes <= 0:
+        raise ValueError("Must play at least one episode for each iteration!")
 
     # Replay buffer configuration (other values are set to the default).
     # By default save the latest 10 episodes' data in the buffer.
@@ -510,13 +525,15 @@ def build_sac(**kwargs):
     # Fill the replay buffer before to start the agents' training.
     warm_up_size = replay_buffer_config["capacity"]
 
-    assert runners >= 0, "The number of runners must be non-negative!"
+    if runners < 0:
+        raise ValueError("The number of runners must be non-negative!")
     if runners == 0:
         episodes_per_runner = training_num_episodes
         runners = 1  # Same as 0, just one single runner.
     else:
         episodes_per_runner, remainder = divmod(training_num_episodes, runners)
-        assert remainder == 0, f"Each runner must play the same number of episodes ({remainder} != 0)!"
+        if remainder != 0:
+            raise ValueError(f"Each runner must play the same number of episodes ({remainder} != 0)!")
 
     # In every training iteration collects all expected steps before training
     # starts. This ensures to wait all runners to finish.
