@@ -1,5 +1,5 @@
 disable_gpu = false
-iterations = 1000
+iterations = 2000
 algorithm.name = "PPO"
 algorithm.gamma = 0.7
 algorithm.lambda = 0.3
@@ -9,4 +9,4 @@ model = "configs/models/softplus.json"
 seed = 42
 checkpoint_interval = 0
 evaluation_interval = 25
-evaluation_num_episodes = 10
+evaluation_num_episodes = 20

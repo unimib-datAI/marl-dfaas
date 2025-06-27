@@ -129,29 +129,14 @@ class DFaaS(MultiAgentEnv):
         # 5 minutes of a 24-hour day.
         self.max_steps = config.get("max_steps", 288)
 
-        # Generation method of input rate.
+        # All nodes receive their input rates from the same generation method by
+        # default.
         self.input_rate_same_method = config.get("input_rate_same_method", True)
-        if self.input_rate_same_method:
-            self.input_rate_method = config.get("input_rate_method", "synthetic-sinusoidal")
-            match self.input_rate_method:
-                case "synthetic-sinusoidal":
-                    pass
-                case "synthetic-linear-growth":
-                    pass
-                case "synthetic-constant":
-                    pass
-                case "synthetic-normal":
-                    pass
-                case "synthetic-step-change":
-                    pass
-                case "synthetic-double-linear-growth":
-                    pass
-                case "real":
-                    assert self.max_steps == 288, f"With {self.input_rate_method = } only 288 max_steps are supported"
-                case _:
-                    assert False, f"Unsupported {self.input_rate_method = }"
-        else:
-            assert False, f"Unsupported {self.input_rate_same_method = }"
+
+        # Verify that the specified generation method exists. Otherwise, an
+        # exception will be raised.
+        self.input_rate_method = config.get("input_rate_method", "synthetic-sinusoidal")
+        dfaas_input_rate.generator(self.input_rate_method)
 
         # Is the env created for evaluation only? If so, the input requests may
         # differ from the training ones.
@@ -216,17 +201,14 @@ class DFaaS(MultiAgentEnv):
                 "min": self.observation_space[agent]["input_rate"].low.item(),
                 "max": self.observation_space[agent]["input_rate"].high.item(),
             }
+
+        # The signatures of each generator may differ.
+        generator = dfaas_input_rate.generator(self.input_rate_method)
         match self.input_rate_method:
-            case "synthetic-sinusoidal":
-                self.input_rate = dfaas_input_rate.synthetic_sinusoidal(self.max_steps, self.agents, limits, self.rng)
-            case "synthetic-normal":
-                self.input_rate = dfaas_input_rate.synthetic_normal(self.max_steps, self.agents, limits, self.rng)
-            case "synthetic-constant":
-                self.input_rate = dfaas_input_rate.synthetic_constant(self.max_steps, self.agents)
-            case "synthetic-step-change":
-                self.input_rate = dfaas_input_rate.synthetic_step_change(self.max_steps, self.agents)
-            case "synthetic-linear-growth":
-                self.input_rate = dfaas_input_rate.synthetic_linear_growth(self.max_steps, self.agents)
+            case "synthetic-sinusoidal" | "synthetic-normal":
+                self.input_rate = generator(self.max_steps, self.agents, limits, self.rng)
+            case "synthetic-constant" | "synthetic-step-change" | "synthetic-linear-growth":
+                self.input_rate = generator(self.max_steps, self.agents)
             case "synthetic-double-linear-growth":
                 # The max_per_agent argument is taken from perfmodel: with the
                 # current input values a node starts to drop requests from about
@@ -244,7 +226,7 @@ class DFaaS(MultiAgentEnv):
                 # callbacks.
                 self.input_rate_hashes = retval[1]
             case _:
-                assert False, f"Unreachable code"
+                raise AssertionError("Unreachable code")
 
         def info_init_key():
             """Helper function to automatically initialize the keys in the info

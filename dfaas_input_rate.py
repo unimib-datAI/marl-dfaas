@@ -1,14 +1,52 @@
-"""This module generates the average rate of input requests for the agent's
-observation dictionary. The generated rates can be from real or synthetic data.
-This module is used by the DFaaS environment at the beginning of an episode to
-get the input rate for all steps."""
+"""This module contains several methods for generating the average rate of input
+requests, also called the input rate.
+
+You can call a generator directly or use the registry, which maps generator
+names to their respective implementation functions.
+
+The DFaaS environment uses this module at the beginning of an episode to obtain
+the input rate for all steps."""
 
 from pathlib import Path
+import errno
 
 import numpy as np
 import pandas as pd
 
 
+# This is a registry that holds all the supported input rate generators. The key
+# is the generator string ID and the value is the associated function.
+_generator = {}
+
+
+def _register_generator(name):
+    """Register a generator function with the given name to _generator."""
+
+    def decorator(function):
+        _generator[name] = function
+        return function
+
+    return decorator
+
+
+def generator(name):
+    """Returns the generator with the given name.
+
+    Args:
+        name (str): Generator name.
+
+    Raises:
+        ValueError: If the generator is not found on the registry.
+    """
+    if name not in _generator:
+        e = ValueError(f"Unsupported {name!r} input rate generation method")
+        e.add_note(f"Supported generators are {list(_generator.keys())}")
+        raise e
+
+    return _generator[name]
+
+
+@_register_generator("synthetic-normal")
 def synthetic_normal(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
@@ -49,6 +87,7 @@ def _gen_synthetic_sinusoidal(rng):
     return trace["node_0"]
 
 
+@_register_generator("synthetic-sinusoidal")
 def synthetic_sinusoidal(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
     clipping the values within the given bounds and using the given rng to
@@ -135,6 +174,7 @@ def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
     return input_requests
 
 
+@_register_generator("synthetic-constant")
 def synthetic_constant(max_steps, agents):
     """Generates a constant input rate trace for each agent for the given
     length.
@@ -151,6 +191,7 @@ def synthetic_constant(max_steps, agents):
     return input_rate
 
 
+@_register_generator("synthetic-linear-growth")
 def synthetic_linear_growth(max_steps, agents):
     """Generates an input rate trace where the first agent's rate is constant
     (5), and the second agent's rate grows linearly from 1 to 150.
@@ -170,6 +211,7 @@ def synthetic_linear_growth(max_steps, agents):
     return input_rate
 
 
+@_register_generator("synthetic-double-linear-growth")
 def synthetic_double_linear_growth(max_steps, agents, max_per_agent=63, rng=None):
     """Generates input rate traces for two agents, both following linear growth
     with random start/end points and slopes (in [1, 150]). The sum of requests
@@ -217,6 +259,7 @@ def synthetic_double_linear_growth(max_steps, agents, max_per_agent=63, rng=None
     return input_rate
 
 
+@_register_generator("synthetic-step-change")
 def synthetic_step_change(max_steps, agents, rates_before=[5, 100], rates_after=[70, 30]):
     """Generates a step-change input rate trace for each agent for the given
     length.
@@ -276,8 +319,7 @@ def _init_real_input_requests_pool():
         # Prefer absolute paths.
         path = (Path.cwd() / "dataset" / "data" / dataset).resolve()
         if not path.exists():
-            _logger.critical(f"Dataset file not found: {path.as_posix()!r}")
-            raise FileNotFoundError(path)
+            raise FileNotFoundError(errno.ENOENT, "Dataset file not found", path)
 
         frame = pd.read_csv(path)
         frame.idx = idx  # Special metadata to know the original file.
@@ -288,6 +330,7 @@ def _init_real_input_requests_pool():
     _real_input_requests_pool = np.array(pool, dtype=object)
 
 
+@_register_generator("real")
 def real(max_steps, agents, limits, rng, evaluation):
     """Randomly selects a real input request from the pool for each of the given
     agents.
