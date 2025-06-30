@@ -9,6 +9,7 @@ the input rate for all steps."""
 
 from pathlib import Path
 import errno
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -46,6 +47,67 @@ def generator(name):
     return _generator[name]
 
 
+def scale_down(traces, max_per_agent=63, min_rate_per_agent=1, max_rate_per_agent=150):
+    """Proportionally scale down input rate traces per agent when the total capacity is exceeded.
+
+    Args:
+        traces (dict): Dictionary mapping agent identifiers to 1D numpy arrays
+            of rates. All arrays must have the same length.
+        max_per_agent (int): Maximum allowed rate per agent (default is 63).
+        min_rate_per_agent (int): Minimum allowed rate per agent (default is 1).
+        max_rate_per_agent (int): Maximum allowed rate per agent (default is 150).
+
+    Returns:
+        scaled_traces (dict): A dictionary in the same format as `traces`, but
+            with rates scaled down where necessary to ensure that the sum across all
+            agents does not exceed the total system capacity at any time step, and
+            all rates satisfy the per-agent min/max constraints.
+    """
+    agents = list(traces.keys())
+    max_steps = len(next(iter(traces.values())))  # All traces have the same length, just get the first.
+    total_capacity_step = max_per_agent * len(agents)
+    scaled_traces = deepcopy(traces)
+
+    for step in range(max_steps):
+        input_rate_step = np.array([traces[agent][step] for agent in agents])
+        if input_rate_step.sum() <= total_capacity_step:
+            continue  # Capacity not exceeded, nothing to do.
+
+        # Traces for this step must be scaled down proportionally.
+        scaled = np.round(input_rate_step * total_capacity_step / input_rate_step.sum())
+
+        # Clip values to ensure they're in the correct range.
+        scaled = np.clip(scaled, min_rate_per_agent, max_rate_per_agent).astype(int)
+
+        # Adjust single input rates to match total_capacity_step. Rounding and
+        # clipping can cause the sum to be slightly off.
+        diff = total_capacity_step - scaled.sum()
+        while diff != 0:
+            if diff > 0:
+                # Add to agents below max_rate_per_agent.
+                for i in range(len(scaled)):
+                    if scaled[i] < max_rate_per_agent:
+                        scaled[i] += 1
+                        diff -= 1
+                        if diff == 0:
+                            break
+            else:
+                # Subtract from agents above min_rate_per_agent.
+                for i in range(len(scaled)):
+                    if scaled[i] > min_rate_per_agent:
+                        scaled[i] -= 1
+                        diff += 1
+                        if diff == 0:
+                            break
+
+        # Update the scaled_traces with the new rates. Each agent is mapped to
+        # an integer (the orders is the same across all iterations).
+        for agent, idx in zip(agents, range(len(agents)), strict=True):
+            scaled_traces[agent][step] = scaled[idx]
+
+    return scaled_traces
+
+
 @_register_generator("synthetic-normal")
 def synthetic_normal(max_steps, agents, limits, rng):
     """Generates the input requests for the given agents with the given length,
@@ -80,100 +142,70 @@ def _gen_synthetic_sinusoidal(rng):
     # These are just fixed values for one trace.
     agents = ["node_0"]
     max_steps, min_reqs, max_reqs = 288, 1, 150
-    limits = {"node_0": {"min": min_reqs, "max": max_reqs}}
 
-    trace = synthetic_sinusoidal(max_steps, agents, limits, rng)
+    trace = synthetic_sinusoidal(max_steps, agents, rng)
 
     return trace["node_0"]
 
 
 @_register_generator("synthetic-sinusoidal")
-def synthetic_sinusoidal(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
+def synthetic_sinusoidal(max_steps, agents, rng=None):
+    """Generate synthetic sinusoidal input rate traces for a set of agents.
 
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+    Args:
+        max_steps (int): The number of time steps for which to generate the
+            input rate trace.
+        agents (list): A list of agent identifiers for which to generate traces.
+        rng: A NumPy RNG instance. If None, a new default_rng() is created.
 
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
-    # These two values are calculated to match the average mean of the real
-    # traces.
-    average_requests = 50
-    amplitude_requests = 100
-    noise_ratio = 0.1
-    unique_periods = 3  # The periods changes 3 times for each episode.
+    Returns
+        traces (dict): A dictionary mapping each agent identifier to its
+            corresponding 1D numpy array of input rates (length `max_steps`),
+            representing a noisy, phase-shifted sinusoidal trace.
 
-    input_requests = {}
+    Raises:
+        ValueError: If `max_steps` or `max_per_agent` is not greater than zero.
+
+    Notes:
+        - All agents have the same baseline and amplitude for the sinusoid, but
+          noise ratio is randomized for each agent (in range [0.05, 0.1]).
+        - Phases are evenly spaced to avoid global overload events (overlapping
+          peaks).
+        - Input rates are clipped to the interval [1, 150].
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    if max_steps <= 0:
+        raise ValueError(f"Expected > 0, found {max_steps = }!")
+
+    # All agents have the same basline_rate and amplitude_rate.
+    baseline_rate = np.repeat(70, len(agents))
+    amplitude_rate = np.repeat(65, len(agents))
+    noise_ratio = rng.uniform(0.05, 0.1, len(agents))  # But different noise ratio.
     steps = np.arange(max_steps)
-    for agent in agents:
-        # Note: with default max_steps, the period changes every 96 steps
-        # (max_steps = 288). We first generate the periods and expand the array
-        # to match the max_steps. If max_steps is not a multiple of 96, some
-        # elements must be appended at the end, hence the resize call.
-        repeats = max_steps // unique_periods
-        periods = rng.uniform(15, high=100, size=unique_periods)
-        periods = np.repeat(periods, repeats)  # Expand the single values.
-        periods = np.resize(periods, periods.size + max_steps - periods.size)
+    rate_min, rate_max = 1, 150
 
-        base_input = average_requests + amplitude_requests * np.sin(2 * np.pi * steps / periods)
-        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
-        requests = np.asarray(noisy_input, dtype=np.int32)
+    # Avoid overlapping phases (that may cause a global overload) by evenly
+    # spacing the phase for each agent.
+    phi = np.linspace(0, 2 * np.pi, len(agents), endpoint=False)
 
-        # Clip the excess values respecting the minimum and maximum values
-        # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        np.clip(requests, min, max, out=requests)
+    # Generate the input rate traces for each agent.
+    input_rates = []
+    for idx in range(len(agents)):
+        base_rate = amplitude_rate[idx] * np.sin(2 * np.pi * steps / max_steps + phi[idx]) + baseline_rate[idx]
 
-        input_requests[agent] = requests
+        noisy_rate = base_rate + noise_ratio[idx] * rng.normal(0, amplitude_rate[idx], size=max_steps)
 
-    return input_requests
+        clipped_rate = np.clip(np.round(noisy_rate), rate_min, rate_max)
 
+        input_rates.append(clipped_rate)
 
-def _synthetic_sinusoidal_input_requests_new(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
+    # Randomly assign an input rate trace for each agent.
+    traces = {}
+    for agent, input_rate in zip(agents, rng.permutation(input_rates)):
+        traces[agent] = input_rate
 
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
-
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
-    average_requests = np.clip(rng.normal(loc=70), 60, 80)
-    amplitude_requests = 60
-    noise_ratio = 0.2
-
-    input_requests = {}
-    steps = np.arange(max_steps)
-    for agent in agents:
-        # Sample the function.
-        function = rng.choice([np.sin, np.cos])
-
-        # Sample the period in a fixed range.
-        periods = rng.uniform(5, high=30)
-
-        # Sample the requests.
-        base_input = average_requests + amplitude_requests * function(steps / periods)
-
-        # Add some noise.
-        noisy_input = base_input + noise_ratio * rng.normal(0, amplitude_requests, size=max_steps)
-        requests = np.asarray(noisy_input, dtype=np.int32)
-
-        # Clip the excess values respecting the minimum and maximum values
-        # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        if max < min or min < 1 or max > 150:
-            raise ValueError(f"Unsupported [{min}, {max}] input rate range!")
-
-        np.clip(requests, min, max, out=requests)
-
-        input_requests[agent] = requests
-
-    return input_requests
+    return traces
 
 
 @_register_generator("synthetic-constant")
