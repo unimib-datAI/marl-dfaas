@@ -198,18 +198,10 @@ class DFaaS(MultiAgentEnv):
         self.np_random = self.rng  # Required by the Gymnasium API
 
         # Generate all input rates for the environment.
-        limits = {}
-        for agent in self.agents:
-            limits[agent] = {
-                "min": self.observation_space[agent]["input_rate"].low.item(),
-                "max": self.observation_space[agent]["input_rate"].high.item(),
-            }
-
-        # The signatures of each generator may differ.
         generator = dfaas_input_rate.generator(self.input_rate_method)
-        match self.input_rate_method:
+        match self.input_rate_method:  # Each generator has its own signature.
             case "synthetic-sinusoidal" | "synthetic-normal":
-                self.input_rate = generator(self.max_steps, self.agents, limits, self.rng)
+                self.input_rate = generator(self.max_steps, self.agents, self.rng)
             case "synthetic-constant" | "synthetic-step-change" | "synthetic-linear-growth":
                 self.input_rate = generator(self.max_steps, self.agents)
             case "synthetic-double-linear-growth":
@@ -220,6 +212,13 @@ class DFaaS(MultiAgentEnv):
                     self.max_steps, self.agents, max_per_agent=63, rng=self.rng
                 )
             case "real":
+                limits = {}
+                for agent in self.agents:
+                    limits[agent] = {
+                        "min": self.observation_space[agent]["input_rate"].low.item(),
+                        "max": self.observation_space[agent]["input_rate"].high.item(),
+                    }
+
                 retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
 
                 self.input_rate = retval[0]

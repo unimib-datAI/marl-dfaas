@@ -109,18 +109,26 @@ def scale_down(traces, max_per_agent=63, min_rate_per_agent=1, max_rate_per_agen
 
 
 @_register_generator("synthetic-normal")
-def synthetic_normal(max_steps, agents, limits, rng):
-    """Generates the input requests for the given agents with the given length,
-    clipping the values within the given bounds and using the given rng to
-    generate the synthesized data.
+def synthetic_normal(max_steps, agents, rng):
+    """Generates synthetic gaussian input rate traces for a set of agents.
 
-    limits must be a dictionary whose keys are the agent ids, and each agent has
-    two sub-keys: "min" for the minimum value and "max" for the maximum value.
+    Args:
+        max_steps (int): The number of time steps for which to generate the
+            input rate trace.
+        agents (list): A list of agent identifiers for which to generate traces.
+        rng: A NumPy RNG instance. If None, a new default_rng() is created.
 
-    Returns a dictionary whose keys are the agent IDs and whose value is an
-    np.ndarray containing the input requests for each step."""
+    Returns
+        traces (dict): A dictionary mapping each agent identifier to its
+            corresponding 1D numpy array of input rates (length `max_steps`),
+            representing a trace that follows a gaussian distribution.
+
+    Raises:
+        ValueError: If `max_steps` is lesser or equal than zero.
+    """
     mean = 61
     std = 32
+    rate_min, rate_max = 1, 150
 
     input_requests = {}
     for agent in agents:
@@ -129,9 +137,7 @@ def synthetic_normal(max_steps, agents, limits, rng):
 
         # Clip the excess values respecting the minimum and maximum values
         # for the input requests observation.
-        min = limits[agent]["min"]
-        max = limits[agent]["max"]
-        np.clip(input_requests[agent], min, max, out=input_requests[agent])
+        np.clip(input_requests[agent], rate_min, rate_max, out=input_requests[agent])
 
     return input_requests
 
@@ -164,7 +170,7 @@ def synthetic_sinusoidal(max_steps, agents, rng=None):
             representing a noisy, phase-shifted sinusoidal trace.
 
     Raises:
-        ValueError: If `max_steps` or `max_per_agent` is not greater than zero.
+        ValueError: If `max_steps` is lesser or equal than zero.
 
     Notes:
         - All agents have the same baseline and amplitude for the sinusoid, but
