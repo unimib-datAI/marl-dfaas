@@ -201,13 +201,22 @@ class DFaaS(MultiAgentEnv):
         generator = dfaas_input_rate.generator(self.input_rate_method)
         match self.input_rate_method:  # Each generator has its own signature.
             case "synthetic-sinusoidal" | "synthetic-normal":
-                self.input_rate = generator(self.max_steps, self.agents, self.rng)
+                input_rate = generator(self.max_steps, self.agents, self.rng)
+
+                # Scale down the traces to ensure that the input rate does not
+                # exceed the total capacity in a single step.
+                self.input_rate = dfaas_input_rate.scale_down(input_rate)
             case "synthetic-constant" | "synthetic-step-change" | "synthetic-linear-growth":
+                # It's not necessary to scale down since the generator already
+                # do that.
                 self.input_rate = generator(self.max_steps, self.agents)
             case "synthetic-double-linear-growth":
                 # The max_per_agent argument is taken from perfmodel: with the
                 # current input values a node starts to drop requests from about
                 # 63 input requests per step.
+                #
+                # It's not necessary to scale down since the generator already
+                # do that.
                 self.input_rate = dfaas_input_rate.synthetic_double_linear_growth(
                     self.max_steps, self.agents, max_per_agent=63, rng=self.rng
                 )
