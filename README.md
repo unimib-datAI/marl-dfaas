@@ -1,15 +1,24 @@
 # Multi-Agent RL for DFaaS by Emanuele Petriglia
 
-This repository is in a **working in progress** state.
+> [!WARNING]
+> This repository is a **work in progress**. If you have any questions, feel
+> free to contact the author by email or open an issue on GitHub.
 
-If you are looking for the source code of the experiments of Emanuele
-Petriglia's master's thesis, discussed in October 2024, see the
+This repository contains the source code for experiments on Multi-Agent
+Reinforcement Learning applied to workload distribution in a FaaS-Edge computing
+system, with a focus on [Decentralized FaaS
+(DFaaS)](https://github.com/unimib-datAI/dfaas).
+
+If you are looking for the source code of the ["Multi-Agent Reinforcement
+Learning for Workload Distribution in FaaS-Edge Computing
+Systems"](https://ieeexplore.ieee.org/document/11106134) article published at
+IPDPSW 2025, please check the
+[`paise2025`](https://github.com/unimib-datAI/marl-dfaas/tree/paise2025) branch.
+If instead you are here for my master's thesis (presented in October 2024), see
+the
 [`petriglia-thesis-2024`](https://github.com/unimib-datAI/marl-dfaas/tree/petriglia-thesis-2024)
-branch.
-
-The thesis, a summary and the presentation slides are available in another
-[repository hosted on GitLab](https://gitlab.com/ema-pe/master-degree-thesis),
-but they are written in Italian.
+branch. The thesis, summary, and presentation slides are hosted on a [dedicated
+GitLab repository](https://gitlab.com/ema-pe/master-degree-thesis).
 
 ## Project directory structure
 
