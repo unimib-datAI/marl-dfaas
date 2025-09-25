@@ -11,7 +11,7 @@ algorithm.lambda = 0.3
 disable_gpu = false
 
 # Number of training iterations to run.
-iterations = 100
+iterations = 1000
 
 # Number of episodes to play for each training iteration.
 #
@@ -32,7 +32,7 @@ seed = 42
 
 # Create a checkpoint after the specified number of iterations. If the number is
 # 0, then no checkpoints are created except for the final one.
-checkpoint_interval = 25
+checkpoint_interval = 200
 
 # Run an evaluation after the specified number of iterations. If the number is
 # 0, then no evaluation is done except for the final one.
