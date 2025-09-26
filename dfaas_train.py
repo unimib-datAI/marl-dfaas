@@ -240,6 +240,7 @@ def main():
     logger.info(f"DFAAS experiment directory created at {logdir.as_posix()!r}")
     # This will be used after the evaluation.
     start = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_start = datetime.now()
 
     exp_file = logdir / "exp_config.json"
     dfaas_utils.dict_to_json(exp_config, exp_file)
@@ -389,6 +390,11 @@ def main():
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
     logger.info(f"DFAAS experiment results moved to {result_dir.as_posix()!r}")
+
+    experiment_end = datetime.now()
+    experiment_duration = experiment_end - experiment_start
+    logger.info(f"Experiment name: {exp_name}")
+    logger.info(f"Experiment duration: {experiment_duration}")
 
 
 def build_ppo(**kwargs):
