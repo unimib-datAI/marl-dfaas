@@ -10,3 +10,6 @@ c.NotebookApp.password = ""
 c.NotebookApp.token = ""
 
 c.NotebookApp.notebook_dir = "notebooks"
+
+# Remove input cells from the output.
+c.HTMLExporter.exclude_input = True
