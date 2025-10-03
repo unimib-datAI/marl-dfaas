@@ -153,7 +153,7 @@ Run the [`dfaas_evaluate.py`](dfaas_evaluate_ppo.py) Python script.
 Just run:
 
 ```console
-$ jupyter notebook --config jupyter_notebook_config.py
+$ jupyter notebook --config jupyter_notebook_config.py --port=8888
 ```
 
 Then open http://localhost:8888/tree in a Web browser.
