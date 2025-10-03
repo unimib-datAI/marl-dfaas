@@ -11,7 +11,7 @@ algorithm.lambda = 0.3
 disable_gpu = false
 
 # Number of training iterations to run.
-iterations = 1000
+iterations = 2000
 
 # Number of episodes to play for each training iteration.
 #

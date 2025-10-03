@@ -109,10 +109,17 @@ def set_trace():
     debugger.set_trace()
 
 
-# Default size (10) is too small.
+# ------------------------------
+# Custom settings for matplotlib
+# ------------------------------
+
+# Default font size (10) and figure size is too small.
 font = {"size": 12}
 matplotlib.rcParams["figure.figsize"] = [9, 6]
 matplotlib.rc("font", **font)
+
+# We have large notebooks with more than 20 plots, do not show the default warning.
+matplotlib.rcParams["figure.max_open_warning"] = 50
 
 # Disable Ray's warnings.
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -141,3 +148,27 @@ def get_experiments(exp_prefix):
 
     # Newest experiment first.
     return sorted(exps, reverse=True)
+
+
+def get_moving_average(data, window_size=50):
+    """Returns the moving average for a sequence of data points.
+
+    For each index i, the average is computed over the previous `window_size`
+    points, or all available points if fewer than `window_size` are present.
+
+    Args:
+        data (array-like): Sequence of numeric values to average.
+        window_size (int): The size of the moving window.
+
+    Returns:
+        np.ndarray: Array of moving averages with the same length as `data`.
+        int: The used moving window size.
+    """
+    assert len(data) > 0, "'data' must be at least of length 1"
+
+    moving_avg = np.empty(len(data))
+    for i in range(len(data)):
+        start = max(0, i - window_size + 1)
+        moving_avg[i] = np.mean(data[start : i + 1])
+
+    return moving_avg, window_size
