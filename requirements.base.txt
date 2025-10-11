@@ -3,7 +3,6 @@ torch==2.7.1
 gputil==1.4.0  # Required by RLlib (GPU system monitoring).
 matplotlib==3.10.6
 orjson==3.10.18
-ipympl==0.9.7
-jupyterlab==4.4.9
-nbstripout==0.8.1
 tqdm==4.67.1
+marimo==0.16.5
+ruff=0.14.0
