@@ -12,18 +12,17 @@ def _(mo):
 
 @app.cell
 def _():
-    # Common imports.
     from pathlib import Path
 
     import marimo as mo
 
-    import numpy as np
     import matplotlib.pyplot as plt
-    import matplotlib.ticker as ticker
     import networkx as nx
     import pandas as pd
 
-    return Path, mo, nx, pd, plt
+    import utils
+
+    return Path, mo, nx, pd, plt, utils
 
 
 @app.cell(hide_code=True)
@@ -33,27 +32,35 @@ def _(mo):
 
 
 @app.cell
-def _(Path, mo, nx, pd):
-    # Base directory where the experiments are located.
-    _prefix_dir = Path("../expand-action-space/results/").resolve().absolute()
+def _(Path, mo):
+    exp_dir_widget = mo.ui.file_browser(
+        initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
+    )
 
-    # Experiment directory.
-    _exp_dir = _prefix_dir / "DF_20250929_144721_PPO_5_agents_expanded_actions"
+    exp_dir_widget
+    return (exp_dir_widget,)
+
+
+@app.cell
+def _(exp_dir_widget, mo, pd, utils):
+    # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
+    # has been selected.
+    mo.stop(exp_dir_widget.path() is None)
+
+    _exp_dir = exp_dir_widget.path().resolve().absolute()
 
     exp_data = pd.read_json(_exp_dir / "result.json", lines=True)
 
-    # FIXME
-    _adjlist = ["node_0 node_1 node_2 node_3", "node_1 node_4", "node_2 node_3", "node_3", "node_4"]
-    network = nx.parse_adjlist(_adjlist)
+    env = utils.get_env(_exp_dir)
 
     mo.md(f"""
-    Experiment prefix dir: {_prefix_dir.as_posix()!r}  
-    Experiment name:       {_exp_dir.name!r}  
-    Agents:                WIP  
-    Mode:                  train  
-    Iterations:            {exp_data.shape[0]}
+    **Experiment prefix dir**: `{_exp_dir.parent.as_posix()!r}`  
+    **Experiment name**:       `{_exp_dir.name!r}`  
+    **Agents**:                {env.agents}  
+    **Mode**:                  train  
+    **Iterations**:            {exp_data.shape[0]}
     """)
-    return exp_data, network
+    return env, exp_data
 
 
 @app.cell(hide_code=True)
@@ -62,38 +69,53 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(exp_data, mo):
-    # Which iteration (training or evaluation) to select?
-    iteration_idx = 4
+    _iter_start = 0
+    _iter_stop = exp_data.shape[0] - 1
 
-    # Which episode from the single iteration to select?
-    episode_idx = 0
-
-    assert 0 <= iteration_idx <= exp_data.shape[0] - 1, "iteration_idx must be a valid iteration index!"
-
-    assert 0 <= episode_idx < exp_data.iloc[iteration_idx]["env_runners"]["num_episodes"], (
-        "episode_idx must be a valid episode index!"
+    iteration_idx = mo.ui.number(
+        start=_iter_start,
+        stop=_iter_stop,
+        step=1,
+        value=_iter_stop,
+        label=f"Iteration index [{_iter_start}, {_iter_stop}]: ",
+        debounce=True,
     )
 
-    mo.md(f"""
-    Selected iteration:    {iteration_idx}  
-    Selected episode:      {episode_idx}
-    """)
-    return episode_idx, iteration_idx
+    iteration_idx
+    return (iteration_idx,)
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(exp_data, iteration_idx, mo):
+    _epi_start = 0
+    _epi_stop = exp_data.iloc[iteration_idx.value]["env_runners"]["num_episodes"]
+
+    episode_idx = mo.ui.number(
+        start=_epi_start,
+        stop=_epi_stop,
+        step=1,
+        value=_epi_start,
+        label=f"Episode index [{_epi_start}, {_epi_stop}]: ",
+        debounce=True,
+    )
+
+    episode_idx
+    return (episode_idx,)
+
+
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""### Network topology""")
     return
 
 
 @app.cell(hide_code=True)
-def _(network, nx, plt):
+def _(env, nx, plt):
     def make_networkx_plot(graph):
-        plt.close(fig=f"networkx")
-        fig = plt.figure(num=f"networkx", layout="constrained")
+        plt.close(fig="networkx")
+        fig = plt.figure(num="networkx", layout="constrained")
         fig.canvas.header_visible = False
         ax = fig.subplots()
 
@@ -115,7 +137,7 @@ def _(network, nx, plt):
 
         return fig
 
-    make_networkx_plot(network)
+    make_networkx_plot(env.network)
     return
 
 
@@ -129,7 +151,7 @@ def _(episode_idx, exp_data, iteration_idx, pd):
 
         return iter_data
 
-    input_rate = get_input_rate(exp_data, iteration_idx, episode_idx)
+    input_rate = get_input_rate(exp_data, int(iteration_idx.value), int(episode_idx.value))
     return (input_rate,)
 
 
@@ -163,9 +185,132 @@ def _(input_rate, mo, plt):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Episode DataFrame""")
+    return
+
+
 @app.cell
-def _(pd):
-    pd.read_
+def _(episode_idx, exp_data, iteration_idx, pd):
+    def get_episode_data(exp_data, iter_idx, epi_idx):
+        from functools import reduce
+
+        keys = exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]
+
+        # Filter the keys that are necessary, exclude all others.
+        cols = [
+            "observation_input_rate",
+            "action_local",
+            "action_forward",
+            "action_reject",
+            "incoming_rate",
+            "incoming_rate_reject",
+        ]
+        extra_cols = [key for key in keys if key.startswith("action_forward_to")]
+        columns = cols + extra_cols
+
+        datas = []
+        for key in columns:
+            try:
+                data = pd.DataFrame(exp_data.iloc[iter_idx]["env_runners"]["hist_stats"][key])
+            except KeyError:
+                # Missing key, maybe it is an old experiment without action_forward_to_XXX.
+                continue
+
+            # Convert the original DataFrame (1 row x n agents) to (288 rows x n agents).
+            exploded = data.apply(pd.Series.explode)
+
+            # Add the step column.
+            exploded["step"] = range(1, len(exploded) + 1)
+
+            # Move the n agents columns to a single columns with the agents value.
+            # The resulting DataFrame will have n agents * 288 rows.
+            final = exploded.melt(id_vars="step", var_name="agent", value_name=key)
+
+            datas.append(final)
+
+        # Merge all single DataFrames to a single one. Keep the common two columns.
+        # Must use outer join because some columns (forward to specific nodes) are missing.
+        return reduce(lambda left, right: pd.merge(left, right, on=["step", "agent"], how="outer"), datas)
+
+    episode = get_episode_data(exp_data, int(iteration_idx.value), int(episode_idx.value))
+    return (episode,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Step selection""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(episode, mo):
+    _start = int(episode["step"].min())
+    _end = int(episode["step"].max())
+
+    step = mo.ui.number(
+        start=_start, stop=_end, step=1, value=_start, label=f"Step selection [{_start}, {_end}]: ", debounce=True
+    )
+    step
+    return (step,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Episode step graph""")
+    return
+
+
+@app.cell
+def _(env, episode, mo, step):
+    def draw_step_graph(episode, env, step):
+        step_data = episode[episode["step"] == step]
+
+        import graphviz
+
+        # Create a directed graph using graphviz.
+        dot = graphviz.Digraph()
+
+        dot.attr("node", shape="circle", style="filled", fillcolor="white", color="black")
+
+        # Add data as arrows.
+        for agent in env.agents:
+            agent_data = step_data[step_data["agent"] == agent]
+
+            # Basic action and local processing/reject
+            action_local = str(agent_data["action_local"].iloc[0])
+            action_forward = str(agent_data["action_forward"].iloc[0])
+            action_reject = str(agent_data["action_reject"].iloc[0])
+            incoming_rate_reject = agent_data["incoming_rate_reject"].iloc[0]
+            incoming_rate_processed = str(agent_data["incoming_rate"].iloc[0] - incoming_rate_reject)
+            incoming_rate_reject = str(incoming_rate_reject)
+
+            # Agent node.
+            agent_label = f"{agent}\n⬇️{action_local} ↪️{action_forward} 🗑️{action_reject}\n✅{incoming_rate_processed} ❌{incoming_rate_reject}"
+            dot.node(agent, label=agent_label)
+
+            # Input rate with dummy nodes.
+            dot.node(f"input_{agent}", shape="point")
+            dot.edge(f"input_{agent}", agent, label=str(agent_data["observation_input_rate"].iloc[0]))
+
+            # Specific forward to neighbors.
+            try:
+                for neighbor in env.network.adj[agent]:
+                    rate = str(agent_data[f"action_forward_to_{neighbor}"].squeeze())
+                    dot.edge(agent, neighbor, label=rate)
+            except KeyError:
+                # Missing action_forward_to_XXX, fallback to previous version.
+                # Note that action_forward is a float represented as str...
+                portion = str(round(float(action_forward) / len(env.network.adj[agent])))
+                for neighbor in env.network.adj[agent]:
+                    dot.edge(agent, neighbor, label=portion)
+
+        # Render to SVG in-memory and display in Marimo
+        svg = dot.pipe(format="svg").decode("utf-8")
+        return mo.Html(svg)
+
+    draw_step_graph(episode, env, step.value)
     return
 
 
