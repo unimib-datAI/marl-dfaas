@@ -185,6 +185,29 @@ def _(input_rate, mo, plt):
     return
 
 
+@app.cell
+def _(input_rate, mo, utils):
+    def make_single_input_rate_plot(input_rate):
+        fig = utils.get_figure("single_input_rate")
+        ax = fig.subplots()
+
+        for agent in input_rate.columns:
+            ax.plot(input_rate[agent], label=agent)
+
+        ax.set_title("Input rates per step")
+        ax.set_ylabel("Input rate (req/s)")
+        ax.set_xlabel("Step")
+
+        ax.grid(axis="both")
+        ax.set_axisbelow(True)  # By default the axis is over the content.
+        ax.legend()
+
+        return mo.mpl.interactive(fig)
+
+    make_single_input_rate_plot(input_rate)
+    return
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Episode DataFrame""")
@@ -206,6 +229,8 @@ def _(episode_idx, exp_data, iteration_idx, pd):
             "action_reject",
             "incoming_rate",
             "incoming_rate_reject",
+            "incoming_rate_local_reject",
+            "forward_reject_rate",
         ]
         extra_cols = [key for key in keys if key.startswith("action_forward_to")]
         columns = cols + extra_cols
@@ -262,6 +287,61 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Input rate and total reject (with %)""")
+    return
+
+
+@app.cell
+def _(env, episode, pd, step):
+    def text_reject_rate(episode, env, step):
+        step_data = episode[episode["step"] == step]
+
+        rows = []
+        for agent in env.agents:
+            agent_data = step_data[step_data["agent"] == agent]
+
+            input_rate = agent_data["observation_input_rate"].squeeze()
+            action_reject = agent_data["action_reject"].squeeze()
+            incoming_rate_local_reject = agent_data["incoming_rate_local_reject"].squeeze()
+            forward_reject = agent_data["forward_reject_rate"].squeeze()
+
+            total_reject = action_reject + incoming_rate_local_reject + forward_reject
+
+            rows.append({"agent": agent, "input_rate": input_rate, "total_reject": total_reject})
+
+        stats = pd.DataFrame(rows)
+
+        # Calculate the total for all agents.
+        all_input_rate = stats["input_rate"].sum()
+        all_total_reject = stats["total_reject"].sum()
+        all = pd.DataFrame([{"agent": "all", "input_rate": all_input_rate, "total_reject": all_total_reject}])
+
+        stats = pd.concat([all, stats], ignore_index=True)
+
+        # Compute the reject_percent column, set zero if input_rate is zero.
+        stats["reject_percent"] = stats.apply(
+            lambda row: row["total_reject"] / row["input_rate"] if row["input_rate"] != 0 else 0, axis=1
+        )
+
+        return stats
+
+    text_reject_rate(episode, env, step.value)
+    return
+
+
+@app.cell
+def _(episode):
+    step_data = episode[episode["step"] == 1]
+    agent_data = step_data[step_data["agent"] == "node_0"]
+
+    incoming_rate_reject = agent_data["incoming_rate_reject"].iloc[0]
+
+    incoming_rate_reject
+    return
+
+
 @app.cell
 def _(env, episode, mo, step):
     def draw_step_graph(episode, env, step):
@@ -308,7 +388,7 @@ def _(env, episode, mo, step):
 
         # Render to SVG in-memory and display in Marimo
         svg = dot.pipe(format="svg").decode("utf-8")
-        return mo.Html(svg)
+        return mo.Html(svg).center()
 
     draw_step_graph(episode, env, step.value)
     return
