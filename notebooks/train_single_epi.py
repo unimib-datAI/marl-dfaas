@@ -332,17 +332,6 @@ def _(env, episode, pd, step):
 
 
 @app.cell
-def _(episode):
-    step_data = episode[episode["step"] == 1]
-    agent_data = step_data[step_data["agent"] == "node_0"]
-
-    incoming_rate_reject = agent_data["incoming_rate_reject"].iloc[0]
-
-    incoming_rate_reject
-    return
-
-
-@app.cell
 def _(env, episode, mo, step):
     def draw_step_graph(episode, env, step):
         step_data = episode[episode["step"] == step]
