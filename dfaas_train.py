@@ -16,6 +16,7 @@ from ray.rllib.algorithms.registry import get_policy_class
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.models.catalog import MODEL_DEFAULTS
 
+from json_gzip_logger import JsonGzipLogger
 import dfaas_utils
 import dfaas_env
 import dfaas_apl
@@ -382,10 +383,6 @@ def main():
     else:
         logger.info(f"Evaluation results empty, skip saving")
 
-    # Remove unused or problematic files in the result directory.
-    Path(logdir / "progress.csv").unlink()  # result.json contains same data.
-    Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
-
     # Move the original experiment directory to a custom directory.
     result_dir = Path.cwd() / "results" / exp_name
     shutil.move(logdir, result_dir.resolve())
@@ -478,7 +475,7 @@ def build_ppo(**kwargs):
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed)
+        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -599,7 +596,7 @@ def build_sac(**kwargs):
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed)
+        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -641,7 +638,7 @@ def build_apl(**kwargs):
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=exp_config["seed"])
+        .debugging(seed=exp_config["seed"], logger_config={"type": JsonGzipLogger})
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
     )
