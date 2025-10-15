@@ -80,6 +80,10 @@ def main():
     exp_config["algorithm"]["gamma"] = exp_config["algorithm"].get("gamma", 0.99)
     if exp_config["algorithm"]["name"] == "PPO":
         exp_config["algorithm"]["lambda"] = exp_config["algorithm"].get("lambda", 1)
+        exp_config["algorithm"]["entropy_coeff"] = exp_config["algorithm"].get("entropy_coeff", 0)
+        exp_config["algorithm"]["entropy_coeff_decay_enable"] = exp_config["algorithm"].get(
+            "entropy_coeff_decay_enable", False
+        )
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
@@ -203,6 +207,9 @@ def main():
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
                 lambda_=exp_config["algorithm"]["lambda"],
+                entropy_coeff=exp_config["algorithm"]["entropy_coeff"],
+                entropy_coeff_decay_enable=exp_config["algorithm"]["entropy_coeff_decay_enable"],
+                max_iterations=exp_config["iterations"],
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -409,6 +416,9 @@ def build_ppo(**kwargs):
     training_num_episodes = kwargs["training_num_episodes"]
     gamma = kwargs["gamma"]
     lambda_ = kwargs["lambda_"]
+    entropy_coeff = kwargs["entropy_coeff"]
+    entropy_coeff_decay_enable = kwargs["entropy_coeff_decay_enable"]
+    max_iterations = kwargs["max_iterations"]
 
     if not 0 <= gamma <= 1:
         raise ValueError("Gamma (discount factor) must be between 0 and 1")
@@ -426,6 +436,27 @@ def build_ppo(**kwargs):
         episodes_per_runner, remainder = divmod(training_num_episodes, runners)
         if remainder != 0:
             raise ValueError(f"Each runner must play the same number of episodes ({remainder} != 0)!")
+
+    # In PPO, the entropy coefficient allows us to balance exploration and
+    # exploitation by encouraging the former. In our case, we have a continuous
+    # action space modeled with a Dirichlet distribution, which already has a
+    # natural built-in spread. However, the entropy coefficient can still
+    # provide additional help.
+    #
+    # By default, if no value is provided, the coefficient remains constant at
+    # 0. If specified, we apply a slow decay over the first X% of iterations. We
+    # only define the start and end values, intermediate timesteps are assigned
+    # linearly interpolated coefficient values. Note that the timestep in the
+    # schedule is global (the sum of all agents' timesteps) rather than specific
+    # to each individual agent.
+    if entropy_coeff != 0.0 and entropy_coeff_decay_enable:
+        # Decay in the first 70% of iterations (counting timesteps).
+        end_timestep = 0.7 * (dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations)
+        entropy_coeff_schedule = [[0, entropy_coeff], [end_timestep, 1e-6]]
+
+        entropy_coeff_schedule = entropy_coeff_schedule
+    else:
+        entropy_coeff_schedule = None
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we
@@ -465,6 +496,8 @@ def build_ppo(**kwargs):
             minibatch_size=minibatch_size,
             model=model,
             lambda_=lambda_,
+            entropy_coeff=entropy_coeff,
+            entropy_coeff_schedule=entropy_coeff_schedule,
         )
         .framework("torch")
         # Wait max 4 minutes for each iteration to collect the samples.
