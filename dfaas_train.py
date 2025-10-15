@@ -12,7 +12,6 @@ import tqdm
 import ray
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.algorithms.registry import get_policy_class
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.models.catalog import MODEL_DEFAULTS
 
@@ -90,7 +89,7 @@ def main():
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
-    logger.info(f"Experiment configuration")
+    logger.info("Experiment configuration")
     for key, value in exp_config.items():
         logger.info(f"{key:>25}: {value}")
 
@@ -103,7 +102,7 @@ def main():
 
     # Create a dummy environment, used as reference.
     dummy_env = dfaas_env.DFaaS(config=env_config)
-    logger.info(f"Environment configuration")
+    logger.info("Environment configuration")
     for key, value in dummy_env.get_config().items():
         logger.info(f"{key:>25}: {value}")
 
@@ -181,6 +180,8 @@ def main():
     model = MODEL_DEFAULTS.copy()
     # Must be False to have a different network for the Critic.
     model["vf_share_layers"] = False
+    # Default is just two hidden layers with 256 neurons each.
+    model["fcnet_hiddens"] = [256, 256, 256, 256]
 
     if exp_config.get("model") is not None:
         # Update the model with the given options.
@@ -388,7 +389,7 @@ def main():
         dfaas_utils.dict_to_json(eval_result, eval_file)
         logger.info(f"Evaluation results data saved to: {eval_file.as_posix()}")
     else:
-        logger.info(f"Evaluation results empty, skip saving")
+        logger.info("Evaluation results empty, skip saving")
 
     # Move the original experiment directory to a custom directory.
     result_dir = Path.cwd() / "results" / exp_name
