@@ -450,6 +450,12 @@ def build_ppo(**kwargs):
     # linearly interpolated coefficient values. Note that the timestep in the
     # schedule is global (the sum of all agents' timesteps) rather than specific
     # to each individual agent.
+    #
+    # References:
+    #   - https://github.com/ray-project/ray/blob/master/rllib/policy/torch_mixins.py#L51
+    #   - https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo.py#L277
+    #   - https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_torch_policy.py#L153
+    #   - https://github.com/ray-project/ray/blob/master/rllib/evaluation/rollout_worker.py#L1620
     if entropy_coeff != 0.0 and entropy_coeff_decay_enable:
         # Decay in the first 70% of iterations (counting timesteps).
         end_timestep = 0.7 * (dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations)
