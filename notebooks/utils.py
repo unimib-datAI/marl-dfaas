@@ -167,3 +167,27 @@ def get_figure(name):
     fig = matplotlib.pyplot.figure(num=name, layout="constrained")
     fig.canvas.header_visible = False
     return fig
+
+
+def get_moving_average(data, window_size=50):
+    """Returns the moving average for a sequence of data points.
+
+    For each index i, the average is computed over the previous `window_size`
+    points, or all available points if fewer than `window_size` are present.
+
+    Args:
+        data (array-like): Sequence of numeric values to average.
+        window_size (int): The size of the moving window.
+
+    Returns:
+        np.ndarray: Array of moving averages with the same length as `data`.
+        int: The used moving window size.
+    """
+    assert len(data) > 0, "'data' must be at least of length 1"
+
+    moving_avg = np.empty(len(data))
+    for i in range(len(data)):
+        start = max(0, i - window_size + 1)
+        moving_avg[i] = np.mean(data[start : i + 1])
+
+    return moving_avg, window_size
