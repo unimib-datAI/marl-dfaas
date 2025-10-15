@@ -6,9 +6,7 @@ associated callbacks."""
 import gymnasium as gym
 import logging
 from pathlib import Path
-from collections import deque, namedtuple, defaultdict
 
-import pandas as pd
 import numpy as np
 import networkx as nx
 
@@ -61,7 +59,14 @@ class DFaaS(MultiAgentEnv):
     """DFaaS multi-agent reinforcement learning environment.
 
     The constructor accepts a config dictionary with the environment
-    configuration."""
+    configuration.
+
+    Metrics can be accessed from the self.info dictionary. This dictionary
+    contains an entry for each agent, and for every agent, a list of metrics
+    recorded at each step. Note that some metrics are redundant (starting with
+    "observation_prev"). The default callback associated with this environment
+    automatically skips these redundant metrics.
+    """
 
     def __init__(self, config={}):
         # By default, the network has two interconnected agents.
@@ -81,6 +86,9 @@ class DFaaS(MultiAgentEnv):
         # step() call.
         self.reward_range = (-1.0, 1.0)
 
+        # Store the neighbor list for each agent for easy access.
+        self.agent_neighbors = {agent: list(self.network.neighbors(agent)) for agent in self.agents}
+
         # Provide full (preferred format) observation and action spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
@@ -92,13 +100,10 @@ class DFaaS(MultiAgentEnv):
                 #
                 # For each agent, the action space size is:
                 # 1 (local) + number_of_neighbors (forwarding) + 1 (reject)
-                agent: Simplex(shape=(1 + len(list(self.network.neighbors(agent))) + 1,))
+                agent: Simplex(shape=(1 + len(self.agent_neighbors[agent]) + 1,))
                 for agent in self.agents
             }
         )
-
-        # Store the neighbor list for each agent for easy access.
-        self.agent_neighbors = {agent: list(self.network.neighbors(agent)) for agent in self.agents}
 
         self._obs_space_in_preferred_format = True
         self.observation_space = gym.spaces.Dict(
@@ -112,16 +117,18 @@ class DFaaS(MultiAgentEnv):
                         "input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Arrival rate of the previous step.
                         "prev_input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
-                        # Forwarded requests in the previosu step.
-                        "prev_forward_requests": gym.spaces.Box(
-                            low=0,
-                            high=150,
-                            dtype=np.int32,
-                        ),
-                        # Forwarded requests but rejected requests in the
-                        # previous step.
-                        # Note prev_forward_rejects <= prev_forward_requests.
-                        "prev_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+                        # How much rate has been forwarded and how much of this
+                        # has been rejected in the previous step, for each
+                        # neighbor (a node may have different neighbors).
+                        # We unpack the temporary dictionaries (**).
+                        **{
+                            f"prev_forward_to_{neighbor}": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                            for neighbor in self.agent_neighbors[agent]
+                        },
+                        **{
+                            f"prev_forward_rejects_to_{neighbor}": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                            for neighbor in self.agent_neighbors[agent]
+                        },
                     }
                 )
                 for agent in self.agents
@@ -152,7 +159,8 @@ class DFaaS(MultiAgentEnv):
         # differ from the training ones.
         self.evaluation = config.get("evaluation", False)
 
-        # Initialize the info dictionary with node as first level keys and metrics as second level
+        # Initialize the info dictionary with node as first level keys and
+        # metrics as second level.
         self.info = {}
         for agent in self.agents:
             self.info[agent] = self._init_agent_metrics()
@@ -161,7 +169,8 @@ class DFaaS(MultiAgentEnv):
 
     def _init_agent_metrics(self):
         """Initialize all metrics for a single agent with zero values for each step."""
-        # List of all metrics to track for each agent
+        # List of some metrics to track for each agent. Additional metrics are
+        # defined below.
         metrics = [
             "action_local",
             "action_forward",
@@ -176,8 +185,16 @@ class DFaaS(MultiAgentEnv):
             "reward",
         ]
 
-        # Create a zero-filled array for each metric
-        return {metric: [0 for _ in range(self.max_steps)] for metric in metrics}
+        # Create a zero-filled array for each metric.
+        result = {metric: [0 for _ in range(self.max_steps)] for metric in metrics}
+
+        # Add specific metrics for forward actions and rejects to each neighbor.
+        for agent, neighbors in self.agent_neighbors.items():
+            for neighbor in neighbors:
+                result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+
+        return result
 
     def get_config(self):
         """Returns a dictionary with the current configuration of the
@@ -274,11 +291,6 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             self.info[agent] = self._init_agent_metrics()
 
-            # Add dynamic metrics for forward actions to specific neighbors
-            for neighbor in self.agent_neighbors[agent]:
-                key = f"action_forward_to_{neighbor}"  # updated name here
-                self.info[agent][key] = [0 for _ in range(self.max_steps)]
-
         obs = self._build_observation()
 
         return obs, {}
@@ -303,9 +315,7 @@ class DFaaS(MultiAgentEnv):
 
             # Log forward actions for each neighbor
             for i, neighbor in enumerate(self.agent_neighbors[agent]):
-                forward_key = f"action_forward_to_{neighbor}"  # updated name here
-                if forward_key not in self.info[agent]:
-                    self.info[agent][forward_key] = [0 for _ in range(self.max_steps)]
+                forward_key = f"action_forward_to_{neighbor}"
                 self.info[agent][forward_key][self.current_step] = action[agent][i + 1]
 
             # Total forwarded requests (sum of all neighbor forwards)
@@ -403,9 +413,12 @@ class DFaaS(MultiAgentEnv):
                 obs[agent] = {
                     "input_rate": np.array([input_rate], dtype=np.float32),
                     "prev_input_rate": np.array([1], dtype=np.float32),
-                    "prev_forward_requests": np.array([0], dtype=np.float32),
-                    "prev_forward_rejects": np.array([0], dtype=np.float32),
                 }
+
+                # Add zero entries for each neighbor
+                for neighbor in self.agent_neighbors[agent]:
+                    obs[agent][f"prev_forward_to_{neighbor}"] = np.array([0], dtype=np.float32)
+                    obs[agent][f"prev_forward_rejects_to_{neighbor}"] = np.array([0], dtype=np.float32)
 
             update_info(obs)
 
@@ -415,13 +428,25 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             input_rate = self.input_rate[agent][self.current_step]
             prev_input_rate = self.input_rate[agent][self.current_step - 1]
-            prev_forward_reqs = self.info[agent]["action_forward"][self.current_step - 1]
-            prev_forward_rejects = self.info[agent]["forward_reject_rate"][self.current_step - 1]
 
             obs[agent]["input_rate"] = np.array([input_rate], dtype=np.int32)
             obs[agent]["prev_input_rate"] = np.array([prev_input_rate], dtype=np.int32)
-            obs[agent]["prev_forward_requests"] = np.array([prev_forward_reqs], dtype=np.int32)
-            obs[agent]["prev_forward_rejects"] = np.array([prev_forward_rejects], dtype=np.int32)
+
+            # Add specific values for each neighbor
+            for neighbor in self.agent_neighbors[agent]:
+                # Previous forward requests to this neighbor
+                prev_forward_key = f"action_forward_to_{neighbor}"
+                prev_forward_reqs = self.info[agent][prev_forward_key][self.current_step - 1]
+                obs[agent][f"prev_forward_to_{neighbor}"] = np.array([prev_forward_reqs], dtype=np.int32)
+
+                # Previous forward rejects to this neighbor
+                prev_rejects_key = f"forward_rejects_to_{neighbor}"
+                prev_forward_rejects = (
+                    self.info[agent][prev_rejects_key][self.current_step - 1]
+                    if prev_rejects_key in self.info[agent]
+                    else 0
+                )
+                obs[agent][f"prev_forward_rejects_to_{neighbor}"] = np.array([prev_forward_rejects], dtype=np.int32)
 
         update_info(obs)
         return obs
@@ -501,11 +526,18 @@ class DFaaS(MultiAgentEnv):
                 if reject_agent == agent:
                     self.info[agent]["incoming_rate_local_reject"][self.current_step] = reject_share
                 else:  # Neighbor agent (forwarded requests).
-                    neighbor = reject_agent
+                    sender = reject_agent
 
-                    # Update the forwarded reject rate for the neighbor and the
-                    # incoming forward reject rate for the receiving agent.
-                    self.info[neighbor]["forward_reject_rate"][self.current_step] += reject_share
+                    # Update the forwarded reject rate for the sending agent and track per-neighbor reject
+                    self.info[sender]["forward_reject_rate"][self.current_step] += reject_share
+
+                    # Update the per-neighbor forward rejects
+                    reject_key = f"forward_rejects_to_{agent}"
+                    if reject_key not in self.info[sender]:
+                        self.info[sender][reject_key] = [0 for _ in range(self.max_steps)]
+                    self.info[sender][reject_key][self.current_step] += reject_share
+
+                    # Update the incoming forward reject rate for the receiving agent
                     self.info[agent]["incoming_rate_forward_reject"][self.current_step] += reject_share
 
     def set_master_seed(self, master_seed, episodes):
@@ -626,9 +658,9 @@ class DFaaSCallbacks(DefaultCallbacks):
         arguments are ignored."""
         # Make sure this episode has just been started (only initial obs logged
         # so far).
-        assert (
-            episode.length <= 0
-        ), f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+        assert episode.length <= 0, (
+            f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+        )
 
         try:
             env = base_env.envs[0]
@@ -658,14 +690,19 @@ class DFaaSCallbacks(DefaultCallbacks):
         except AttributeError:
             env = base_env.get_sub_environments()[0]
 
-        assert (
-            env.current_step == env.max_steps
-        ), f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
+        assert env.current_step == env.max_steps, (
+            f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
+        )
 
         # Add all metrics from self.info to episode.hist_data
         for agent in env.agents:
             agent_data = env.info[agent]
             for metric, values in agent_data.items():
+                # Skip metrics starting with "observation_prev", because they
+                # are redundant.
+                if metric.startswith("observation_prev"):
+                    continue
+
                 # Create the key in hist_data if it doesn't exist
                 if metric not in episode.hist_data:
                     episode.hist_data[metric] = [{agent: values}]
@@ -691,8 +728,8 @@ class DFaaSCallbacks(DefaultCallbacks):
 def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
     if config is None:
-        config = {"network": ["node_0 node_1", "node_1"]}
-        # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+        # config = {"network": ["node_0 node_1", "node_1"]}
+        config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
     if seed is None:
         seed = 42
 

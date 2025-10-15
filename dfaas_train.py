@@ -370,7 +370,7 @@ def main():
     else:
         experiment.save(checkpoint_path.as_posix())
         logger.info(f"Checkpoint {checkpoint_name!r} saved")
-    logger.info(f"Training results data saved to: {experiment.logdir}/result.json")
+    logger.info(f"Training results data saved to: {experiment.logdir}/result.json.gz")
 
     # Do a final evaluation.
     if exp_config["final_evaluation"]:
