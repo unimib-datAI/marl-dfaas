@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.16.5"
+__generated_with = "0.17.0"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -152,21 +152,42 @@ def _(exp_data):
 
 
 @app.function
-def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel):
+def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel, policy_name=None):
+    """Plots training statistics of the given stats_key for all policies.
+
+    If `policy_name` is provided, only this policy is plotted.
+
+    All plots are wrapped inside mo.mpl.interactive().
+
+    Args:
+        training_data (pandas.DataFrame): DataFrame containing training statistics.
+        stats_key (str): Column name containing the statistic to plot.
+        stats_name (str): Name of the statistic for the plot title.
+        stats_ylabel (str): Label for the Y-axis.
+        policy_name (str, optional): Policy name to plot. By default is None.
+
+    Returns:
+        matplotlib.figure.Figure or mo.HTML:
+            Single figure or vertically stacked of figures depending on `policy_name`.
+    """
     figures = []
-    for policy_name in training_data["policy_name"].unique():
-        fig = utils.get_figure(f"{stats_key}_{policy_name}")
+    policy_names = sorted(training_data["policy_name"].unique())
+    if policy_name is not None:
+        policy_names = [policy_name]
+
+    for _policy_name in policy_names:
+        fig = utils.get_figure(f"{stats_key}_{_policy_name}")
         ax = fig.subplots()
 
         # Get stat for a single policy for all iterations. We must reset
         # the index of the resulting Series because the default index is taken
         # from the DataFrame, but in this we have multiple rows for a single
         # iterations!
-        loss = training_data.loc[training_data["policy_name"] == policy_name, stats_key].reset_index(drop=True)
+        loss = training_data.loc[training_data["policy_name"] == _policy_name, stats_key].reset_index(drop=True)
 
         ax.plot(loss)
 
-        ax.set_title(f"{stats_name} for {policy_name}")
+        ax.set_title(f"{stats_name} for {_policy_name}")
         ax.set_ylabel(stats_ylabel)
         ax.set_xlabel("Iteration")
 
@@ -175,14 +196,23 @@ def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel):
 
         figures.append(mo.mpl.interactive(fig))
 
+    if policy_name is not None:
+        return figures[0]
+
     return mo.vstack(figures)
+
+
+@app.cell
+def _():
+    mo.md(r"""## Stats""")
+    return
 
 
 @app.cell(hide_code=True)
 def _():
     mo.md(
         r"""
-    ## Total Loss
+    ### Total Loss
 
     The overall loss is used to update the policy network in a single gradient step. It is a combination of:
 
@@ -208,7 +238,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## Policy loss
+    ### Policy loss
 
     This is the loss associated with the policy (actor) network.
     """
@@ -226,7 +256,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## Value function Loss
+    ### Value function Loss
 
     This is the loss associated with the value (critic) network. It measures how closely the predictions of the value network match the actual returns observed during training.
     """
@@ -244,7 +274,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## Value Function Explained Variance
+    ### Value Function Explained Variance
 
     This is a normalised measure of how well the value function's predictions explain the variation in actual returns. The typical range is from negative to 1. Values should be closer to 1.
 
@@ -266,7 +296,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## Differential Entropy
+    ### Differential Entropy
 
     /// attention | Warning!
 
@@ -300,7 +330,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## KL divergence
+    ### KL divergence
 
     The KL divergence measures how much the new policy has changed compared to the old policy.
 
@@ -323,7 +353,7 @@ def _(training_data):
 def _():
     mo.md(
         r"""
-    ## Global Gradient Norm
+    ### Global Gradient Norm
 
     The Global Gradient Norm is the Euclidean norm of the gradients computed during a single optimisation step. It measures the size of the policy/value gradients during learning.
 
@@ -344,7 +374,7 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""## Entropy Coefficient""")
+    mo.md(r"""### Entropy Coefficient""")
     return
 
 
