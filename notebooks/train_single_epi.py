@@ -31,7 +31,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(Path, mo):
     exp_dir_widget = mo.ui.file_browser(
         initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
@@ -41,15 +41,26 @@ def _(Path, mo):
     return (exp_dir_widget,)
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    exp_dir_mode_widget = mo.ui.dropdown(options=["train", "eval"], value="train", label="Experiment mode:")
+
+    exp_dir_mode_widget
+    return (exp_dir_mode_widget,)
+
+
 @app.cell
-def _(exp_dir_widget, mo, pd, utils):
+def _(exp_dir_mode_widget, exp_dir_widget, mo, pd, utils):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
     mo.stop(exp_dir_widget.path() is None)
 
     _exp_dir = exp_dir_widget.path().resolve().absolute()
 
-    exp_data = pd.read_json(_exp_dir / "result.json", lines=True)
+    if exp_dir_mode_widget.value == "train":
+        exp_data = pd.read_json(_exp_dir / "result.json.gz", lines=True, compression="gzip")
+    else:
+        exp_data = pd.read_json(_exp_dir / "evaluation.json")
 
     env = utils.get_env(_exp_dir)
 
@@ -57,7 +68,7 @@ def _(exp_dir_widget, mo, pd, utils):
     **Experiment prefix dir**: `{_exp_dir.parent.as_posix()!r}`  
     **Experiment name**:       `{_exp_dir.name!r}`  
     **Agents**:                {env.agents}  
-    **Mode**:                  train  
+    **Mode**:                  {exp_dir_mode_widget.value}  
     **Iterations**:            {exp_data.shape[0]}
     """)
     return env, exp_data
@@ -156,19 +167,14 @@ def _(episode_idx, exp_data, iteration_idx, pd):
 
 
 @app.cell
-def _(input_rate, mo, plt):
+def _(input_rate, mo, utils):
     def make_input_rate_plot(input_rate):
         figures = []
         for agent in input_rate.columns:
-            plt.close(fig=f"input_rate_{agent}")
-            fig = plt.figure(num=f"input_rate_{agent}", layout="constrained")
-            fig.canvas.header_visible = False
+            fig = utils.get_figure(f"input_rate_{agent}")
             ax = fig.subplots()
 
             ax.plot(input_rate[agent])
-
-            # moving_average, window_size = base.get_moving_average(reward)
-            # ax.plot(moving_average, label=f"Moving average ({window_size} steps)", color="red")
 
             ax.set_title(f"Input rate per step ({agent = })")
             ax.set_ylabel("Input rate (req/s)")
