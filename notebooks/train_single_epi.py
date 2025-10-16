@@ -3,15 +3,7 @@ import marimo
 __generated_with = "0.16.5"
 app = marimo.App(width="medium")
 
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""# Train summary for a single episode""")
-    return
-
-
-@app.cell
-def _():
+with app.setup:
     from pathlib import Path
 
     import marimo as mo
@@ -22,17 +14,21 @@ def _():
 
     import utils
 
-    return Path, mo, nx, pd, plt, utils
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""# Train summary for a single episode""")
+    return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Experiment loading""")
     return
 
 
 @app.cell(hide_code=True)
-def _(Path, mo):
+def _():
     exp_dir_widget = mo.ui.file_browser(
         initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
     )
@@ -42,7 +38,7 @@ def _(Path, mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     exp_dir_mode_widget = mo.ui.dropdown(options=["train", "eval"], value="train", label="Experiment mode:")
 
     exp_dir_mode_widget
@@ -50,7 +46,7 @@ def _(mo):
 
 
 @app.cell
-def _(exp_dir_mode_widget, exp_dir_widget, mo, pd, utils):
+def _(exp_dir_mode_widget, exp_dir_widget):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
     mo.stop(exp_dir_widget.path() is None)
@@ -75,13 +71,13 @@ def _(exp_dir_mode_widget, exp_dir_widget, mo, pd, utils):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Episode selection""")
     return
 
 
 @app.cell(hide_code=True)
-def _(exp_data, mo):
+def _(exp_data):
     _iter_start = 0
     _iter_stop = exp_data.shape[0] - 1
 
@@ -99,7 +95,7 @@ def _(exp_data, mo):
 
 
 @app.cell(hide_code=True)
-def _(exp_data, iteration_idx, mo):
+def _(exp_data, iteration_idx):
     _epi_start = 0
     _epi_stop = exp_data.iloc[iteration_idx.value]["env_runners"]["num_episodes"]
 
@@ -117,13 +113,13 @@ def _(exp_data, iteration_idx, mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""### Network topology""")
     return
 
 
 @app.cell(hide_code=True)
-def _(env, nx, plt):
+def _(env):
     def make_networkx_plot(graph):
         plt.close(fig="networkx")
         fig = plt.figure(num="networkx", layout="constrained")
@@ -152,131 +148,139 @@ def _(env, nx, plt):
     return
 
 
+@app.function
+def get_input_rate(exp_data, iter_idx, epi_idx):
+    iter_data = pd.DataFrame(exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]["observation_input_rate"]).T
+
+    # Convert the single column (list of values) to a series of columns.
+    iter_data = iter_data[0].apply(pd.Series).T
+
+    return iter_data
+
+
 @app.cell
-def _(episode_idx, exp_data, iteration_idx, pd):
-    def get_input_rate(exp_data, iter_idx, epi_idx):
-        iter_data = pd.DataFrame(exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]["observation_input_rate"]).T
-
-        # Convert the single column (list of values) to a series of columns.
-        iter_data = iter_data[0].apply(pd.Series).T
-
-        return iter_data
-
+def _(episode_idx, exp_data, iteration_idx):
     input_rate = get_input_rate(exp_data, int(iteration_idx.value), int(episode_idx.value))
     return (input_rate,)
 
 
-@app.cell
-def _(input_rate, mo, utils):
-    def make_input_rate_plot(input_rate):
-        figures = []
-        for agent in input_rate.columns:
-            fig = utils.get_figure(f"input_rate_{agent}")
-            ax = fig.subplots()
-
-            ax.plot(input_rate[agent])
-
-            ax.set_title(f"Input rate per step ({agent = })")
-            ax.set_ylabel("Input rate (req/s)")
-            ax.set_xlabel("Step")
-
-            ax.grid(axis="both")
-            ax.set_axisbelow(True)  # By default the axis is over the content.
-
-            figures.append(mo.mpl.interactive(fig))
-
-        return mo.vstack(figures)
-
-    make_input_rate_plot(input_rate)
-    return
-
-
-@app.cell
-def _(input_rate, mo, utils):
-    def make_single_input_rate_plot(input_rate):
-        fig = utils.get_figure("single_input_rate")
+@app.function
+def make_input_rate_plot(input_rate):
+    figures = []
+    for agent in input_rate.columns:
+        fig = utils.get_figure(f"input_rate_{agent}")
         ax = fig.subplots()
 
-        for agent in input_rate.columns:
-            ax.plot(input_rate[agent], label=agent)
+        ax.plot(input_rate[agent])
 
-        ax.set_title("Input rates per step")
+        ax.set_title(f"Input rate per step ({agent = })")
         ax.set_ylabel("Input rate (req/s)")
         ax.set_xlabel("Step")
 
         ax.grid(axis="both")
         ax.set_axisbelow(True)  # By default the axis is over the content.
-        ax.legend()
 
-        return mo.mpl.interactive(fig)
+        figures.append(mo.mpl.interactive(fig))
 
+    return mo.vstack(figures)
+
+
+@app.cell
+def _(input_rate):
+    make_input_rate_plot(input_rate)
+    return
+
+
+@app.function
+def make_single_input_rate_plot(input_rate):
+    fig = utils.get_figure("single_input_rate")
+    ax = fig.subplots()
+
+    for agent in input_rate.columns:
+        ax.plot(input_rate[agent], label=agent)
+
+    ax.set_title("Input rates per step")
+    ax.set_ylabel("Input rate (req/s)")
+    ax.set_xlabel("Step")
+
+    ax.grid(axis="both")
+    ax.set_axisbelow(True)  # By default the axis is over the content.
+    ax.legend()
+
+    return mo.mpl.interactive(fig)
+
+
+@app.cell
+def _(input_rate):
     make_single_input_rate_plot(input_rate)
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Episode DataFrame""")
     return
 
 
+@app.function
+def get_episode_data(exp_data, iter_idx, epi_idx):
+    from functools import reduce
+
+    keys = exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]
+
+    # Filter the keys that are necessary, exclude all others.
+    cols = [
+        "observation_input_rate",
+        "action_local",
+        "action_forward",
+        "action_reject",
+        "incoming_rate",
+        "incoming_rate_reject",
+        "incoming_rate_local_reject",
+        "forward_reject_rate",
+    ]
+    extra_cols = [key for key in keys if key.startswith("action_forward_to")]
+    columns = cols + extra_cols
+
+    datas = []
+    for key in columns:
+        try:
+            data = pd.DataFrame(exp_data.iloc[iter_idx]["env_runners"]["hist_stats"][key])
+        except KeyError:
+            # Missing key, maybe it is an old experiment without action_forward_to_XXX.
+            continue
+
+        # Convert the original DataFrame (1 row x n agents) to (288 rows x n agents).
+        exploded = data.apply(pd.Series.explode)
+
+        # Add the step column.
+        exploded["step"] = range(1, len(exploded) + 1)
+
+        # Move the n agents columns to a single columns with the agents value.
+        # The resulting DataFrame will have n agents * 288 rows.
+        final = exploded.melt(id_vars="step", var_name="agent", value_name=key)
+
+        datas.append(final)
+
+    # Merge all single DataFrames to a single one. Keep the common two columns.
+    # Must use outer join because some columns (forward to specific nodes) are missing.
+    return reduce(lambda left, right: pd.merge(left, right, on=["step", "agent"], how="outer"), datas)
+
+
 @app.cell
-def _(episode_idx, exp_data, iteration_idx, pd):
-    def get_episode_data(exp_data, iter_idx, epi_idx):
-        from functools import reduce
-
-        keys = exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]
-
-        # Filter the keys that are necessary, exclude all others.
-        cols = [
-            "observation_input_rate",
-            "action_local",
-            "action_forward",
-            "action_reject",
-            "incoming_rate",
-            "incoming_rate_reject",
-            "incoming_rate_local_reject",
-            "forward_reject_rate",
-        ]
-        extra_cols = [key for key in keys if key.startswith("action_forward_to")]
-        columns = cols + extra_cols
-
-        datas = []
-        for key in columns:
-            try:
-                data = pd.DataFrame(exp_data.iloc[iter_idx]["env_runners"]["hist_stats"][key])
-            except KeyError:
-                # Missing key, maybe it is an old experiment without action_forward_to_XXX.
-                continue
-
-            # Convert the original DataFrame (1 row x n agents) to (288 rows x n agents).
-            exploded = data.apply(pd.Series.explode)
-
-            # Add the step column.
-            exploded["step"] = range(1, len(exploded) + 1)
-
-            # Move the n agents columns to a single columns with the agents value.
-            # The resulting DataFrame will have n agents * 288 rows.
-            final = exploded.melt(id_vars="step", var_name="agent", value_name=key)
-
-            datas.append(final)
-
-        # Merge all single DataFrames to a single one. Keep the common two columns.
-        # Must use outer join because some columns (forward to specific nodes) are missing.
-        return reduce(lambda left, right: pd.merge(left, right, on=["step", "agent"], how="outer"), datas)
-
+def _(episode_idx, exp_data, iteration_idx):
     episode = get_episode_data(exp_data, int(iteration_idx.value), int(episode_idx.value))
     return (episode,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Step selection""")
     return
 
 
 @app.cell(hide_code=True)
-def _(episode, mo):
+def _(episode):
     _start = int(episode["step"].min())
     _end = int(episode["step"].max())
 
@@ -288,103 +292,107 @@ def _(episode, mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Episode step graph""")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""Input rate and total reject (with %)""")
     return
 
 
+@app.function
+def text_reject_rate(episode, env, step):
+    step_data = episode[episode["step"] == step]
+
+    rows = []
+    for agent in env.agents:
+        agent_data = step_data[step_data["agent"] == agent]
+
+        input_rate = agent_data["observation_input_rate"].squeeze()
+        action_reject = agent_data["action_reject"].squeeze()
+        incoming_rate_local_reject = agent_data["incoming_rate_local_reject"].squeeze()
+        forward_reject = agent_data["forward_reject_rate"].squeeze()
+
+        total_reject = action_reject + incoming_rate_local_reject + forward_reject
+
+        rows.append({"agent": agent, "input_rate": input_rate, "total_reject": total_reject})
+
+    stats = pd.DataFrame(rows)
+
+    # Calculate the total for all agents.
+    all_input_rate = stats["input_rate"].sum()
+    all_total_reject = stats["total_reject"].sum()
+    all = pd.DataFrame([{"agent": "all", "input_rate": all_input_rate, "total_reject": all_total_reject}])
+
+    stats = pd.concat([all, stats], ignore_index=True)
+
+    # Compute the reject_percent column, set zero if input_rate is zero.
+    stats["reject_percent"] = stats.apply(
+        lambda row: row["total_reject"] / row["input_rate"] if row["input_rate"] != 0 else 0, axis=1
+    )
+
+    return stats
+
+
 @app.cell
-def _(env, episode, pd, step):
-    def text_reject_rate(episode, env, step):
-        step_data = episode[episode["step"] == step]
-
-        rows = []
-        for agent in env.agents:
-            agent_data = step_data[step_data["agent"] == agent]
-
-            input_rate = agent_data["observation_input_rate"].squeeze()
-            action_reject = agent_data["action_reject"].squeeze()
-            incoming_rate_local_reject = agent_data["incoming_rate_local_reject"].squeeze()
-            forward_reject = agent_data["forward_reject_rate"].squeeze()
-
-            total_reject = action_reject + incoming_rate_local_reject + forward_reject
-
-            rows.append({"agent": agent, "input_rate": input_rate, "total_reject": total_reject})
-
-        stats = pd.DataFrame(rows)
-
-        # Calculate the total for all agents.
-        all_input_rate = stats["input_rate"].sum()
-        all_total_reject = stats["total_reject"].sum()
-        all = pd.DataFrame([{"agent": "all", "input_rate": all_input_rate, "total_reject": all_total_reject}])
-
-        stats = pd.concat([all, stats], ignore_index=True)
-
-        # Compute the reject_percent column, set zero if input_rate is zero.
-        stats["reject_percent"] = stats.apply(
-            lambda row: row["total_reject"] / row["input_rate"] if row["input_rate"] != 0 else 0, axis=1
-        )
-
-        return stats
-
+def _(env, episode, step):
     text_reject_rate(episode, env, step.value)
     return
 
 
+@app.function
+def draw_step_graph(episode, env, step):
+    step_data = episode[episode["step"] == step]
+
+    import graphviz
+
+    # Create a directed graph using graphviz.
+    dot = graphviz.Digraph()
+
+    dot.attr("node", shape="circle", style="filled", fillcolor="white", color="black")
+
+    # Add data as arrows.
+    for agent in env.agents:
+        agent_data = step_data[step_data["agent"] == agent]
+
+        # Basic action and local processing/reject
+        action_local = str(agent_data["action_local"].iloc[0])
+        action_forward = str(agent_data["action_forward"].iloc[0])
+        action_reject = str(agent_data["action_reject"].iloc[0])
+        incoming_rate_reject = agent_data["incoming_rate_reject"].iloc[0]
+        incoming_rate_processed = str(agent_data["incoming_rate"].iloc[0] - incoming_rate_reject)
+        incoming_rate_reject = str(incoming_rate_reject)
+
+        # Agent node.
+        agent_label = f"{agent}\n⬇️{action_local} ↪️{action_forward} 🗑️{action_reject}\n✅{incoming_rate_processed} ❌{incoming_rate_reject}"
+        dot.node(agent, label=agent_label)
+
+        # Input rate with dummy nodes.
+        dot.node(f"input_{agent}", shape="point")
+        dot.edge(f"input_{agent}", agent, label=str(agent_data["observation_input_rate"].iloc[0]))
+
+        # Specific forward to neighbors.
+        try:
+            for neighbor in env.network.adj[agent]:
+                rate = str(agent_data[f"action_forward_to_{neighbor}"].squeeze())
+                dot.edge(agent, neighbor, label=rate)
+        except KeyError:
+            # Missing action_forward_to_XXX, fallback to previous version.
+            # Note that action_forward is a float represented as str...
+            portion = str(round(float(action_forward) / len(env.network.adj[agent])))
+            for neighbor in env.network.adj[agent]:
+                dot.edge(agent, neighbor, label=portion)
+
+    # Render to SVG in-memory and display in Marimo
+    svg = dot.pipe(format="svg").decode("utf-8")
+    return mo.Html(svg).center()
+
+
 @app.cell
-def _(env, episode, mo, step):
-    def draw_step_graph(episode, env, step):
-        step_data = episode[episode["step"] == step]
-
-        import graphviz
-
-        # Create a directed graph using graphviz.
-        dot = graphviz.Digraph()
-
-        dot.attr("node", shape="circle", style="filled", fillcolor="white", color="black")
-
-        # Add data as arrows.
-        for agent in env.agents:
-            agent_data = step_data[step_data["agent"] == agent]
-
-            # Basic action and local processing/reject
-            action_local = str(agent_data["action_local"].iloc[0])
-            action_forward = str(agent_data["action_forward"].iloc[0])
-            action_reject = str(agent_data["action_reject"].iloc[0])
-            incoming_rate_reject = agent_data["incoming_rate_reject"].iloc[0]
-            incoming_rate_processed = str(agent_data["incoming_rate"].iloc[0] - incoming_rate_reject)
-            incoming_rate_reject = str(incoming_rate_reject)
-
-            # Agent node.
-            agent_label = f"{agent}\n⬇️{action_local} ↪️{action_forward} 🗑️{action_reject}\n✅{incoming_rate_processed} ❌{incoming_rate_reject}"
-            dot.node(agent, label=agent_label)
-
-            # Input rate with dummy nodes.
-            dot.node(f"input_{agent}", shape="point")
-            dot.edge(f"input_{agent}", agent, label=str(agent_data["observation_input_rate"].iloc[0]))
-
-            # Specific forward to neighbors.
-            try:
-                for neighbor in env.network.adj[agent]:
-                    rate = str(agent_data[f"action_forward_to_{neighbor}"].squeeze())
-                    dot.edge(agent, neighbor, label=rate)
-            except KeyError:
-                # Missing action_forward_to_XXX, fallback to previous version.
-                # Note that action_forward is a float represented as str...
-                portion = str(round(float(action_forward) / len(env.network.adj[agent])))
-                for neighbor in env.network.adj[agent]:
-                    dot.edge(agent, neighbor, label=portion)
-
-        # Render to SVG in-memory and display in Marimo
-        svg = dot.pipe(format="svg").decode("utf-8")
-        return mo.Html(svg).center()
-
+def _(env, episode, step):
     draw_step_graph(episode, env, step.value)
     return
 

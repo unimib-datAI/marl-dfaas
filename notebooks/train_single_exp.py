@@ -3,9 +3,20 @@ import marimo
 __generated_with = "0.16.5"
 app = marimo.App(width="medium")
 
+with app.setup:
+    from pathlib import Path
+
+    import marimo as mo
+
+    import networkx as nx
+    import pandas as pd
+    import numpy as np
+
+    import utils
+
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     # Train summary of a single experiment
@@ -20,30 +31,14 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
-    from pathlib import Path
-
-    import marimo as mo
-
-    import matplotlib.pyplot as plt
-    import networkx as nx
-    import pandas as pd
-    import numpy as np
-
-    import utils
-
-    return Path, mo, np, nx, pd, utils
-
-
-@app.cell
-def _(mo):
     mo.md(r"""## Experiment loading""")
     return
 
 
 @app.cell
-def _(Path, mo):
+def _():
     exp_dir_widget = mo.ui.file_browser(
         initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
     )
@@ -53,14 +48,25 @@ def _(Path, mo):
 
 
 @app.cell
-def _(exp_dir_widget, mo, pd, utils):
+def _():
+    exp_dir_mode_widget = mo.ui.dropdown(options=["train", "eval"], value="train", label="Experiment mode:")
+
+    exp_dir_mode_widget
+    return (exp_dir_mode_widget,)
+
+
+@app.cell
+def _(exp_dir_mode_widget, exp_dir_widget):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
     mo.stop(exp_dir_widget.path() is None)
 
     _exp_dir = exp_dir_widget.path().resolve().absolute()
 
-    exp_data = pd.read_json(_exp_dir / "result.json", lines=True)
+    if exp_dir_mode_widget.value == "train":
+        exp_data = pd.read_json(_exp_dir / "result.json.gz", lines=True, compression="gzip")
+    else:
+        exp_data = pd.read_json(_exp_dir / "evaluation.json")
 
     env = utils.get_env(_exp_dir)
 
@@ -68,20 +74,20 @@ def _(exp_dir_widget, mo, pd, utils):
     **Experiment prefix dir**: `{_exp_dir.parent.as_posix()!r}`  
     **Experiment name**:       `{_exp_dir.name!r}`  
     **Agents**:                {env.agents}  
-    **Mode**:                  train  
+    **Mode**:                  {exp_dir_mode_widget.value}  
     **Iterations**:            {exp_data.shape[0]}
     """)
     return env, exp_data
 
 
-@app.cell
-def _(mo):
+@app.cell(hide_code=True)
+def _():
     mo.md(r"""### Network topology""")
     return
 
 
 @app.cell(hide_code=True)
-def _(env, nx, utils):
+def _(env):
     def make_networkx_plot(graph):
         fig = utils.get_figure("network")
         ax = fig.subplots()
@@ -106,16 +112,14 @@ def _(env, nx, utils):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""### Loading episodes data""")
     return
 
 
 @app.cell
-def _(exp_data, mo, pd):
+def _(exp_data):
     def get_episode_data(exp_data, iter_idx, epi_idx):
-        from functools import reduce
-
         # The episode stats are under env_runners -> hist_stats dictionary. Each key is a metric.
         keys = exp_data.iloc[iter_idx]["env_runners"]["hist_stats"]
 
@@ -194,13 +198,13 @@ def _():
 
 
 @app.cell
-def _(mo):
+def _():
     mo.md(r"""## Reward""")
     return
 
 
 @app.cell
-def _(mo):
+def _():
     mo.md(
         r"""
     ### Cumulative reward per episode
@@ -212,7 +216,7 @@ def _(mo):
 
 
 @app.cell
-def _(env, episodes_data, np):
+def _(env, episodes_data):
     def get_reward_data_sum(episodes_data, env):
         """Returns the cumulative reward per episode for each agent and all agents."""
         iters_n = len(episodes_data)
@@ -236,7 +240,7 @@ def _(env, episodes_data, np):
 
 
 @app.cell
-def _(mo, reward_sum, utils):
+def _(reward_sum):
     def make_cumulative_reward_plot(reward_sum):
         figures = []
         for agent, reward in sorted(reward_sum.items()):
@@ -265,7 +269,7 @@ def _(mo, reward_sum, utils):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ### Average reward per step
@@ -277,7 +281,7 @@ def _(mo):
 
 
 @app.cell
-def _(env, episodes_data, np):
+def _(env, episodes_data):
     def get_average_reward_per_step(episodes_data, env):
         """Returns the average reward per step (not per episode) for each agent and all agents."""
         iters_n = len(episodes_data)
@@ -300,7 +304,7 @@ def _(env, episodes_data, np):
 
 
 @app.cell
-def _(mo, reward_avg_step, utils):
+def _(reward_avg_step):
     def make_avg_reward_per_step_plot(avg_reward_per_step):
         figures = []
         for agent, avg_reward in sorted(avg_reward_per_step.items()):

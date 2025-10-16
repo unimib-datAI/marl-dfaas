@@ -3,9 +3,19 @@ import marimo
 __generated_with = "0.16.5"
 app = marimo.App(width="medium")
 
+with app.setup:
+    from pathlib import Path
+
+    import marimo as mo
+
+    import networkx as nx
+    import pandas as pd
+
+    import utils
+
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     # Train statistics of a single experiment (PPO)
@@ -16,28 +26,14 @@ def _(mo):
     return
 
 
-@app.cell
-def _():
-    from pathlib import Path
-
-    import marimo as mo
-
-    import networkx as nx
-    import pandas as pd
-
-    import utils
-
-    return Path, mo, nx, pd, utils
-
-
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Experiment loading""")
     return
 
 
 @app.cell(hide_code=True)
-def _(Path, mo):
+def _():
     exp_dir_widget = mo.ui.file_browser(
         initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
     )
@@ -47,7 +43,7 @@ def _(Path, mo):
 
 
 @app.cell
-def _(exp_dir_widget, mo, pd, utils):
+def _(exp_dir_widget):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
     mo.stop(exp_dir_widget.path() is None)
@@ -68,13 +64,13 @@ def _(exp_dir_widget, mo, pd, utils):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""### Network topology""")
     return
 
 
 @app.cell(hide_code=True)
-def _(env, nx, utils):
+def _(env):
     def make_networkx_plot(graph):
         fig = utils.get_figure("network")
         ax = fig.subplots()
@@ -99,92 +95,91 @@ def _(env, nx, utils):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""### Loading training data""")
     return
 
 
+@app.function
+@mo.cache
+def get_training_data(exp_data):
+    """Returns the training data from all iterations as a DataFrame.
+
+    The DataFrame has one row per policy and per iteration (see "policy_name"
+    and "iteration" columns).
+    """
+    # We first collect the data for each policy for each iteration as multiple rows.
+    training_data = []
+
+    iterations = exp_data["training_iteration"].max()
+    with mo.status.progress_bar(total=iterations, title="Loading episodes data") as bar:
+        for iteration in range(iterations):
+            # The training stats are under the info -> learner dictionary, one key for each
+            # policy (one policy for each agent).
+            policies = exp_data.iloc[iteration]["info"]["learner"]
+            for policy_name in policies.keys():
+                # We just copy the dict with all stats.
+                policy_stats = policies[policy_name]["learner_stats"]
+
+                # Add policy name and iteration, these will be useful columns in the
+                # resulting DataFrame.
+                policy_stats["policy_name"] = policy_name
+                policy_stats["iteration"] = iteration
+
+                training_data.append(policy_stats)
+
+            bar.update()
+
+    training_df = pd.DataFrame(training_data)
+
+    # Move the columns "iteration" and "policy_name" as firsts. This is just for
+    # visualization as raw DataFrame.
+    cols_to_front = ["iteration", "policy_name"]
+    other_cols = [col for col in training_df.columns if col not in cols_to_front]
+    new_order = cols_to_front + other_cols
+    training_df = training_df[new_order]
+
+    # Remove unused column (always set to 0).
+    training_df = training_df.drop("allreduce_latency", axis=1)
+
+    return training_df
+
+
 @app.cell
-def _(exp_data, mo, pd):
-    @mo.cache
-    def get_training_data(exp_data):
-        """Returns the training data from all iterations as a DataFrame.
-
-        The DataFrame has one row per policy and per iteration (see "policy_name"
-        and "iteration" columns).
-        """
-        # We first collect the data for each policy for each iteration as multiple rows.
-        training_data = []
-
-        iterations = exp_data["training_iteration"].max()
-        with mo.status.progress_bar(total=iterations, title="Loading episodes data") as bar:
-            for iteration in range(iterations):
-                # The training stats are under the info -> learner dictionary, one key for each
-                # policy (one policy for each agent).
-                policies = exp_data.iloc[iteration]["info"]["learner"]
-                for policy_name in policies.keys():
-                    # We just copy the dict with all stats.
-                    policy_stats = policies[policy_name]["learner_stats"]
-
-                    # Add policy name and iteration, these will be useful columns in the
-                    # resulting DataFrame.
-                    policy_stats["policy_name"] = policy_name
-                    policy_stats["iteration"] = iteration
-
-                    training_data.append(policy_stats)
-
-                bar.update()
-
-        training_df = pd.DataFrame(training_data)
-
-        # Move the columns "iteration" and "policy_name" as firsts. This is just for
-        # visualization as raw DataFrame.
-        cols_to_front = ["iteration", "policy_name"]
-        other_cols = [col for col in training_df.columns if col not in cols_to_front]
-        new_order = cols_to_front + other_cols
-        training_df = training_df[new_order]
-
-        # Remove unused column (always set to 0).
-        training_df = training_df.drop("allreduce_latency", axis=1)
-
-        return training_df
-
+def _(exp_data):
     training_data = get_training_data(exp_data)
     return (training_data,)
 
 
-@app.cell
-def _(mo, utils):
-    def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel):
-        figures = []
-        for policy_name in training_data["policy_name"].unique():
-            fig = utils.get_figure(f"{stats_key}_{policy_name}")
-            ax = fig.subplots()
+@app.function
+def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel):
+    figures = []
+    for policy_name in training_data["policy_name"].unique():
+        fig = utils.get_figure(f"{stats_key}_{policy_name}")
+        ax = fig.subplots()
 
-            # Get stat for a single policy for all iterations. We must reset
-            # the index of the resulting Series because the default index is taken
-            # from the DataFrame, but in this we have multiple rows for a single
-            # iterations!
-            loss = training_data.loc[training_data["policy_name"] == policy_name, stats_key].reset_index(drop=True)
+        # Get stat for a single policy for all iterations. We must reset
+        # the index of the resulting Series because the default index is taken
+        # from the DataFrame, but in this we have multiple rows for a single
+        # iterations!
+        loss = training_data.loc[training_data["policy_name"] == policy_name, stats_key].reset_index(drop=True)
 
-            ax.plot(loss)
+        ax.plot(loss)
 
-            ax.set_title(f"{stats_name} for {policy_name}")
-            ax.set_ylabel(stats_ylabel)
-            ax.set_xlabel("Iteration")
+        ax.set_title(f"{stats_name} for {policy_name}")
+        ax.set_ylabel(stats_ylabel)
+        ax.set_xlabel("Iteration")
 
-            ax.grid(axis="both")
-            ax.set_axisbelow(True)  # By default the axis is over the content.
+        ax.grid(axis="both")
+        ax.set_axisbelow(True)  # By default the axis is over the content.
 
-            figures.append(mo.mpl.interactive(fig))
+        figures.append(mo.mpl.interactive(fig))
 
-        return mo.vstack(figures)
-
-    return (make_stats_plot,)
+    return mo.vstack(figures)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Total Loss
@@ -204,13 +199,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "total_loss", "Total loss", "Loss")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Policy loss
@@ -222,13 +217,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "policy_loss", "Policy loss", "Loss")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Value function Loss
@@ -240,13 +235,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "vf_loss", "Value function loss", "Loss")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Value Function Explained Variance
@@ -262,13 +257,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "vf_explained_var", "Value Function Explained Variance", "Variance")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Differential Entropy
@@ -296,13 +291,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "entropy", "Differential Entropy", "Entropy")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## KL divergence
@@ -319,13 +314,13 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "kl", "KL divergence", "KL divergence")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(
         r"""
     ## Global Gradient Norm
@@ -342,19 +337,19 @@ def _(mo):
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "grad_gnorm", "Global Gradient Norm", "Global Gradient Norm")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""## Entropy Coefficient""")
     return
 
 
 @app.cell
-def _(make_stats_plot, training_data):
+def _(training_data):
     make_stats_plot(training_data, "entropy_coeff", "Entropy Coefficient", "Entropy Coefficient")
     return
 
