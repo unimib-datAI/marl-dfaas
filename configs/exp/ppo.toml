@@ -11,6 +11,8 @@ algorithm.lambda = 0.3
 algorithm.entropy_coeff = 0.02
 # By default the entropy coeff. is constant.
 algorithm.entropy_coeff_decay_enable = true
+# % of iterations where the entropy coeff. will linearly decay to 1e-6.
+algorithm.entropy_coeff_decay_iterations = 0.7
 
 # Do not use the GPU to train neural networks.
 disable_gpu = false

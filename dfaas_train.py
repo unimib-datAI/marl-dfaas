@@ -57,7 +57,8 @@ def run_experiment(
         if override_values[option] is not None:
             exp_config[option] = override_values[option]
 
-    # Set default experiment configuration values if not provided.
+    # Set default experiment configuration values if not provided. See
+    # configs/exp/ppo.toml for docs.
     exp_config["iterations"] = exp_config.get("iterations", 100)
     exp_config["disable_gpu"] = exp_config.get("disable_gpu", False)
     exp_config["training_num_episodes"] = exp_config.get("training_num_episodes", 1)
@@ -71,6 +72,9 @@ def run_experiment(
         exp_config["algorithm"]["entropy_coeff"] = exp_config["algorithm"].get("entropy_coeff", 0)
         exp_config["algorithm"]["entropy_coeff_decay_enable"] = exp_config["algorithm"].get(
             "entropy_coeff_decay_enable", False
+        )
+        exp_config["algorithm"]["entropy_coeff_decay_iterations"] = exp_config["algorithm"].get(
+            "entropy_coeff_decay_iterations", 0.7
         )
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
@@ -200,6 +204,7 @@ def run_experiment(
                 lambda_=exp_config["algorithm"]["lambda"],
                 entropy_coeff=exp_config["algorithm"]["entropy_coeff"],
                 entropy_coeff_decay_enable=exp_config["algorithm"]["entropy_coeff_decay_enable"],
+                entropy_coeff_decay_iterations=exp_config["algorithm"]["entropy_coeff_decay_iterations"],
                 max_iterations=exp_config["iterations"],
             )
         case "SAC":
@@ -398,48 +403,6 @@ def run_experiment(
     }
 
 
-def main():
-    epilog = """Some command line options can override the configuration of
-    --exp-config option, if provided."""
-    description = "Run a training experiment on the DFaaS environment."
-
-    parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
-
-    parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
-    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
-    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
-    parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
-    parser.add_argument("--seed", type=int, help="Seed of the experiment")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Stop after one training iteration (useful for debugging purposes). Default is False",
-    )
-
-    args = parser.parse_args()
-
-    # Read configuration files as dicts here, before calling run_experiment.
-    if args.exp_config is not None:
-        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
-    else:
-        exp_config = {}
-
-    if args.env_config is not None:
-        env_config = dfaas_utils.toml_to_dict(args.env_config)
-    else:
-        env_config = {}
-
-    # Pass config dicts directly to run_experiment instead of file paths.
-    run_experiment(
-        suffix=args.suffix,
-        exp_config=exp_config,
-        env_config=env_config,
-        runners=args.runners,
-        seed=args.seed,
-        dry_run=args.dry_run,
-    )
-
-
 def build_ppo(**kwargs):
     runners = kwargs["runners"]
     dummy_env = kwargs["dummy_env"]
@@ -457,6 +420,7 @@ def build_ppo(**kwargs):
     lambda_ = kwargs["lambda_"]
     entropy_coeff = kwargs["entropy_coeff"]
     entropy_coeff_decay_enable = kwargs["entropy_coeff_decay_enable"]
+    entropy_coeff_decay_iterations = kwargs["entropy_coeff_decay_iterations"]
     max_iterations = kwargs["max_iterations"]
 
     if not 0 <= gamma <= 1:
@@ -495,11 +459,14 @@ def build_ppo(**kwargs):
     #   - https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_torch_policy.py#L153
     #   - https://github.com/ray-project/ray/blob/master/rllib/evaluation/rollout_worker.py#L1620
     if entropy_coeff != 0.0 and entropy_coeff_decay_enable:
-        # Decay in the first 70% of iterations (counting timesteps).
-        end_timestep = 0.7 * (dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations)
-        entropy_coeff_schedule = [[0, entropy_coeff], [end_timestep, 1e-6]]
+        # Decay for a custom percentage of iterations (counting timesteps).
+        if not (0 < entropy_coeff_decay_iterations <= 1):
+            raise ValueError("entropy_coeff_decay_iterations must be in (0, 1]")
 
-        entropy_coeff_schedule = entropy_coeff_schedule
+        end_timestep = entropy_coeff_decay_iterations * (
+            dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations
+        )
+        entropy_coeff_schedule = [[0, entropy_coeff], [end_timestep, 1e-6]]
     else:
         entropy_coeff_schedule = None
 
@@ -722,6 +689,52 @@ def build_apl(**kwargs):
     )
 
     return config.build()
+
+
+def main():
+    epilog = """Some command line options can override the configuration of
+    --exp-config option, if provided."""
+    description = "Run a training experiment on the DFaaS environment."
+
+    parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
+
+    parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
+    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
+    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
+    parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
+    parser.add_argument("--seed", type=int, help="Seed of the experiment")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stop after one training iteration (useful for debugging purposes). Default is False",
+    )
+
+    args = parser.parse_args()
+
+    # Read configuration files as dicts here, before calling run_experiment.
+    if args.exp_config is not None:
+        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
+    else:
+        exp_config = {}
+
+    if args.env_config is not None:
+        env_config = dfaas_utils.toml_to_dict(args.env_config)
+    else:
+        env_config = {}
+
+    import pdb
+
+    pdb.set_trace()
+
+    # Pass config dicts directly to run_experiment instead of file paths.
+    run_experiment(
+        suffix=args.suffix,
+        exp_config=exp_config,
+        env_config=env_config,
+        runners=args.runners,
+        seed=args.seed,
+        dry_run=args.dry_run,
+    )
 
 
 if __name__ == "__main__":
