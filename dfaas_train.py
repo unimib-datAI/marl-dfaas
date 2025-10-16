@@ -33,40 +33,29 @@ logging.basicConfig(
 logger = logging.getLogger(Path(__file__).name)
 
 
-def main():
-    epilog = """Some command line options can override the configuration of
-    --exp-config option, if provided."""
-    description = "Run a training experiment on the DFaaS environment."
-
-    parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
-
-    parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
-    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
-    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
-    parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
-    parser.add_argument("--seed", type=int, help="Seed of the experiment")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Stop after one training iteration (useful for debugging purposes). Default is False",
-    )
-
-    args = parser.parse_args()
-
-    # Initialize the experiment configuration from exp-config argument.
-    if args.exp_config is not None:
-        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
-    else:
+def run_experiment(
+    suffix,
+    exp_config=None,
+    env_config=None,
+    runners=None,
+    seed=None,
+    dry_run=False,
+):
+    # The experiment and environment configs are now passed as dicts from main().
+    # Override experiment configuration from input arguments. Only a limited
+    # subset of options can be overrode.
+    if exp_config is None:
         exp_config = {}
 
-    # Override experiment configuration from CLI arguments. Only a limited
-    # subset of options can be overrode.
     override_options = ["env_config", "runners", "seed"]
+    override_values = {
+        "env_config": env_config,
+        "runners": runners,
+        "seed": seed,
+    }
     for option in override_options:
-        if getattr(args, option) is not None:
-            # The argparse module always sets the argument to None if not
-            # provided.
-            exp_config[option] = getattr(args, option)
+        if override_values[option] is not None:
+            exp_config[option] = override_values[option]
 
     # Set default experiment configuration values if not provided.
     exp_config["iterations"] = exp_config.get("iterations", 100)
@@ -96,7 +85,8 @@ def main():
     # Environment configuration.
     # FIXME: Save the env config inside exp config before be dumped to JSON.
     if exp_config.get("env_config") is not None:
-        env_config = dfaas_utils.toml_to_dict(exp_config["env_config"])
+        # The env_config is now passed as a dict from main().
+        env_config = exp_config["env_config"]
     else:
         env_config = {}
 
@@ -290,7 +280,7 @@ def main():
 
     # Create the experiment name. At the end of the experiment this name will be
     # used as output directory name.
-    exp_name = f"DF_{start}_{exp_config['algorithm']['name']}_{args.suffix}"
+    exp_name = f"DF_{start}_{exp_config['algorithm']['name']}_{suffix}"
     logger.info(f"Experiment name: {exp_name}")
 
     # Prepare the evaluation environment for each evaluation runner.
@@ -328,7 +318,6 @@ def main():
     if evaluation_interval < 0:
         raise ValueError("Evaluation interval must be non negative!")
     logger.info("Training start")
-    dry_run = args.dry_run
     with tqdm.tqdm(total=max_iterations) as progress_bar:
         for iteration in range(max_iterations):
             experiment.train()
@@ -400,6 +389,55 @@ def main():
     experiment_duration = experiment_end - experiment_start
     logger.info(f"Experiment name: {exp_name}")
     logger.info(f"Experiment duration: {experiment_duration}")
+
+    return {
+        "experiment_name": exp_name,
+        "result_dir": result_dir,
+        "experiment_duration": experiment_duration,
+        "eval_result": eval_result,
+    }
+
+
+def main():
+    epilog = """Some command line options can override the configuration of
+    --exp-config option, if provided."""
+    description = "Run a training experiment on the DFaaS environment."
+
+    parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
+
+    parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
+    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
+    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
+    parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
+    parser.add_argument("--seed", type=int, help="Seed of the experiment")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Stop after one training iteration (useful for debugging purposes). Default is False",
+    )
+
+    args = parser.parse_args()
+
+    # Read configuration files as dicts here, before calling run_experiment.
+    if args.exp_config is not None:
+        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
+    else:
+        exp_config = {}
+
+    if args.env_config is not None:
+        env_config = dfaas_utils.toml_to_dict(args.env_config)
+    else:
+        env_config = {}
+
+    # Pass config dicts directly to run_experiment instead of file paths.
+    run_experiment(
+        suffix=args.suffix,
+        exp_config=exp_config,
+        env_config=env_config,
+        runners=args.runners,
+        seed=args.seed,
+        dry_run=args.dry_run,
+    )
 
 
 def build_ppo(**kwargs):
