@@ -4,5 +4,6 @@ gputil==1.4.0  # Required by RLlib (GPU system monitoring).
 matplotlib==3.10.6
 orjson==3.10.18
 tqdm==4.67.1
-marimo==0.16.5
-ruff=0.14.0
+marimo==0.17.0
+ruff==0.14.0
+graphviz==0.21  # Required for some Marimo notebooks.
