@@ -6,9 +6,7 @@ associated callbacks."""
 import gymnasium as gym
 import logging
 from pathlib import Path
-from collections import deque, namedtuple, defaultdict
 
-import pandas as pd
 import numpy as np
 import networkx as nx
 
@@ -32,18 +30,22 @@ _logger = logging.getLogger(Path(__file__).name)
 def reward_fn(action, additional_reject):
     """Returns the reward for the given action and additional rejects. The
     reward is in the range [-1, 1]."""
-    if len(action) != 3:
-        raise ValueError("Expected action = (local, forward, reject)")
+    # Extract local and reject actions from the action tuple.
+    local_action = action[0]
+    reject_action = action[-1]
+
+    # Sum up all forwarding actions (could be multiple neighbors).
+    forward_action = sum(action[1:-1])
+
     if len(additional_reject) != 2:
-        raise ValueError("Expected additiona_reject = (local_reject, forward_reject)")
+        raise ValueError("Expected additional_reject = (local_reject, forward_reject)")
 
     arrival_rate_total = sum(action)
-    rate_local, rate_forward, rate_reject = action
     local_reject, forward_reject = additional_reject
 
-    local_reward = rate_local - local_reject
-    forward_reward = rate_forward - forward_reject
-    reward = local_reward + forward_reward - rate_reject
+    local_reward = local_action - local_reject
+    forward_reward = forward_action - forward_reject
+    reward = local_reward + forward_reward - reject_action
 
     # Normalize the reward around [-1, 1].
     if arrival_rate_total <= 0:
@@ -57,7 +59,14 @@ class DFaaS(MultiAgentEnv):
     """DFaaS multi-agent reinforcement learning environment.
 
     The constructor accepts a config dictionary with the environment
-    configuration."""
+    configuration.
+
+    Metrics can be accessed from the self.info dictionary. This dictionary
+    contains an entry for each agent, and for every agent, a list of metrics
+    recorded at each step. Note that some metrics are redundant (starting with
+    "observation_prev"). The default callback associated with this environment
+    automatically skips these redundant metrics.
+    """
 
     def __init__(self, config={}):
         # By default, the network has two interconnected agents.
@@ -77,6 +86,9 @@ class DFaaS(MultiAgentEnv):
         # step() call.
         self.reward_range = (-1.0, 1.0)
 
+        # Store the neighbor list for each agent for easy access.
+        self.agent_neighbors = {agent: list(self.network.neighbors(agent)) for agent in self.agents}
+
         # Provide full (preferred format) observation and action spaces as
         # Dicts mapping agent IDs to the individual agents' spaces.
 
@@ -84,11 +96,11 @@ class DFaaS(MultiAgentEnv):
         self.action_space = gym.spaces.Dict(
             {
                 # Distribution of how many requests are processed locally,
-                # forwarded and rejected.
+                # forwarded to specific neighbors, and rejected.
                 #
-                # Important: forwarding requests are evenly distributed among
-                # the node's neighbours.
-                agent: Simplex(shape=(3,))
+                # For each agent, the action space size is:
+                # 1 (local) + number_of_neighbors (forwarding) + 1 (reject)
+                agent: Simplex(shape=(1 + len(self.agent_neighbors[agent]) + 1,))
                 for agent in self.agents
             }
         )
@@ -105,16 +117,18 @@ class DFaaS(MultiAgentEnv):
                         "input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
                         # Arrival rate of the previous step.
                         "prev_input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
-                        # Forwarded requests in the previosu step.
-                        "prev_forward_requests": gym.spaces.Box(
-                            low=0,
-                            high=150,
-                            dtype=np.int32,
-                        ),
-                        # Forwarded requests but rejected requests in the
-                        # previous step.
-                        # Note prev_forward_rejects <= prev_forward_requests.
-                        "prev_forward_rejects": gym.spaces.Box(low=0, high=150, dtype=np.int32),
+                        # How much rate has been forwarded and how much of this
+                        # has been rejected in the previous step, for each
+                        # neighbor (a node may have different neighbors).
+                        # We unpack the temporary dictionaries (**).
+                        **{
+                            f"prev_forward_to_{neighbor}": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                            for neighbor in self.agent_neighbors[agent]
+                        },
+                        **{
+                            f"prev_forward_rejects_to_{neighbor}": gym.spaces.Box(low=0, high=150, dtype=np.int32)
+                            for neighbor in self.agent_neighbors[agent]
+                        },
                     }
                 )
                 for agent in self.agents
@@ -145,7 +159,42 @@ class DFaaS(MultiAgentEnv):
         # differ from the training ones.
         self.evaluation = config.get("evaluation", False)
 
+        # Initialize the info dictionary with node as first level keys and
+        # metrics as second level.
+        self.info = {}
+        for agent in self.agents:
+            self.info[agent] = self._init_agent_metrics()
+
         super().__init__()
+
+    def _init_agent_metrics(self):
+        """Initialize all metrics for a single agent with zero values for each step."""
+        # List of some metrics to track for each agent. Additional metrics are
+        # defined below.
+        metrics = [
+            "action_local",
+            "action_forward",
+            "action_reject",
+            "incoming_rate",
+            "incoming_rate_local",
+            "incoming_rate_forward",
+            "incoming_rate_reject",
+            "incoming_rate_local_reject",
+            "incoming_rate_forward_reject",
+            "forward_reject_rate",
+            "reward",
+        ]
+
+        # Create a zero-filled array for each metric.
+        result = {metric: [0 for _ in range(self.max_steps)] for metric in metrics}
+
+        # Add specific metrics for forward actions and rejects to each neighbor.
+        for agent, neighbors in self.agent_neighbors.items():
+            for neighbor in neighbors:
+                result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+
+        return result
 
     def get_config(self):
         """Returns a dictionary with the current configuration of the
@@ -161,7 +210,6 @@ class DFaaS(MultiAgentEnv):
         return config
 
     def reset(self, *, seed=None, options=None):
-        # Current step.
         self.current_step = 0
 
         # If seed is given, overwrite the master seed. Ray will give the seed in
@@ -239,23 +287,9 @@ class DFaaS(MultiAgentEnv):
             case _:
                 raise AssertionError("Unreachable code")
 
-        def info_init_key():
-            """Helper function to automatically initialize the keys in the info
-            dictionary."""
-            value = {}
-            for agent in self.agents:
-                value[agent] = [0 for _ in range(self.max_steps)]
-
-            return value
-
-        # This dictionary contains the entire history of observations, rewards,
-        # metrics, and logs for a single episode. It is updated step by step,
-        # each value being a list with one entry for each step. It can be
-        # accessed at any time, usually at the end of the episode.
-        #
-        # It is of type defaultdict to allow missing keys to be initialized
-        # automatically.
-        self.info = defaultdict(info_init_key)
+        # Reset the info dictionary
+        for agent in self.agents:
+            self.info[agent] = self._init_agent_metrics()
 
         obs = self._build_observation()
 
@@ -273,14 +307,22 @@ class DFaaS(MultiAgentEnv):
             arrival_rate = self.input_rate[agent][self.current_step]
 
             # Convert the action distribution (a distribution of probabilities)
-            # into the number of requests to locally process, to forward and to
-            # reject.
+            # into the number of requests to locally process, to forward to specific neighbors, and to reject.
             action[agent] = _convert_arrival_rate_dist(arrival_rate, action_dict[agent])
 
             # Log the arrival rate for each action.
-            self.info["action_local"][agent][self.current_step] = action[agent][0]
-            self.info["action_forward"][agent][self.current_step] = action[agent][1]
-            self.info["action_reject"][agent][self.current_step] = action[agent][2]
+            self.info[agent]["action_local"][self.current_step] = action[agent][0]
+
+            # Log forward actions for each neighbor
+            for i, neighbor in enumerate(self.agent_neighbors[agent]):
+                forward_key = f"action_forward_to_{neighbor}"
+                self.info[agent][forward_key][self.current_step] = action[agent][i + 1]
+
+            # Total forwarded requests (sum of all neighbor forwards)
+            self.info[agent]["action_forward"][self.current_step] = sum(action[agent][1:-1])
+
+            # Rejected requests
+            self.info[agent]["action_reject"][self.current_step] = action[agent][-1]
 
         # 2. Manage the workload.
         self._manage_workload(action)
@@ -290,15 +332,15 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             # Extract some additional info that is used to calculate the reward.
             additional_rejects = (
-                self.info["incoming_rate_local_reject"][agent][self.current_step],
-                self.info["forward_reject_rate"][agent][self.current_step],
+                self.info[agent]["incoming_rate_local_reject"][self.current_step],
+                self.info[agent]["forward_reject_rate"][self.current_step],
             )
 
             reward = reward_fn(action[agent], additional_rejects)
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
-            self.info["reward"][agent][self.current_step] = reward
+            self.info[agent]["reward"][self.current_step] = reward
 
         # Go to the next step.
         self.current_step += 1
@@ -330,17 +372,17 @@ class DFaaS(MultiAgentEnv):
         # to avoid copying this code into the reset() method.
         #
         # TODO: This is not very efficient, but it works.
-        for key in self.info:
-            for agent in self.agents:
+        for agent in self.agents:
+            for key in self.info[agent]:
                 # Warning: this is also executed at the end of the episode!
                 if self.current_step < self.max_steps:
-                    value = self.info[key][agent][self.current_step]
+                    value = self.info[agent][key][self.current_step]
                     if isinstance(value, (np.ndarray, np.float64)):
-                        self.info[key][agent][self.current_step] = value.item()
+                        self.info[agent][key][self.current_step] = value.item()
 
-                value = self.info[key][agent][self.current_step - 1]
+                value = self.info[agent][key][self.current_step - 1]
                 if isinstance(value, (np.ndarray, np.float64)):
-                    self.info[key][agent][self.current_step - 1] = value.item()
+                    self.info[agent][key][self.current_step - 1] = value.item()
 
         return obs, rewards, terminated, truncated, {}
 
@@ -358,8 +400,11 @@ class DFaaS(MultiAgentEnv):
                 for key in obs[agent].keys():
                     info_key = "observation_" + key
 
-                    for agent in self.agents:
-                        self.info[info_key][agent][self.current_step] = obs[agent][key]
+                    # Create the metric if it doesn't exist yet
+                    if info_key not in self.info[agent]:
+                        self.info[agent][info_key] = [0 for _ in range(self.max_steps)]
+
+                    self.info[agent][info_key][self.current_step] = obs[agent][key]
 
         # Special case: there is no data from the previous step at the start.
         if self.current_step == 0:
@@ -368,9 +413,12 @@ class DFaaS(MultiAgentEnv):
                 obs[agent] = {
                     "input_rate": np.array([input_rate], dtype=np.float32),
                     "prev_input_rate": np.array([1], dtype=np.float32),
-                    "prev_forward_requests": np.array([0], dtype=np.float32),
-                    "prev_forward_rejects": np.array([0], dtype=np.float32),
                 }
+
+                # Add zero entries for each neighbor
+                for neighbor in self.agent_neighbors[agent]:
+                    obs[agent][f"prev_forward_to_{neighbor}"] = np.array([0], dtype=np.float32)
+                    obs[agent][f"prev_forward_rejects_to_{neighbor}"] = np.array([0], dtype=np.float32)
 
             update_info(obs)
 
@@ -380,13 +428,25 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             input_rate = self.input_rate[agent][self.current_step]
             prev_input_rate = self.input_rate[agent][self.current_step - 1]
-            prev_forward_reqs = self.info["action_forward"][agent][self.current_step - 1]
-            prev_forward_rejects = self.info["forward_reject_rate"][agent][self.current_step - 1]
 
             obs[agent]["input_rate"] = np.array([input_rate], dtype=np.int32)
             obs[agent]["prev_input_rate"] = np.array([prev_input_rate], dtype=np.int32)
-            obs[agent]["prev_forward_requests"] = np.array([prev_forward_reqs], dtype=np.int32)
-            obs[agent]["prev_forward_rejects"] = np.array([prev_forward_rejects], dtype=np.int32)
+
+            # Add specific values for each neighbor
+            for neighbor in self.agent_neighbors[agent]:
+                # Previous forward requests to this neighbor
+                prev_forward_key = f"action_forward_to_{neighbor}"
+                prev_forward_reqs = self.info[agent][prev_forward_key][self.current_step - 1]
+                obs[agent][f"prev_forward_to_{neighbor}"] = np.array([prev_forward_reqs], dtype=np.int32)
+
+                # Previous forward rejects to this neighbor
+                prev_rejects_key = f"forward_rejects_to_{neighbor}"
+                prev_forward_rejects = (
+                    self.info[agent][prev_rejects_key][self.current_step - 1]
+                    if prev_rejects_key in self.info[agent]
+                    else 0
+                )
+                obs[agent][f"prev_forward_rejects_to_{neighbor}"] = np.array([prev_forward_rejects], dtype=np.int32)
 
         update_info(obs)
         return obs
@@ -402,11 +462,6 @@ class DFaaS(MultiAgentEnv):
         cold_service_time = 30
         idle_time_before_kill = 600
 
-        # Extract arrival rate for each action.
-        local = {agent: action[agent][0] for agent in self.agents}
-        forward = {agent: action[agent][1] for agent in self.agents}
-        reject = {agent: action[agent][2] for agent in self.agents}
-
         # Incoming rate for each agent. Each value is a list of incoming rates
         # for that agent.
         incoming_rate = {agent: [] for agent in self.agents}
@@ -420,27 +475,30 @@ class DFaaS(MultiAgentEnv):
         # Before calling the pacsltk's function, collect the total incoming rate
         # of requests for each agent.
         for agent in self.agents:
-            incoming_rate[agent].append(local[agent])
+            # First element is local processing
+            local_rate = action[agent][0]
+            incoming_rate[agent].append(local_rate)
             incoming_rate_agents[agent].append(agent)
+            self.info[agent]["incoming_rate_local"][self.current_step] = local_rate
 
-            self.info["incoming_rate_local"][agent][self.current_step] = local[agent]
-
+        # Process the forwarded requests
         for agent in self.agents:
-            # Distribute the forwarding rate to its neighbors. Since it is an
-            # integer division, add one extra rate for some neighbors until the
-            # remainder is accounted for.
-            neighbors = self.network.degree(agent)
-            share, remainder = divmod(forward[agent], neighbors)
-            shares = [share + 1 if i < remainder else share for i in range(neighbors)]
-            for neighbor, share in zip(self.network.neighbors(agent), shares):
-                incoming_rate[neighbor].append(share)
-                incoming_rate_agents[neighbor].append(agent)
-                self.info["incoming_rate_forward"][neighbor][self.current_step] += share
+            neighbors = self.agent_neighbors[agent]
+
+            # For each neighbor, forward the specific amount (no longer evenly distributed)
+            for i, neighbor in enumerate(neighbors):
+                # Index 1 to len(neighbors) are the forwarding actions
+                forward_rate = action[agent][i + 1]
+
+                if forward_rate > 0:
+                    incoming_rate[neighbor].append(forward_rate)
+                    incoming_rate_agents[neighbor].append(agent)
+                    self.info[neighbor]["incoming_rate_forward"][self.current_step] += forward_rate
 
         # Then call the pacsltk's function for each agent.
         for agent in self.agents:
             incoming_rate_total = sum(incoming_rate[agent])
-            self.info["incoming_rate"][agent][self.current_step] = incoming_rate_total
+            self.info[agent]["incoming_rate"][self.current_step] = incoming_rate_total
             if incoming_rate_total == 0:
                 # Skip this agent since there are no requests to handle.
                 continue
@@ -457,7 +515,7 @@ class DFaaS(MultiAgentEnv):
             # neighbors).
             rejects = _distribute_rejects(rejection_rate, incoming_rate[agent])
 
-            self.info["incoming_rate_reject"][agent][self.current_step] = sum(rejects)
+            self.info[agent]["incoming_rate_reject"][self.current_step] = sum(rejects)
             for idx in range(len(incoming_rate[agent])):
                 reject_share = rejects[idx]
                 reject_agent = incoming_rate_agents[agent][idx]
@@ -466,14 +524,21 @@ class DFaaS(MultiAgentEnv):
 
                 # Current agent (local incoming rate).
                 if reject_agent == agent:
-                    self.info["incoming_rate_local_reject"][agent][self.current_step] = reject_share
+                    self.info[agent]["incoming_rate_local_reject"][self.current_step] = reject_share
                 else:  # Neighbor agent (forwarded requests).
-                    neighbor = reject_agent
+                    sender = reject_agent
 
-                    # Update the forwarded reject rate for the neighbor and the
-                    # incoming forward reject rate for the receiving agent.
-                    self.info["forward_reject_rate"][neighbor][self.current_step] += reject_share
-                    self.info["incoming_rate_forward_reject"][agent][self.current_step] += reject_share
+                    # Update the forwarded reject rate for the sending agent and track per-neighbor reject
+                    self.info[sender]["forward_reject_rate"][self.current_step] += reject_share
+
+                    # Update the per-neighbor forward rejects
+                    reject_key = f"forward_rejects_to_{agent}"
+                    if reject_key not in self.info[sender]:
+                        self.info[sender][reject_key] = [0 for _ in range(self.max_steps)]
+                    self.info[sender][reject_key][self.current_step] += reject_share
+
+                    # Update the incoming forward reject rate for the receiving agent
+                    self.info[agent]["incoming_rate_forward_reject"][self.current_step] += reject_share
 
     def set_master_seed(self, master_seed, episodes):
         """Set the master seed of the environment. This function is usually
@@ -533,46 +598,39 @@ def _distribute_rejects(reject_rate, incoming_rate):
 def _convert_arrival_rate_dist(arrival_rate, action_dist):
     """Distribute the arrival rate to the given action distribution.
 
-    Returns a tuple of three elements: the arrival rate of local requests,
-    forwarded and rejected. They are always integer values.
+    Returns a tuple with the arrival rate for each action:
 
-    This function expects an action distribution (e.g. [.7, .2, .1])."""
-    assert len(action_dist) == 3, "Expected (local, forward, reject)"
+    - First element: local processing rate
+    - Middle elements: forwarding rates to specific neighbors
+    - Last element: rejection rate
 
-    # Extract the three actions from the action distribution
-    prob_local, prob_forwarded, prob_rejected = action_dist
+    All values are integers.
 
-    # Get the corresponding arrival rate for each action. Note: the arrival rate
-    # is a discrete number, so there is a fraction of the action probabilities
-    # that is left out of the calculation.
-    actions = [
-        int(prob_local * arrival_rate),
-        int(prob_forwarded * arrival_rate),
-        int(prob_rejected * arrival_rate),
-    ]
+    This function expects an action distribution that sums to 1."""
+    # The action space is now:
+    # [local, forward_to_neighbor_1, forward_to_neighbor_2, ..., forward_to_neighbor_n, reject]
 
-    arrival_rate_conv = sum(actions)
+    # Calculate the raw rates based on the action distribution.
+    raw_rates = [int(prob * arrival_rate) for prob in action_dist]
 
-    if arrival_rate_conv < arrival_rate:
-        # There is a fraction of unassigned arrival rate. We need to fix this
-        # problem by assigning the remaining arrival rate to the higher fraction
-        # for the three action probabilities, because that action is the one
-        # that loses the most.
+    # Calculate how many requests are currently assigned.
+    total_assigned = sum(raw_rates)
 
-        # Extract the fraction for each action probability.
-        fractions = [
-            prob_local * arrival_rate - actions[0],
-            prob_forwarded * arrival_rate - actions[1],
-            prob_rejected * arrival_rate - actions[2],
-        ]
+    # Distribute the remaining requests due to integer rounding.
+    remaining = int(arrival_rate - total_assigned)
+    if remaining > 0:
+        # Find the actions with the highest fractional parts.
+        fractions = [(prob * arrival_rate) - raw_rates[i] for i, prob in enumerate(action_dist)]
 
-        # Get the highest fraction index and and assign the remaining rate to
-        # that action.
-        max_fraction_index = np.argmax(fractions)
-        actions[max_fraction_index] += arrival_rate - arrival_rate_conv
+        # Sort indices by fraction.
+        sorted_indices = sorted(range(len(fractions)), key=lambda i: fractions[i], reverse=True)
 
-    assert sum(actions) == arrival_rate
-    return tuple(actions)
+        # Assign remaining requests to actions with highest fractional parts.
+        for i in range(remaining):
+            raw_rates[sorted_indices[i % len(sorted_indices)]] += 1
+
+    assert sum(raw_rates) == arrival_rate
+    return tuple(raw_rates)
 
 
 # Register the environments with Ray so that they can be used automatically when
@@ -600,9 +658,9 @@ class DFaaSCallbacks(DefaultCallbacks):
         arguments are ignored."""
         # Make sure this episode has just been started (only initial obs logged
         # so far).
-        assert (
-            episode.length <= 0
-        ), f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+        assert episode.length <= 0, (
+            f"'on_episode_start()' callback should be called right after env reset! {episode.length = }"
+        )
 
         try:
             env = base_env.envs[0]
@@ -632,15 +690,25 @@ class DFaaSCallbacks(DefaultCallbacks):
         except AttributeError:
             env = base_env.get_sub_environments()[0]
 
-        assert (
-            env.current_step == env.max_steps
-        ), f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
+        assert env.current_step == env.max_steps, (
+            f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
+        )
 
-        for key in env.info.keys():
-            # Note that this has to be a list of length 1 because there can be
-            # multiple episodes in a single iteration, so at the end Ray will
-            # append the list to a general list for the iteration.
-            episode.hist_data[key] = [env.info[key]]
+        # Add all metrics from self.info to episode.hist_data
+        for agent in env.agents:
+            agent_data = env.info[agent]
+            for metric, values in agent_data.items():
+                # Skip metrics starting with "observation_prev", because they
+                # are redundant.
+                if metric.startswith("observation_prev"):
+                    continue
+
+                # Create the key in hist_data if it doesn't exist
+                if metric not in episode.hist_data:
+                    episode.hist_data[metric] = [{agent: values}]
+                else:
+                    # Add to existing key
+                    episode.hist_data[metric][0][agent] = values
 
     def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
         """Called at the end of Algorithm.evaluate()."""
@@ -660,8 +728,8 @@ class DFaaSCallbacks(DefaultCallbacks):
 def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
     if config is None:
-        config = {"network": ["node_0 node_1", "node_1"]}
-        # config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+        # config = {"network": ["node_0 node_1", "node_1"]}
+        config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
     if seed is None:
         seed = 42
 
@@ -679,7 +747,9 @@ def _run_one_episode(verbose=False, config=None, seed=None):
         env.step(action_dict=env.action_space.sample())
 
 
-if __name__ == "__main__":
+def _main():
+    """Main entry point for running a single DFaaS episode with random
+    actions."""
     # Import these modules only if this module is called as main script.
     import argparse
     import dfaas_utils
@@ -700,3 +770,7 @@ if __name__ == "__main__":
         config = None
 
     _run_one_episode(args.verbose, config, args.seed)
+
+
+if __name__ == "__main__":
+    _main()

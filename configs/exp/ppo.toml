@@ -7,11 +7,16 @@ algorithm.name = "PPO"
 algorithm.gamma = 0.7
 algorithm.lambda = 0.3
 
+# Start value of PPO's entropy coefficient, it follows a slow decay over time.
+algorithm.entropy_coeff = 0.02
+# By default the entropy coeff. is constant.
+algorithm.entropy_coeff_decay_enable = true
+
 # Do not use the GPU to train neural networks.
 disable_gpu = false
 
 # Number of training iterations to run.
-iterations = 1000
+iterations = 2000
 
 # Number of episodes to play for each training iteration.
 #
@@ -22,7 +27,7 @@ training_num_episodes = 1
 # The number of parallel runners that will be launched to collect experiences in
 # a training iteration. If the number is 0, the master process will collect
 # experiences.
-runners = 1
+runners = 0
 
 # Model configuration.
 model = "configs/models/softplus.json"

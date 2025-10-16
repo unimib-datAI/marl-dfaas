@@ -1,11 +1,9 @@
-# This Python script is expected to be imported by all Jupyter notebooks.
+# This Python script is expected to be imported by all Marimo notebooks.
 from pathlib import Path
 import logging
 import sys
 import os
 import warnings
-
-import IPython.core.debugger as debugger
 
 import numpy as np
 
@@ -15,7 +13,7 @@ import matplotlib
 
 # Add the parent directory (the root directory of the project) to sys.path. This
 # is needed to load modules like dfaas_utils or dfaas_env.
-sys.path.append(Path(os.getcwd()).parent.as_posix())
+sys.path.append(Path(os.getcwd()).as_posix())
 
 import dfaas_env
 import dfaas_upperbound
@@ -27,11 +25,15 @@ _matplotlib_logger = logging.root.manager.loggerDict["matplotlib"]
 _matplotlib_logger.setLevel("WARNING")
 
 # Initialize logger for this module.
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
-    level=logging.DEBUG,
-)
 logger = logging.getLogger(Path(__file__).name)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Set by default INFO level for root logger.
+logging.getLogger().setLevel(logging.INFO)
 
 # Convert NumPy warning to errors.
 np.seterr(all="raise")
@@ -104,20 +106,6 @@ def get_exp_config(exp_dir):
     return _exp_config[exp_dir]
 
 
-def set_trace():
-    """Open IPython debugger in interactive-mode."""
-    debugger.set_trace()
-
-
-# ------------------------------
-# Custom settings for matplotlib
-# ------------------------------
-
-# Default font size (10) and figure size is too small.
-font = {"size": 12}
-matplotlib.rcParams["figure.figsize"] = [9, 6]
-matplotlib.rc("font", **font)
-
 # We have large notebooks with more than 20 plots, do not show the default warning.
 matplotlib.rcParams["figure.max_open_warning"] = 50
 
@@ -148,6 +136,13 @@ def get_experiments(exp_prefix):
 
     # Newest experiment first.
     return sorted(exps, reverse=True)
+
+
+def get_figure(name):
+    matplotlib.pyplot.close(fig=name)
+    fig = matplotlib.pyplot.figure(num=name, layout="constrained")
+    fig.canvas.header_visible = False
+    return fig
 
 
 def get_moving_average(data, window_size=50):

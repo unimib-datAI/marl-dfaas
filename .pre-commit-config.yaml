@@ -1,21 +1,11 @@
 repos:
-  # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 24.10.0
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.14.0
     hooks:
-      - id: black
-        # It is recommended to specify the latest version of Python
-        # supported by your project here, or alternatively use
-        # pre-commit's default_language_version, see
-        # https://pre-commit.com/#top_level-default_language_version
-        language_version: python3.12
+      # Run the linter. Disable for now.
+      #- id: ruff-chec
+      # Run the formatter.
+      - id: ruff-format
         # To not format patches!
         exclude: ^patches/
-      - id: black-jupyter
-        language_version: python3.12
-        # To not format patches!
-        exclude: ^patches/
-  - repo: https://github.com/kynan/nbstripout
-    rev: 0.8.1
-    hooks:
-      - id: nbstripout

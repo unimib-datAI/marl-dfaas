@@ -1,14 +1,16 @@
 import sys
 from pathlib import Path
 import tomllib
+import gzip
 
 import orjson
 
 
 def dict_to_json(data, file_path):
+    """Serializes a dictionary to a JSON file using orjson."""
     file_path = to_pathlib(file_path)
 
-    # Since orjson does not support serializing Path objects, I need to manually
+    # Since orjson does not support serializing Path objects, manually
     # convert those values to plain strings.
     #
     # We assume that these values can only appear at the top level of the
@@ -32,6 +34,7 @@ def dict_to_json(data, file_path):
 
 
 def toml_to_dict(file_path):
+    """Loads a TOML file into a dictionary."""
     file_path = to_pathlib(file_path)
 
     try:
@@ -46,6 +49,7 @@ def toml_to_dict(file_path):
 
 
 def json_to_dict(file_path):
+    """Loads a JSON file into a dictionary."""
     file_path = to_pathlib(file_path)
 
     try:
@@ -60,16 +64,33 @@ def json_to_dict(file_path):
 
 
 def to_pathlib(file_path):
-    # Make sure to have a Path object, because we want the absolute path.
+    """Returns an (absolute) Path object from the given path."""
     if isinstance(file_path, str):
         file_path = Path(file_path)
     return file_path.absolute()
 
 
 def parse_result_file(result_path):
+    """Parses a result file containing JSONL objects.
+
+    If the file ends with '.gz', it is opened using gzip.
+
+    Args:
+        result_path (str or Path): The path to the result file.
+
+    Returns:
+        list: A list where each item is a JSON-decoded object from a line.
+    """
     result_path = to_pathlib(result_path)
 
-    # The "result.json" file is not a valid JSON file. Each line is an isolated
-    # JSON object, the result of one training iteration.
-    with result_path.open() as result:
+    if result_path.name.endswith(".gz"):
+        open_func = gzip.open
+        mode = "rt"
+    else:
+        open_func = open
+        mode = "r"
+
+    # The "result.json(.gz)" file is not a valid JSON file. Each line is an
+    # isolated JSON object, the result of one training iteration.
+    with open_func(result_path, mode) as result:
         return [orjson.loads(line) for line in result]

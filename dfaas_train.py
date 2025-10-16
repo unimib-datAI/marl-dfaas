@@ -12,10 +12,10 @@ import tqdm
 import ray
 from ray.rllib.algorithms.sac import SACConfig
 from ray.rllib.algorithms.ppo import PPOConfig
-from ray.rllib.algorithms.registry import get_policy_class
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.models.catalog import MODEL_DEFAULTS
 
+from json_gzip_logger import JsonGzipLogger
 import dfaas_utils
 import dfaas_env
 import dfaas_apl
@@ -79,13 +79,17 @@ def main():
     exp_config["algorithm"]["gamma"] = exp_config["algorithm"].get("gamma", 0.99)
     if exp_config["algorithm"]["name"] == "PPO":
         exp_config["algorithm"]["lambda"] = exp_config["algorithm"].get("lambda", 1)
+        exp_config["algorithm"]["entropy_coeff"] = exp_config["algorithm"].get("entropy_coeff", 0)
+        exp_config["algorithm"]["entropy_coeff_decay_enable"] = exp_config["algorithm"].get(
+            "entropy_coeff_decay_enable", False
+        )
     exp_config["checkpoint_interval"] = exp_config.get("checkpoint_interval", 50)
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
     exp_config["env"] = dfaas_env.DFaaS.__name__
 
-    logger.info(f"Experiment configuration")
+    logger.info("Experiment configuration")
     for key, value in exp_config.items():
         logger.info(f"{key:>25}: {value}")
 
@@ -98,7 +102,7 @@ def main():
 
     # Create a dummy environment, used as reference.
     dummy_env = dfaas_env.DFaaS(config=env_config)
-    logger.info(f"Environment configuration")
+    logger.info("Environment configuration")
     for key, value in dummy_env.get_config().items():
         logger.info(f"{key:>25}: {value}")
 
@@ -176,6 +180,8 @@ def main():
     model = MODEL_DEFAULTS.copy()
     # Must be False to have a different network for the Critic.
     model["vf_share_layers"] = False
+    # Default is just two hidden layers with 256 neurons each.
+    model["fcnet_hiddens"] = [256, 256, 256, 256]
 
     if exp_config.get("model") is not None:
         # Update the model with the given options.
@@ -202,6 +208,9 @@ def main():
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
                 lambda_=exp_config["algorithm"]["lambda"],
+                entropy_coeff=exp_config["algorithm"]["entropy_coeff"],
+                entropy_coeff_decay_enable=exp_config["algorithm"]["entropy_coeff_decay_enable"],
+                max_iterations=exp_config["iterations"],
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -362,7 +371,7 @@ def main():
     else:
         experiment.save(checkpoint_path.as_posix())
         logger.info(f"Checkpoint {checkpoint_name!r} saved")
-    logger.info(f"Training results data saved to: {experiment.logdir}/result.json")
+    logger.info(f"Training results data saved to: {experiment.logdir}/result.json.gz")
 
     # Do a final evaluation.
     if exp_config["final_evaluation"]:
@@ -380,11 +389,7 @@ def main():
         dfaas_utils.dict_to_json(eval_result, eval_file)
         logger.info(f"Evaluation results data saved to: {eval_file.as_posix()}")
     else:
-        logger.info(f"Evaluation results empty, skip saving")
-
-    # Remove unused or problematic files in the result directory.
-    Path(logdir / "progress.csv").unlink()  # result.json contains same data.
-    Path(logdir / "params.json").unlink()  # params.pkl contains same data (and the JSON is broken).
+        logger.info("Evaluation results empty, skip saving")
 
     # Move the original experiment directory to a custom directory.
     result_dir = Path.cwd() / "results" / exp_name
@@ -412,6 +417,9 @@ def build_ppo(**kwargs):
     training_num_episodes = kwargs["training_num_episodes"]
     gamma = kwargs["gamma"]
     lambda_ = kwargs["lambda_"]
+    entropy_coeff = kwargs["entropy_coeff"]
+    entropy_coeff_decay_enable = kwargs["entropy_coeff_decay_enable"]
+    max_iterations = kwargs["max_iterations"]
 
     if not 0 <= gamma <= 1:
         raise ValueError("Gamma (discount factor) must be between 0 and 1")
@@ -429,6 +437,33 @@ def build_ppo(**kwargs):
         episodes_per_runner, remainder = divmod(training_num_episodes, runners)
         if remainder != 0:
             raise ValueError(f"Each runner must play the same number of episodes ({remainder} != 0)!")
+
+    # In PPO, the entropy coefficient allows us to balance exploration and
+    # exploitation by encouraging the former. In our case, we have a continuous
+    # action space modeled with a Dirichlet distribution, which already has a
+    # natural built-in spread. However, the entropy coefficient can still
+    # provide additional help.
+    #
+    # By default, if no value is provided, the coefficient remains constant at
+    # 0. If specified, we apply a slow decay over the first X% of iterations. We
+    # only define the start and end values, intermediate timesteps are assigned
+    # linearly interpolated coefficient values. Note that the timestep in the
+    # schedule is global (the sum of all agents' timesteps) rather than specific
+    # to each individual agent.
+    #
+    # References:
+    #   - https://github.com/ray-project/ray/blob/master/rllib/policy/torch_mixins.py#L51
+    #   - https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo.py#L277
+    #   - https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_torch_policy.py#L153
+    #   - https://github.com/ray-project/ray/blob/master/rllib/evaluation/rollout_worker.py#L1620
+    if entropy_coeff != 0.0 and entropy_coeff_decay_enable:
+        # Decay in the first 70% of iterations (counting timesteps).
+        end_timestep = 0.7 * (dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations)
+        entropy_coeff_schedule = [[0, entropy_coeff], [end_timestep, 1e-6]]
+
+        entropy_coeff_schedule = entropy_coeff_schedule
+    else:
+        entropy_coeff_schedule = None
 
     # The train_batch_size is the total number of samples to collect for each
     # iteration across all runners. Since the user can specify 0 runners, we
@@ -468,6 +503,8 @@ def build_ppo(**kwargs):
             minibatch_size=minibatch_size,
             model=model,
             lambda_=lambda_,
+            entropy_coeff=entropy_coeff,
+            entropy_coeff_schedule=entropy_coeff_schedule,
         )
         .framework("torch")
         # Wait max 4 minutes for each iteration to collect the samples.
@@ -478,7 +515,7 @@ def build_ppo(**kwargs):
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed)
+        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -599,7 +636,7 @@ def build_sac(**kwargs):
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed)
+        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -641,7 +678,7 @@ def build_apl(**kwargs):
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=exp_config["seed"])
+        .debugging(seed=exp_config["seed"], logger_config={"type": JsonGzipLogger})
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
     )

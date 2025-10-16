@@ -26,8 +26,8 @@ GitLab repository](https://gitlab.com/ema-pe/master-degree-thesis).
   other aspects of the experiments.
 * `dataset`: contains the dataset used to have real function invocations traces
   in the DFaaS environment (instead of generated ones).
-* `notebooks`: Python Jupyter notebooks used mainly to show plots of the
-  experiments and do some simple prototyping or experiments.
+* `notebooks`: Marimo notebooks used mainly to show plots of the experiments and
+  do some simple prototyping or experiments.
 * `patches`: required custom patches to Ray RLlib or other libraries needed to
   run the experiments.
 * `plots`: non-interactive Python scripts to generate plots from experiments.
@@ -56,13 +56,6 @@ To run the experiments, the main dependencies are:
   GPUs and CPUs. It is used by Ray RLlib when training models with deep learning
   reinforcement learning algorithms.
 
-* [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
-  than the standard library. Used because the experiments generate large JSON
-  files that slow down the encoding/decoding processes.
-
-* [tqdm](https://pypi.org/project/tqdm/): a small module that enriches the log
-  output during the train.
-
 When you install these dependenceis using `pip`, it automatically installs other
 dependencies, some of them are directly used by the project (like NumPy,
 Gymnasium, Pandas or NetworkX).
@@ -72,19 +65,17 @@ The following dependencies are required for plotting or running notebooks:
 * [Matplotlib](https://matplotlib.org/): is a plot generation library used in
   the scripts in the [`plots`](plots) and [`notebooks`](notebooks) directory.
 
-* [Jupyter Notebook](https://jupyter-notebook.readthedocs.io/en/v7.3.2/):
-  Jupyter notebooks are used to create plots and explore results and statistics
-  from the experiments. The notebooks are stored in the `notebooks` directory. 
+* [Marimo](https://marimo.io/): Marimo notebooks are used to create plots and
+  explore results and statistics from the experiments. The notebooks are stored
+  in the `notebooks` directory. We use Marimo as replacement of [Jupyter
+  Notebook](https://jupyter.org/).
 
-* [ipympl](https://matplotlib.org/ipympl/): this is an extension for Jupyter
-  Notebook to support interactive Matplotlib using Jupyter Widgets
-  [`ipywidgets`](https://ipywidgets.readthedocs.io/en/latest/index.html#).
+* [orjson](https://pypi.org/project/orjson/): is a JSON library that is faster
+  than the standard library. Used because the experiments generate large JSON
+  files that slow down the encoding/decoding processes.
 
-* [nbstripout](https://pypi.org/project/nbstripout/): utility that erases a
-  Jupyter Notebook's output before committing to git.
-
-Note that scripts in the `plots` directory are not interactive and only require
-Matplotlib.
+* [tqdm](https://pypi.org/project/tqdm/): a small module that enriches the log
+  output during the train.
 
 There are two requirements files for `pip` in the repository:
 
@@ -115,12 +106,9 @@ on the official website.
 
 The [`requirements.txt`](requirements.txt) also contains some development tools:
 
-* [`black`](https://black.readthedocs.io): a source code formatted for Python
-  code and Jupyter notebooks,
-* [`pylint`](https://pylint.readthedocs.io/en/latest/index.html): a static code
-  analyser,
+* [`ruff`](https://docs.astral.sh/ruff/): a source code linter and formatter for
+  Python code and Marimo notebooks,
 * [`pre-commit`](https://pre-commit.com): to run hooks when doing a Git commit,
-* [`nbstripout`](https://github.com/kynan/nbstripout): to clean the output of
   notebooks before committing them.
 
 ## How to run the experiments
@@ -148,25 +136,16 @@ $ python dfaas_train.py --env-config configs/env/three_agents.toml --exp-config 
 
 Run the [`dfaas_evaluate.py`](dfaas_evaluate_ppo.py) Python script.
 
-### How to run Jupyter notebooks
+### How to run Marimo notebooks
 
 Just run:
 
 ```console
-$ jupyter notebook --config jupyter_notebook_config.py
+$ marimo edit notebooks/ --port 9090 --headless --no-token
 ```
 
-Then open http://localhost:8888/tree in a Web browser.
-
-If you want to export one (or more) notebook as an HTML file containing only the
-output (without the code), run:
-
-```console
-$ jupyter nbconvert --no-input --to html --output-dir out_html notebook.ipynb
-```
-
-Also make sure to lint the notebooks with `black` and `nbstripout` before
-creating a commit or sharing them.
+Then open http://localhost:9090/ in a Web browser. You can export a notebook as
+HTML directly from the web editor.
 
 ## Patching Ray
 
