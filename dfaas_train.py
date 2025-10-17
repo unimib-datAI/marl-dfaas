@@ -106,8 +106,19 @@ def run_experiment(
     env_eval_config["evaluation"] = True
     env_eval_config["seed"] = exp_config["seed"]
 
-    ray_info = ray.init(include_dashboard=False)
-    logger.info(f"Ray address: {ray_info['address']}")
+    # Ray RLlib requires a Ray cluster to run. We first check whether we're
+    # already connected to one. If not, we need to connect before starting the
+    # experiment.
+    if not ray.is_initialized():
+        try:
+            # Try to connect to an existing Ray cluster.
+            ray.init(address="auto", include_dashboard=False)
+        except Exception:
+            logger.warning("Failed to connect to Ray cluster, creating a local one")
+            # Start a local Ray instance.
+            ray.init(include_dashboard=False)
+    ray_address = ray._private.worker._global_node.address_info["address"]
+    logger.info(f"Ray address: {ray_address}")
 
     # PolicySpec is required to specify the action/observation space for each
     # policy. In this case, each policy has the same spaces.
