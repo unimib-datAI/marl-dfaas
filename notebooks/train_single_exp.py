@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.16.5"
+__generated_with = "0.17.0"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -37,7 +37,7 @@ def _():
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     exp_dir_widget = mo.ui.file_browser(
         initial_path=Path("results"), selection_mode="directory", multiple=False, label="Experiment path: "
