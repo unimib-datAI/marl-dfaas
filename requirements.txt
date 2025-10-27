@@ -123,6 +123,7 @@ pathspec==0.12.1
 pexpect==4.9.0
 pillow==11.0.0
 platformdirs==4.3.6
+ply==3.11
 pre_commit==4.0.1
 prometheus_client==0.21.1
 prompt_toolkit==3.0.48
@@ -134,6 +135,7 @@ pyarrow==18.1.0
 pycparser==2.22
 Pygments==2.19.2
 pymdown-extensions==10.16.1
+pyomo==6.9.5
 pyparsing==3.2.0
 python-dateutil==2.9.0.post0
 python-json-logger==3.2.1

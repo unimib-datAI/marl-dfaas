@@ -3,5 +3,9 @@
 # break in the code.
 line-length = 120
 
+[tool.ruff.lint]
+# Ignore "Module level import not at top of file".
+ignore = ["E402"]
+
 # Do not format pactches!
 exclude = [".env", "patches/"]

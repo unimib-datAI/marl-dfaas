@@ -7,3 +7,4 @@ tqdm==4.67.1
 marimo==0.17.0
 ruff==0.14.0
 graphviz==0.21  # Required for some Marimo notebooks.
+pyomo==6.9.5  # Required for centralized optimization solution.
