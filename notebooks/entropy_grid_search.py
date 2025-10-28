@@ -626,5 +626,17 @@ def _(reject_data_eval, reject_rate_summary_iters_widget):
     return
 
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(
+        r"""
+    # Conclusion
+
+    In conclusion the best combinations seem to be `E 0.01 D 0.8` and `E 0.05 D 0.6`. Overall the differences among all combinations are minimal, except for a few specific values.
+    """
+    )
+    return
+
+
 if __name__ == "__main__":
     app.run()
