@@ -1,3 +1,18 @@
+"""This module runs several DFaaS episodes using two baseline strategies:
+
+1. All-local action: each node always attempts to process all incoming traffic
+   locally.
+2. Random action: each node selects its actions randomly.
+
+The script saves the resulting data as CSV files and produces a multi-plot
+figure in PDF format. Outputs are stored under: "baseline_local" for the
+all-local action and "baseline_random" for the random action.
+
+Run the script without any command-line arguments to execute a predefined set of
+episodes using hardcoded random seeds (these can be modified in the main()
+function).
+"""
+
 from pathlib import Path
 from typing import Tuple
 import logging
@@ -214,8 +229,12 @@ def run(
 
 
 def main():
+    # Change env config here!
+    # FIXME: Maybe add a config?
     env_config_file = "configs/env/five_agents.toml"
 
+    # Change seeds here!
+    # FIXME: Maybe add a config?
     seeds = [
         1114399290,
         586248983,
