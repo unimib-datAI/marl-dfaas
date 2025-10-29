@@ -108,7 +108,13 @@ def create_dataframes(info: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
     for agent in agents:
         agents_data[f"input_rate_{agent}"] = info[agent]["observation_input_rate"]
         agents_data[f"reward_{agent}"] = info[agent]["reward"]
-        agents_data[f"reject_rate_{agent}"] = info[agent]["incoming_rate_local_reject"]
+
+        # Reject rate is the sum of different reject metrics.
+        action_reject = np.array(info[agent]["action_reject"])
+        forward_reject = np.array(info[agent]["forward_reject_rate"])
+        local_reject = np.array(info[agent]["incoming_rate_local_reject"])
+
+        agents_data[f"reject_rate_{agent}"] = action_reject + forward_reject + local_reject
 
     df_agents = pd.DataFrame(agents_data, columns=sorted(agents_data))
 
@@ -132,6 +138,7 @@ def run_episode(
     maximum_concurrency: int,
     base_results_folder: str | Path,
     seed: int | None,
+    agent_policy: str = "local",
 ):
     # By default, seed=seed sets the master seed, which is then used to
     # generate a sequence of seeds, one for each episode. However, in this
@@ -140,14 +147,17 @@ def run_episode(
     _ = env.reset(options={"override_seed": seed})
 
     action = {}
-    for agent in env.agents:
-        # Force all local processing by setting only the first value.
-        agent_action = np.zeros(shape=env.action_space[agent].shape)
-        agent_action[0] = 1.0
+    if agent_policy == "local":
+        for agent in env.agents:
+            # Force all local processing by setting only the first value.
+            agent_action = np.zeros(shape=env.action_space[agent].shape)
+            agent_action[0] = 1.0
+            action[agent] = agent_action
 
-        action[agent] = agent_action
+    for t in trange(env.max_steps, desc=f"Episode {exp_iter} seed {env.seed} ({agent_policy})"):
+        if agent_policy == "random":
+            action = {agent: env.action_space[agent].sample() for agent in env.agents}
 
-    for t in trange(env.max_steps, desc=f"Episode {exp_iter} seed {env.seed}"):
         env.step(action)
 
     # Create the result dataframes from the environment's info dictionary. See
@@ -161,7 +171,7 @@ def run_episode(
     df_all_data.to_csv(results_folder / "results_all.csv", index=False)
 
     fig = make_plots(df_agents, df_all_data)
-    fig.suptitle(f"Episode with seed {env.seed}")
+    fig.suptitle(f"Episode with seed {env.seed} ({agent_policy})")
     # Trim extra whitespace with bbox_inches=thight.
     fig.savefig(results_folder / "plots.pdf", dpi=300, bbox_inches="tight")
     plt.close(fig)
@@ -175,9 +185,11 @@ def run(
     idle_time_before_kill: int,
     maximum_concurrency: int,
     base_results_folder: str,
+    agent_policy: str = "local",
 ):
     env_config = toml_to_dict(env_config_file)
 
+    print(f"Agent policy: {agent_policy}")
     print(f"Environment config.: {env_config}\n")
 
     # Initialize environment.
@@ -186,7 +198,7 @@ def run(
     # Dummy seed, we need to call reset at least once to set up the env.
     env.reset(seed=seeds[0])
 
-    for exp in trange(len(seeds), desc="Running episodes"):
+    for exp in trange(len(seeds), desc=f"Running episodes ({agent_policy})"):
         run_episode(
             env,
             exp,
@@ -196,7 +208,9 @@ def run(
             maximum_concurrency,
             base_results_folder,
             seeds[exp],
+            agent_policy=agent_policy,
         )
+    print()
 
 
 def main():
@@ -220,8 +234,9 @@ def main():
     cold_service_time = 30
     idle_time_before_kill = 600
     maximum_concurrency = 1000
-    base_results_folder = "baseline_local"
 
+    # First run: local actions.
+    base_results_folder = "baseline_local"
     run(
         env_config_file,
         seeds,
@@ -230,6 +245,20 @@ def main():
         idle_time_before_kill,
         maximum_concurrency,
         base_results_folder,
+        agent_policy="local",
+    )
+
+    # Second run: random actions.
+    base_results_folder = "baseline_random"
+    run(
+        env_config_file,
+        seeds,
+        warm_service_time,
+        cold_service_time,
+        idle_time_before_kill,
+        maximum_concurrency,
+        base_results_folder,
+        agent_policy="random",
     )
 
 
