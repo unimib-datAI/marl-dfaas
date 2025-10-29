@@ -158,7 +158,7 @@ def run_episode(
     results_folder.mkdir(parents=True, exist_ok=True)
 
     df_agents.to_csv(results_folder / "results_by_agent.csv", index=False)
-    df_agents.to_csv(results_folder / "results_all.csv", index=False)
+    df_all_data.to_csv(results_folder / "results_all.csv", index=False)
 
     fig = make_plots(df_agents, df_all_data)
     fig.suptitle(f"Episode with seed {env.seed}")
