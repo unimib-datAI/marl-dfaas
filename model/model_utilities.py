@@ -23,6 +23,7 @@ def decode_solution(
     x: np.array,
     y: np.array,
     z: np.array,
+    zeta: np.array,
     complete_solution: dict,
 ) -> dict:
     Nn, Nf = x.shape
@@ -38,6 +39,8 @@ def decode_solution(
     (complete_solution["offloaded_processing"], complete_solution["detailed_offloaded_processing"]) = (
         count_offloaded_processing(complete_solution["detailed_offloading"], Nn, Nf)
     )
+    # processing reject
+    complete_solution["processing_reject"] = update_2d_variables(zeta, complete_solution["processing_reject"])
     return complete_solution
 
 
@@ -56,7 +59,10 @@ def extract_solution(data: dict, solution: dict) -> Tuple[np.array, np.array, np
     # -- rejections
     if "z" in solution:
         z = np.array(solution["z"], dtype=int).reshape((Nn, Nf))
-    return x, y, z, solution["obj"]
+    # -- processing rejects
+    if "processing_reject" in solution:
+        zeta = np.array(solution["processing_reject"], dtype=float).reshape((Nn, Nf))
+    return x, y, z, zeta, solution["obj"]
 
 
 def init_complete_solution():
@@ -67,6 +73,7 @@ def init_complete_solution():
         "rejections": pd.DataFrame(),
         "offloaded_processing": pd.DataFrame(),
         "detailed_offloaded_processing": pd.DataFrame(),
+        "processing_reject": pd.DataFrame(),
     }
 
 
@@ -137,6 +144,7 @@ def save_solution(
     solution: pd.DataFrame,
     offloaded: pd.DataFrame,
     detailed_fwd_solution: pd.DataFrame,
+    processing_reject: pd.DataFrame,
     obj_values: list,
     total_reject_rate: list,
     model_name: str,
@@ -145,6 +153,7 @@ def save_solution(
     solution.to_csv(os.path.join(solution_folder, f"{model_name}_solution.csv"), index=False)
     offloaded.to_csv(os.path.join(solution_folder, f"{model_name}_offloaded.csv"), index=False)
     detailed_fwd_solution.to_csv(os.path.join(solution_folder, f"{model_name}_detailed_fwd_solution.csv"), index=False)
+    processing_reject.to_csv(os.path.join(solution_folder, f"{model_name}_processing_reject.csv"), index=False)
     pd.DataFrame({f"{model_name}_obj": obj_values, f"{model_name}_rej_rate": total_reject_rate}).to_csv(
         os.path.join(solution_folder, "obj.csv"), index=False
     )

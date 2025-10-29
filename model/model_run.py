@@ -97,7 +97,7 @@ def initialize_environment(env_config_file: str, base_seed: int | list[int], n_e
         env.set_master_seed(base_seed, n_experiments)
     else:
         # Dummy seed, we need to call reset at least once to set up the env.
-        env.reset(seed=seed)
+        env.reset(seed=base_seed[0])
 
     return env
 
@@ -162,10 +162,10 @@ def run_episode(
         # generate problem instance and solve it
         instance = model.generate_instance(instance_data)
         sol = model.solve(instance, {}, solver_name="glpk", initial_solution=None)
-        x, y, z, obj = extract_solution(instance_data, sol)
+        x, y, z, zeta, obj = extract_solution(instance_data, sol)
         # print(f"Number of rejections at time {t}: {obj}")
         obj_values.append(obj)
-        complete_solution = decode_solution(x, y, z, complete_solution)
+        complete_solution = decode_solution(x, y, z, zeta, complete_solution)
     # merge
     solution, offloaded, detailed_fwd_solution = join_complete_solution(complete_solution)
     # prepare folder to save results
@@ -178,7 +178,16 @@ def run_episode(
         obj_values[t] / sum([env.input_rate[a][t] for a in env.input_rate]) * 100 for t in range(env.max_steps)
     ]
     # save
-    save_solution(solution, offloaded, detailed_fwd_solution, obj_values, total_reject_rate, model.name, results_folder)
+    save_solution(
+        solution,
+        offloaded,
+        detailed_fwd_solution,
+        complete_solution["processing_reject"],
+        obj_values,
+        total_reject_rate,
+        model.name,
+        results_folder,
+    )
 
 
 def run(
