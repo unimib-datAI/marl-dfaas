@@ -159,6 +159,22 @@ class DFaaS(MultiAgentEnv):
         # differ from the training ones.
         self.evaluation = config.get("evaluation", False)
 
+        # Perfmodel parameters for each node.
+        self.perfmodel_params = {}
+        default_params = (15, 30, 600)  # warm_service_time, cold_service_time, idle_time_before_kill
+        node_params = config.get("perfmodel_params", {})
+        for agent in self.agents:
+            # Set parameters for each node, or the defaults if not given.
+            params = node_params.get(agent, default_params)
+            if not isinstance(params, (list, tuple)) or len(params) != 3:
+                raise ValueError(f"perfmodel_params for {agent} must be a tuple or list of 3 elements")
+
+            self.perfmodel_params[agent] = {
+                "warm_service_time": params[0],
+                "cold_service_time": params[1],
+                "idle_time_before_kill": params[2],
+            }
+
         # Initialize the info dictionary with node as first level keys and
         # metrics as second level.
         self.info = {}
@@ -205,6 +221,14 @@ class DFaaS(MultiAgentEnv):
             "input_rate_method": self.input_rate_method,
             "evaluation": self.evaluation,
             "network": list(nx.generate_adjlist(self.network)),
+            "perfmodel_params": {
+                agent: (
+                    params["warm_service_time"],
+                    params["cold_service_time"],
+                    params["idle_time_before_kill"],
+                )
+                for agent, params in self.perfmodel_params.items()
+            },
         }
 
         return config
@@ -458,10 +482,6 @@ class DFaaS(MultiAgentEnv):
         simulation step."""
         assert len(action) == len(self.agents), f"Expected {len(self.agents)} entries, found {len(action)}"
 
-        warm_service_time = 15
-        cold_service_time = 30
-        idle_time_before_kill = 600
-
         # Incoming rate for each agent. Each value is a list of incoming rates
         # for that agent.
         incoming_rate = {agent: [] for agent in self.agents}
@@ -503,11 +523,12 @@ class DFaaS(MultiAgentEnv):
                 # Skip this agent since there are no requests to handle.
                 continue
 
+            params = self.perfmodel_params[agent]
             result_props, _ = perfmodel.get_sls_warm_count_dist(
                 incoming_rate_total,
-                warm_service_time,
-                cold_service_time,
-                idle_time_before_kill,
+                params["warm_service_time"],
+                params["cold_service_time"],
+                params["idle_time_before_kill"],
             )
             rejection_rate = result_props["rejection_rate"]
 

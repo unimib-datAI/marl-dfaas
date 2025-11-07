@@ -733,10 +733,6 @@ def main():
     else:
         env_config = {}
 
-    import pdb
-
-    pdb.set_trace()
-
     # Pass config dicts directly to run_experiment instead of file paths.
     run_experiment(
         suffix=args.suffix,
