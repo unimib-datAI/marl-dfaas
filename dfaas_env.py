@@ -27,6 +27,32 @@ logging.basicConfig(
 _logger = logging.getLogger(Path(__file__).name)
 
 
+def _total_network_delay(access_delay_ms, data_size_bytes, bandwidth_mbps):
+    """
+    Calculate total network delay (in milliseconds).
+
+    Parameters:
+        access_delay_ms (float): Access delay in milliseconds
+        data_size_bytes (float): Size of data to send in bytes
+        bandwidth_mbps (float): Bandwidth in megabits per second (Mbps)
+
+    Returns:
+        float: Total delay in milliseconds
+    """
+    data_size_bits = data_size_bytes * 8  # From bytes to bits.
+    bandwidth_bps = bandwidth_mbps * 1_000_000  # From Mbps to bps.
+
+    # Transmission delay in seconds.
+    transmission_delay_s = data_size_bits / bandwidth_bps
+
+    # Convert to milliseconds.
+    transmission_delay_ms = transmission_delay_s * 1000
+
+    # Total delay in milliseconds.
+    total_delay_ms = access_delay_ms + transmission_delay_ms
+    return total_delay_ms
+
+
 def reward_fn(action, additional_reject):
     """Returns the reward for the given action and additional rejects. The
     reward is in the range [-1, 1]."""
@@ -76,8 +102,35 @@ class DFaaS(MultiAgentEnv):
         # following labels are the destination nodes.
         network_config = config.get("network", ["node_0 node_1"])
 
+        self.network = nx.parse_adjlist(network_config)
+
+        # Network link properties (delay, bandwidth).
+        #
+        # The configuration expects a dictionary with keys (source_node,
+        # dest_node), and as value a dictionary with custom properties (keys
+        # "access_delay_ms" and "bandwidth_mbps").
+        network_links = config.get("network_links", {})
+        for (u, v), params in network_links.items():
+            if self.network.has_edge(u, v):
+                nx.set_edge_attributes(self.network, {(u, v): params})
+                # Assume bidirectional link
+                if self.network.has_edge(v, u):
+                    nx.set_edge_attributes(self.network, {(v, u): params})
+
+        # Set default link parameters if not specified.
+        default_link_params = {"access_delay_ms": 10, "bandwidth_mbps": 10}
+        for u, v in self.network.edges():
+            if "access_delay_ms" not in self.network[u][v]:
+                nx.set_edge_attributes(self.network, {(u, v): default_link_params})
+
         # Freeze to prevent further modification of the network nodes and edges.
-        self.network = nx.freeze(nx.parse_adjlist(network_config))
+        self.network = nx.freeze(self.network)
+
+        # Average data size in bytes for a single function execution.
+        #
+        # Currently it is a constant, because we only have a single type of
+        # function.
+        self.data_size_bytes = config.get("data_size_bytes", 2_000_000)  # 2MB
 
         # IDs of the agents in the DFaaS environment.
         self.agents = list(self.network.nodes)
@@ -199,6 +252,8 @@ class DFaaS(MultiAgentEnv):
             "incoming_rate_forward_reject",
             "forward_reject_rate",
             "reward",
+            "response_time_avg",
+            "network_delay_avg",
         ]
 
         # Create a zero-filled array for each metric.
@@ -209,6 +264,7 @@ class DFaaS(MultiAgentEnv):
             for neighbor in neighbors:
                 result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
                 result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"network_delay_avg_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
 
         return result
 
@@ -221,6 +277,15 @@ class DFaaS(MultiAgentEnv):
             "input_rate_method": self.input_rate_method,
             "evaluation": self.evaluation,
             "network": list(nx.generate_adjlist(self.network)),
+            "data_size_bytes": self.data_size_bytes,
+            "network_links": {
+                (u, v): {
+                    "access_delay_ms": self.network[u][v]["access_delay_ms"],
+                    "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
+                }
+                for u, v in self.network.edges()
+                if u < v  # Avoid duplicates for bidirectional links.
+            },
             "perfmodel_params": {
                 agent: (
                     params["warm_service_time"],
@@ -515,11 +580,23 @@ class DFaaS(MultiAgentEnv):
                     incoming_rate_agents[neighbor].append(agent)
                     self.info[neighbor]["incoming_rate_forward"][self.current_step] += forward_rate
 
+                    # Calculate network delay
+                    link_params = self.network[agent][neighbor]
+                    delay = _total_network_delay(
+                        link_params["access_delay_ms"],
+                        self.data_size_bytes,
+                        link_params["bandwidth_mbps"],
+                    )
+                    delay_key = f"network_delay_avg_to_{neighbor}"
+                    self.info[agent][delay_key][self.current_step] = delay
+
         # Then call the pacsltk's function for each agent.
+        node_avg_resp_time = {}  # Store avg_resp_time for each node
         for agent in self.agents:
             incoming_rate_total = sum(incoming_rate[agent])
             self.info[agent]["incoming_rate"][self.current_step] = incoming_rate_total
             if incoming_rate_total == 0:
+                node_avg_resp_time[agent] = 0
                 # Skip this agent since there are no requests to handle.
                 continue
 
@@ -531,6 +608,7 @@ class DFaaS(MultiAgentEnv):
                 params["idle_time_before_kill"],
             )
             rejection_rate = result_props["rejection_rate"]
+            node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
 
             # Distribute the rejection rate to all agents (itself and its
             # neighbors).
@@ -560,6 +638,40 @@ class DFaaS(MultiAgentEnv):
 
                     # Update the incoming forward reject rate for the receiving agent
                     self.info[agent]["incoming_rate_forward_reject"][self.current_step] += reject_share
+
+        # Calculate response_time_avg for each link for each agent.
+        for agent in self.agents:
+            total_resp_time = 0
+            total_reqs = 0
+            delays_sum = 0
+
+            # Local requests
+            local_reqs = self.info[agent]["incoming_rate_local"][self.current_step]
+            if local_reqs > 0:
+                total_resp_time += node_avg_resp_time[agent] * local_reqs
+                total_reqs += local_reqs
+
+            # Forwarded requests originated from this agent
+            for i, neighbor in enumerate(self.agent_neighbors[agent]):
+                forwarded_reqs = action[agent][i + 1]
+                if forwarded_reqs > 0:
+                    delay_key = f"network_delay_avg_to_{neighbor}"
+                    network_delay = self.info[agent][delay_key][self.current_step]
+                    neighbor_resp_time = node_avg_resp_time[neighbor]
+                    total_resp_time += (network_delay + neighbor_resp_time) * forwarded_reqs
+                    total_reqs += forwarded_reqs
+
+                    # Save for network_delay_avg across all links
+                    delays_sum += network_delay
+
+            if total_reqs > 0:
+                avg_resp_time = total_resp_time / total_reqs
+                self.info[agent]["response_time_avg"][self.current_step] = avg_resp_time
+
+            if (num_neighbors := len(self.agent_neighbors[agent])) > 0:
+                self.info[agent]["network_delay_avg"][self.current_step] = delays_sum / num_neighbors
+            else:
+                self.info[agent]["network_delay_avg"][self.current_step] = 0
 
     def set_master_seed(self, master_seed, episodes):
         """Set the master seed of the environment. This function is usually
