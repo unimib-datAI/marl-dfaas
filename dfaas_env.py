@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import networkx as nx
+import pandas as pd
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -18,6 +19,7 @@ from ray.rllib.algorithms.sac import SAC
 
 import perfmodel
 import dfaas_input_rate
+import bandwidth_generator
 
 # Initialize logger for this module.
 logging.basicConfig(
@@ -109,16 +111,23 @@ class DFaaS(MultiAgentEnv):
         # The configuration expects a dictionary with keys (source_node,
         # dest_node), and as value a dictionary with custom properties (keys
         # "access_delay_ms" and "bandwidth_mbps").
+        #
+        # The "bandwidth_mbps_cfg" can be a static value (int/float), a full trace
+        # (same length of env steps), or None (auto-generated).
         network_links = config.get("network_links", {})
         for (u, v), params in network_links.items():
-            if self.network.has_edge(u, v):
-                nx.set_edge_attributes(self.network, {(u, v): params})
-                # Assume bidirectional link
-                if self.network.has_edge(v, u):
-                    nx.set_edge_attributes(self.network, {(v, u): params})
+            if not self.network.has_edge(u, v):
+                raise ValueError(f"Missing link ({u}, {v}) but link properties given for that link!")
+
+            self.network[u][v]["access_delay_ms"] = params["access_delay_ms"]
+
+            # The bandwidth trace will be generated in reset() using the
+            # bandwidth_mbps key, but we need to track the initial configuration.
+            self.network[u][v]["bandwidth_mbps_cfg"] = params["bandwidth_mbps_cfg"]
+            self.network[u][v]["bandwidth_mbps"] = None
 
         # Set default link parameters if not specified.
-        default_link_params = {"access_delay_ms": 10, "bandwidth_mbps": 10}
+        default_link_params = {"access_delay_ms": 10, "bandwidth_mbps_cfg": None, "bandwidth_mbps": None}
         for u, v in self.network.edges():
             if "access_delay_ms" not in self.network[u][v]:
                 nx.set_edge_attributes(self.network, {(u, v): default_link_params})
@@ -131,6 +140,17 @@ class DFaaS(MultiAgentEnv):
         # Currently it is a constant, because we only have a single type of
         # function.
         self.data_size_bytes = config.get("data_size_bytes", 2_000_000)  # 2MB
+
+        # Get the bandwidth base trace path from config. This CSV will be used
+        # to generate a bandwidth trace for each link for all nodes.
+        #
+        # The traces are generated at each reset() call.
+        self.bandwidth_base_trace_path = config.get("bandwidth_base_trace_path", Path("dataset/5G_trace.csv"))
+        self._bandwidth_base_trace = pd.read_csv(self.bandwidth_base_trace_path)
+        self._bandwidth_base_trace = self._bandwidth_base_trace["Throughput"].to_numpy()
+
+        # How much random noise add to each generated bandwidth trace.
+        self.bandwidth_random_noise = config.get("bandwidth_random_noise", 0.1)
 
         # IDs of the agents in the DFaaS environment.
         self.agents = list(self.network.nodes)
@@ -281,10 +301,10 @@ class DFaaS(MultiAgentEnv):
             "network_links": {
                 (u, v): {
                     "access_delay_ms": self.network[u][v]["access_delay_ms"],
+                    "bandwidth_mbps_cfg": self.network[u][v]["bandwidth_mbps_cfg"],
                     "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
                 }
                 for u, v in self.network.edges()
-                if u < v  # Avoid duplicates for bidirectional links.
             },
             "perfmodel_params": {
                 agent: (
@@ -375,6 +395,37 @@ class DFaaS(MultiAgentEnv):
                 self.input_rate_hashes = retval[1]
             case _:
                 raise AssertionError("Unreachable code")
+
+        # Generate the bandwidth traces for each link for each node. Note we use
+        # the seed generated for this episode.
+        bandwidth_traces = bandwidth_generator.generate_traces(
+            base_trace=self._bandwidth_base_trace,
+            num_traces=len(self.network.edges()),
+            max_len=self.max_steps,
+            seed=self.seed,
+            random_noise=self.bandwidth_random_noise,
+        )
+
+        # Now assign a bandwidth trace for each link. Note we have a undirected
+        # graph, so (u, v) = (v, u) and edges() returns only one edge.
+        #
+        # Not all generated traces are assigned. Some links may have already a
+        # trace or a fixed value.
+        for i, (u, v) in enumerate(self.network.edges()):
+            match self.network[u][v]["bandwidth_mbps_cfg"]:
+                case int() | float() as bandwidth_mbps:
+                    # Static: expand to constant array (trace).
+                    self.network[u][v]["bandwidth_mbps"] = np.full(self.max_steps, fill_value=bandwidth_mbps)
+                case list() | np.ndarray() as bandwidth_mbps:
+                    # Array: use as is and just check the length.
+                    self.network[u][v]["bandwidth_mbps"] = np.asarray(bandwidth_mbps)
+                    if self.network[u][v]["bandwidth_mbps"].shape[0] != self.max_steps:
+                        raise ValueError(f"Bandwidth trace has wrong length for edge ({u},{v})")
+                case None:
+                    # None: assign a new trace for this link.
+                    self.network[u][v]["bandwidth_mbps"] = bandwidth_traces[i]
+                case _:
+                    raise ValueError("Unreachable code!")
 
         # Reset the info dictionary
         for agent in self.agents:
@@ -581,11 +632,10 @@ class DFaaS(MultiAgentEnv):
                     self.info[neighbor]["incoming_rate_forward"][self.current_step] += forward_rate
 
                     # Calculate network delay
-                    link_params = self.network[agent][neighbor]
                     delay = _total_network_delay(
-                        link_params["access_delay_ms"],
+                        self.network[agent][neighbor]["access_delay_ms"],
                         self.data_size_bytes,
-                        link_params["bandwidth_mbps"],
+                        self.network[agent][neighbor]["bandwidth_mbps"][self.current_step],
                     )
                     delay_key = f"network_delay_avg_to_{neighbor}"
                     self.info[agent][delay_key][self.current_step] = delay
@@ -878,6 +928,31 @@ def _run_one_episode(verbose=False, config=None, seed=None):
 
     for step in loop(env.max_steps):
         env.step(action_dict=env.action_space.sample())
+
+    # Build a DataFrame that will be saves as CSV file for the episode metrics.
+    # Each row is a single step for an agent (so 2 agents = 2 rows for a step).
+    step_data = []
+    for step in range(env.max_steps):
+        for agent in env.agents:
+            row = {"step": step, "agent": agent}
+            for metric in sorted(env.info[agent].keys()):
+                # Skip observation_prev_* metrics.
+                if metric.startswith("observation_prev"):
+                    continue
+
+                values = env.info[agent][metric]
+                if isinstance(values, list) and len(values) == env.max_steps:
+                    row[metric] = values[step]
+                else:
+                    raise ValueError(f"Unrecognized metric type {metric}: {type(values)}")
+
+            step_data.append(row)
+
+    # Save the DataFrame as compressed CSV.
+    df = pd.DataFrame(step_data)
+    episode_data_name = f"dfaas_episode_stats_{seed}.csv.gz"
+    df.to_csv(episode_data_name, index=False, compression="gzip")
+    print(f"Episode metrics saved to {episode_data_name!r}")
 
 
 def _main():
