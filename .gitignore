@@ -9,3 +9,4 @@ results
 *.cprofile
 *.html
 model_results
+*.gz
