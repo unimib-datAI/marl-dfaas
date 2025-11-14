@@ -28,64 +28,58 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""## Example single execution""")
-    return
-
-
-@app.cell
-def _():
-    _arrival_rate = 550
-    _warm_service_time = 2
-    _cold_service_time = 25
-    _idle_time_before_kill = 10 * 60
-
-    print("arrival_rate:", _arrival_rate)
-    print("warm_service_time:", _warm_service_time)
-    print("cold_service_time:", _cold_service_time)
-    print("idle_time_before_kill:", _idle_time_before_kill)
-
-    _props1, _props2 = perfmodel.get_sls_warm_count_dist(
-        _arrival_rate, _warm_service_time, _cold_service_time, _idle_time_before_kill
-    )
-    perfmodel.print_props(_props1)
+    mo.md(r"""## Single experiment""")
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""## Single experiment""")
-    return
+    arrival_rate_widget = mo.ui.number(value=100, label="Arrival rate (reqs/s)", debounce=True)
+    warm_service_time_widget = mo.ui.number(value=10, label="Warm service time (seconds)", debounce=True)
+    cold_service_time_widget = mo.ui.number(value=25, label="Cold service time (seconds)", debounce=True)
+    idle_time_before_kill_widget = mo.ui.number(value=10 * 60, label="Idle time before kill (seconds)", debounce=True)
+    max_concurrency_widget = mo.ui.number(value=1000, label="Max concurrency (containers)", debounce=True)
+    faster_solution_widget = mo.ui.checkbox(value=True, label="Faster solution")
 
-
-@app.function
-def print_experiment(arrival_rate=100, warm_service_time=2, cold_service_time=25, idle_time_before_kill=10 * 60):
-    print("Arguments:")
-    print(f"  arrival_rate: {arrival_rate} reqs/s")
-    print(f"  warm_service_time: {warm_service_time} s")
-    print(f"  cold_service_time: {cold_service_time} s")
-    print(f"  idle_time_before_kill: {idle_time_before_kill} s")
-
-    props1, _ = perfmodel.get_sls_warm_count_dist(
-        arrival_rate, warm_service_time, cold_service_time, idle_time_before_kill
+    mo.vstack(
+        [
+            arrival_rate_widget,
+            warm_service_time_widget,
+            cold_service_time_widget,
+            idle_time_before_kill_widget,
+            max_concurrency_widget,
+            faster_solution_widget,
+        ]
     )
-
-    print("\nResult:")
-    for key in props1:
-        print(f"  {key}: {props1[key]}")
-
-
-@app.function
-def run_experiment(arrival_rate=100, warm_service_time=2, cold_service_time=25, idle_time_before_kill=10 * 60):
-    props1, _ = perfmodel.get_sls_warm_count_dist(
-        arrival_rate, warm_service_time, cold_service_time, idle_time_before_kill
+    return (
+        arrival_rate_widget,
+        cold_service_time_widget,
+        faster_solution_widget,
+        idle_time_before_kill_widget,
+        max_concurrency_widget,
+        warm_service_time_widget,
     )
-
-    return props1
 
 
 @app.cell
-def _():
-    print_experiment(100, 10, 25, 10 * 60)
+def _(
+    arrival_rate_widget,
+    cold_service_time_widget,
+    faster_solution_widget,
+    idle_time_before_kill_widget,
+    max_concurrency_widget,
+    warm_service_time_widget,
+):
+    props1, _ = perfmodel.get_sls_warm_count_dist(
+        arrival_rate_widget.value,
+        warm_service_time_widget.value,
+        cold_service_time_widget.value,
+        idle_time_before_kill_widget.value,
+        max_concurrency_widget.value,
+        faster_solution=faster_solution_widget.value,
+    )
+
+    props1
     return
 
 
@@ -111,7 +105,9 @@ def _():
                 # Skip basic case.
                 continue
 
-            result = run_experiment(arrival_rate, warm_service_time, cold_service_time, idle_time_before_kill)
+            result, _ = perfmodel.get_sls_warm_count_dist(
+                arrival_rate, warm_service_time, cold_service_time, idle_time_before_kill
+            )
             rejection_prob[arrival_rate] = result["rejection_prob"]
 
         return rejection_prob
