@@ -232,21 +232,22 @@ class DFaaS(MultiAgentEnv):
         # differ from the training ones.
         self.evaluation = config.get("evaluation", False)
 
-        # Perfmodel parameters for each node.
-        self.perfmodel_params = {}
-        default_params = (15, 30, 600)  # warm_service_time, cold_service_time, idle_time_before_kill
-        node_params = config.get("perfmodel_params", {})
-        for agent in self.agents:
-            # Set parameters for each node, or the defaults if not given.
-            params = node_params.get(agent, default_params)
-            if not isinstance(params, (list, tuple)) or len(params) != 3:
-                raise ValueError(f"perfmodel_params for {agent} must be a tuple or list of 3 elements")
+        # Default parameters for the performance model for all nodes.
+        default_params = {
+            "warm_service_time": 15,
+            "cold_service_time": 30,
+            "idle_time_before_kill": 600,
+            "maximum_concurrency": 1000,
+        }
 
-            self.perfmodel_params[agent] = {
-                "warm_service_time": params[0],
-                "cold_service_time": params[1],
-                "idle_time_before_kill": params[2],
-            }
+        # Perfmodel parameters for each node.
+        self.perfmodel_params = {agent: default_params.copy() for agent in self.agents}
+
+        # Allow to overwrite the default performance model parameters.
+        for agent, params in config.get("perfmodel_params", {}).items():
+            # Allow to overwrite just a subset of parameters.
+            for param, value in params.items():
+                self.perfmodel_params[agent][param] = value
 
         # Initialize the info dictionary with node as first level keys and
         # metrics as second level.
@@ -306,14 +307,7 @@ class DFaaS(MultiAgentEnv):
                 }
                 for u, v in self.network.edges()
             },
-            "perfmodel_params": {
-                agent: (
-                    params["warm_service_time"],
-                    params["cold_service_time"],
-                    params["idle_time_before_kill"],
-                )
-                for agent, params in self.perfmodel_params.items()
-            },
+            "perfmodel_params": self.perfmodel_params,
         }
 
         return config
@@ -650,12 +644,12 @@ class DFaaS(MultiAgentEnv):
                 # Skip this agent since there are no requests to handle.
                 continue
 
-            params = self.perfmodel_params[agent]
             result_props, _ = perfmodel.get_sls_warm_count_dist(
                 incoming_rate_total,
-                params["warm_service_time"],
-                params["cold_service_time"],
-                params["idle_time_before_kill"],
+                self.perfmodel_params[agent]["warm_service_time"],
+                self.perfmodel_params[agent]["cold_service_time"],
+                self.perfmodel_params[agent]["idle_time_before_kill"],
+                maximum_concurrency=self.perfmodel_params["maximum_concurrency"],
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
