@@ -106,31 +106,37 @@ class DFaaS(MultiAgentEnv):
 
         self.network = nx.parse_adjlist(network_config)
 
-        # Network link properties (delay, bandwidth).
+        # Default network link properties.
+        #
+        # The bandwidth_mbps_cfg determine how the bandwidth trace
+        # (bandwidth_mbps) will be generated at each reset().
+        default_link_params = {"access_delay_ms": 5, "bandwidth_mbps_cfg": 100, "bandwidth_mbps": None}
+        for u, v in self.network.edges():
+            nx.set_edge_attributes(self.network, {(u, v): default_link_params.copy()})
+
+        # Allow to override total or partial network link properties for each
+        # edge in the network.
         #
         # The configuration expects a dictionary with keys (source_node,
         # dest_node), and as value a dictionary with custom properties (keys
-        # "access_delay_ms" and "bandwidth_mbps").
+        # "access_delay_ms" and "bandwidth_mbps_cfg").
         #
         # The "bandwidth_mbps_cfg" can be a static value (int/float), a full trace
         # (same length of env steps), or None (auto-generated).
-        network_links = config.get("network_links", {})
-        for (u, v), params in network_links.items():
+        for (u, v), props in config.get("network_links", {}).items():
             if not self.network.has_edge(u, v):
-                raise ValueError(f"Missing link ({u}, {v}) but link properties given for that link!")
+                raise ValueError(f"Given ({u}, {v}) link but it does not exist in the network!")
 
-            self.network[u][v]["access_delay_ms"] = params["access_delay_ms"]
+            params_keys = {"access_delay_ms", "bandwidth_mbps_cfg"}
 
-            # The bandwidth trace will be generated in reset() using the
-            # bandwidth_mbps key, but we need to track the initial configuration.
-            self.network[u][v]["bandwidth_mbps_cfg"] = params["bandwidth_mbps_cfg"]
-            self.network[u][v]["bandwidth_mbps"] = None
+            # Check that the user give the correct network link properties and
+            # complain if there is a unrecognized key.
+            unrecognized_props = params_keys.difference(self.network[u][v].keys())
+            if len(unrecognized_props) > 0:
+                raise ValueError(f"Unrecognized network link properties: {unrecognized_props}")
 
-        # Set default link parameters if not specified.
-        default_link_params = {"access_delay_ms": 10, "bandwidth_mbps_cfg": None, "bandwidth_mbps": None}
-        for u, v in self.network.edges():
-            if "access_delay_ms" not in self.network[u][v]:
-                nx.set_edge_attributes(self.network, {(u, v): default_link_params})
+            for prop, value in props.items():
+                self.network[u][v][prop] = value
 
         # Freeze to prevent further modification of the network nodes and edges.
         self.network = nx.freeze(self.network)
@@ -208,7 +214,7 @@ class DFaaS(MultiAgentEnv):
             }
         )
 
-        # Save the action range that is based on the minimium and maximium
+        # Save the action range that is based on the minimium and maximum
         # possibile value of input rate for all agents.
         #
         # Note: This assumes that all agents have the same input rate range.
@@ -232,12 +238,18 @@ class DFaaS(MultiAgentEnv):
         # differ from the training ones.
         self.evaluation = config.get("evaluation", False)
 
-        # Default parameters for the performance model for all nodes.
+        # Default parameters for the performance model for all nodes. They are
+        # all in seconds (except for maximum_concurrency) and taken from
+        # "QoS-aware offloading policies for serverless functions in the
+        # Cloud-to-Edge continuum" of Russo Russo Gabriele et al. (DOI
+        # 10.1016/j.future.2024.02.019).
         default_params = {
-            "warm_service_time": 15,
-            "cold_service_time": 30,
-            "idle_time_before_kill": 600,
-            "maximum_concurrency": 1000,
+            "warm_service_time": 0.5,
+            "cold_service_time": 1.25,
+            # These values are manually adjusted since in the original paper
+            # they do not model this aspect.
+            "idle_time_before_kill": 60,
+            "maximum_concurrency": 30,
         }
 
         # Perfmodel parameters for each node.
@@ -649,7 +661,7 @@ class DFaaS(MultiAgentEnv):
                 self.perfmodel_params[agent]["warm_service_time"],
                 self.perfmodel_params[agent]["cold_service_time"],
                 self.perfmodel_params[agent]["idle_time_before_kill"],
-                maximum_concurrency=self.perfmodel_params["maximum_concurrency"],
+                maximum_concurrency=self.perfmodel_params[agent]["maximum_concurrency"],
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
