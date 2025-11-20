@@ -10,3 +10,4 @@ results
 *.html
 model_results
 *.gz
+*.json

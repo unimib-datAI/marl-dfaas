@@ -106,6 +106,9 @@ class DFaaS(MultiAgentEnv):
 
         self.network = nx.parse_adjlist(network_config)
 
+        # IDs of the agents in the DFaaS environment.
+        self.agents = list(self.network.nodes)
+
         # Default network link properties.
         #
         # The bandwidth_mbps_cfg determine how the bandwidth trace
@@ -147,6 +150,27 @@ class DFaaS(MultiAgentEnv):
         # function.
         self.data_size_bytes = config.get("data_size_bytes", 2_000_000)  # 2MB
 
+        # Total RAM for each node in GB. By default each node has the same
+        # amount, but can be customized by agent with "node_ram_gb" config key.
+        self.node_ram_gb = {agent: 4 for agent in self.agents}
+        node_ram_gb_cfg = config.get("node_ram_gb", {})
+        for agent, ram in node_ram_gb_cfg.items():
+            if agent not in self.agents:
+                raise ValueError(f"Node {agent!r} not found in env network!")
+
+            self.node_ram_gb[agent] = ram
+
+        # Memory demand for a single request in MB. It can be a static value or
+        # a range [min, max] to uniformly sample from.
+        #
+        # This value is then used with "node_ram_gb" to calculate the maximum
+        # concurrency for each node.
+        self.request_memory_mb_cfg = config.get("request_memory_mb", [128, 1024])
+
+        # Will be set in the first reset(), because if the cfg is a range we
+        # need an RNG.
+        self.request_memory_mb = None
+
         # Get the bandwidth base trace path from config. This CSV will be used
         # to generate a bandwidth trace for each link for all nodes.
         #
@@ -157,9 +181,6 @@ class DFaaS(MultiAgentEnv):
 
         # How much random noise add to each generated bandwidth trace.
         self.bandwidth_random_noise = config.get("bandwidth_random_noise", 0.1)
-
-        # IDs of the agents in the DFaaS environment.
-        self.agents = list(self.network.nodes)
 
         # It is the possible max and min value for the reward returned by the
         # step() call.
@@ -243,13 +264,16 @@ class DFaaS(MultiAgentEnv):
         # "QoS-aware offloading policies for serverless functions in the
         # Cloud-to-Edge continuum" of Russo Russo Gabriele et al. (DOI
         # 10.1016/j.future.2024.02.019).
+        #
+        # Note: maximum concurrency is calculated based on memory demand of
+        # requests and available RAM for each node. See "node_ram_gb" and
+        # "request_memory_mb" config keys.
         default_params = {
             "warm_service_time": 0.5,
             "cold_service_time": 1.25,
             # These values are manually adjusted since in the original paper
             # they do not model this aspect.
             "idle_time_before_kill": 60,
-            "maximum_concurrency": 30,
         }
 
         # Perfmodel parameters for each node.
@@ -259,6 +283,9 @@ class DFaaS(MultiAgentEnv):
         for agent, params in config.get("perfmodel_params", {}).items():
             # Allow to overwrite just a subset of parameters.
             for param, value in params.items():
+                if param not in default_params.keys():
+                    raise ValueError(f"Unrecognized given performance model parameter: {param!r}")
+
                 self.perfmodel_params[agent][param] = value
 
         # Initialize the info dictionary with node as first level keys and
@@ -305,22 +332,28 @@ class DFaaS(MultiAgentEnv):
         """Returns a dictionary with the current configuration of the
         environment."""
         config = {
-            "max_steps": self.max_steps,
-            "input_rate_same_method": self.input_rate_same_method,
-            "input_rate_method": self.input_rate_method,
             "evaluation": self.evaluation,
             "network": list(nx.generate_adjlist(self.network)),
+            "network_links": {},
+            "max_steps": self.max_steps,
+            "input_rate_method": self.input_rate_method,
+            "input_rate_same_method": self.input_rate_same_method,
             "data_size_bytes": self.data_size_bytes,
-            "network_links": {
-                (u, v): {
-                    "access_delay_ms": self.network[u][v]["access_delay_ms"],
-                    "bandwidth_mbps_cfg": self.network[u][v]["bandwidth_mbps_cfg"],
-                    "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
-                }
-                for u, v in self.network.edges()
-            },
             "perfmodel_params": self.perfmodel_params,
+            "node_ram_gb": self.node_ram_gb,
+            "request_memory_mb_cfg": self.request_memory_mb_cfg,
+            "request_memory_mb": self.request_memory_mb,
         }
+
+        # Do not set (u, v) as key because we may want to serialize this config
+        # as JSON (JSON supports only strings as key).
+        for u, v in self.network.edges():
+            config["network_links"].setdefault(u, {})
+            config["network_links"][u][v] = {
+                "access_delay_ms": self.network[u][v]["access_delay_ms"],
+                "bandwidth_mbps_cfg": self.network[u][v]["bandwidth_mbps_cfg"],
+                "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
+            }
 
         return config
 
@@ -359,6 +392,27 @@ class DFaaS(MultiAgentEnv):
         # Create the RNG used to generate input requests.
         self.rng = np.random.default_rng(seed=self.seed)
         self.np_random = self.rng  # Required by the Gymnasium API
+
+        # We need to set the maximum concurrency for all nodes. This value
+        # affects the performance model and is calculated only once.
+        if self.request_memory_mb is None:
+            # Get the memory demand of requests in MB from env conf.
+            if isinstance(self.request_memory_mb_cfg, list):
+                if len(self.request_memory_mb_cfg) != 2:
+                    raise ValueError("Request memory range must have two values: [min, max]")
+                min_mem, max_mem = self.request_memory_mb_cfg
+
+                # Uniform sample from the given range.
+                self.request_memory_mb = self.rng.integers(min_mem, high=max_mem, endpoint=True)
+            else:
+                # A single static value.
+                self.request_memory_mb = self.request_memory_mb_cfg
+
+            # Calculate the maximum concurrency for each node.
+            for agent in self.agents:
+                max_concurrency = np.floor((self.node_ram_gb[agent] * 1024) / self.request_memory_mb)
+
+                self.perfmodel_params[agent]["maximum_concurrency"] = max_concurrency
 
         # Generate all input rates for the environment.
         generator = dfaas_input_rate.generator(self.input_rate_method)
@@ -916,6 +970,8 @@ class DFaaSCallbacks(DefaultCallbacks):
 
 def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
+    import dfaas_utils
+
     if config is None:
         # config = {"network": ["node_0 node_1", "node_1"]}
         config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
@@ -956,9 +1012,14 @@ def _run_one_episode(verbose=False, config=None, seed=None):
 
     # Save the DataFrame as compressed CSV.
     df = pd.DataFrame(step_data)
-    episode_data_name = f"dfaas_episode_stats_{seed}.csv.gz"
+    episode_data_name = f"dfaas_episode_{seed}_stats.csv.gz"
     df.to_csv(episode_data_name, index=False, compression="gzip")
-    print(f"Episode metrics saved to {episode_data_name!r}")
+    print(f"Episode statistics saved to {episode_data_name!r}")
+
+    # Save also the environment configuration to disk as JSON file.
+    env_config_name = f"dfaas_episode_{seed}_config.json"
+    dfaas_utils.dict_to_json(env.get_config(), env_config_name)
+    print(f"Episode configuration saved to {env_config_name!r}")
 
 
 def _main():

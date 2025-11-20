@@ -35,10 +35,10 @@ def _():
 @app.cell(hide_code=True)
 def _():
     arrival_rate_widget = mo.ui.number(value=100, label="Arrival rate (reqs/s)", debounce=True)
-    warm_service_time_widget = mo.ui.number(value=10, label="Warm service time (seconds)", debounce=True)
-    cold_service_time_widget = mo.ui.number(value=25, label="Cold service time (seconds)", debounce=True)
-    idle_time_before_kill_widget = mo.ui.number(value=10 * 60, label="Idle time before kill (seconds)", debounce=True)
-    max_concurrency_widget = mo.ui.number(value=1000, label="Max concurrency (containers)", debounce=True)
+    warm_service_time_widget = mo.ui.number(value=0.5, label="Warm service time (seconds)", debounce=True)
+    cold_service_time_widget = mo.ui.number(value=1.25, label="Cold service time (seconds)", debounce=True)
+    idle_time_before_kill_widget = mo.ui.number(value=60, label="Idle time before kill (seconds)", debounce=True)
+    max_concurrency_widget = mo.ui.number(value=30, label="Max concurrency (containers)", debounce=True)
     faster_solution_widget = mo.ui.checkbox(value=True, label="Faster solution")
 
     mo.vstack(
