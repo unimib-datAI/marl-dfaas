@@ -1,0 +1,23 @@
+# Network topology: undirected graph of nodes. Defined as adjacency list as list
+# of strings.
+network = ["node_0 node_1 node_2"]
+
+# Global input data rate generation method.
+input_rate_method = "synthetic-sinusoidal"
+input_rate_same_method = true
+
+# Per-request memory demand (MB): can be a range [min, max] (uniformly sampled
+# per episode) or a static value (e.g., 256). Both are accepted.
+request_memory_mb = 256
+
+# Each network link has these default parameters: access_delay_ms = 5 and
+# bandwidth_mbps_cfg = 100.
+#
+# But these values can be configured per each link. Example below.
+# To set a static value (e.g., 150 Mbps):
+[network_links.node_0.node_1]
+access_delay_ms = 5
+# bandwidth_mbps_cfg intentionally omitted to auto-generate bandwidth traces.
+[network_links.node_0.node_2]
+access_delay_ms = 5
+# bandwidth_mbps_cfg intentionally omitted to auto-generate bandwidth traces.

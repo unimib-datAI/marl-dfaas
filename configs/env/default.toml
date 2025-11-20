@@ -10,26 +10,6 @@ network = ["node_0 node_1"]
 max_steps = 288
 
 
-# Each network link has these default parameters: access_delay_ms = 5 and
-# bandwidth_mbps_cfg = 100.
-#
-# But these values can be configured per each link. Example below
-[network_links]
-# To set a static value (e.g., 150 Mbps):
-# [network_links.node_0.node_1]
-# access_delay_ms = 7
-# bandwidth_mbps_cfg = 150
-#
-# To set a sequence/trace (must match max_steps length):
-# [network_links.node_0.node_1]
-# access_delay_ms = 7
-# bandwidth_mbps_cfg = [100, 110, 105, 115] # max_steps == 4
-#
-# To let the environment auto-generate bandwidth (omit the key):
-# [network_links.node_0.node_1]
-# access_delay_ms = 7
-# #bandwidth_mbps_cfg intentionally omitted
-
 # Global input data rate generation method.
 input_rate_method = "synthetic-sinusoidal"
 input_rate_same_method = true
@@ -63,3 +43,23 @@ evaluation = false
 # warm_service_time = 0.5
 # cold_service_time = 1.25
 # idle_time_before_kill = 60
+
+# Each network link has these default parameters: access_delay_ms = 5 and
+# bandwidth_mbps_cfg = 100.
+#
+# But these values can be configured per each link. Example below
+[network_links]
+# To set a static value (e.g., 150 Mbps):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# bandwidth_mbps_cfg = 150
+#
+# To set a sequence/trace (must match max_steps length):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# bandwidth_mbps_cfg = [100, 110, 105, 115] # max_steps == 4
+#
+# To let the environment auto-generate bandwidth (omit the key):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# #bandwidth_mbps_cfg intentionally omitted

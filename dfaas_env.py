@@ -120,26 +120,29 @@ class DFaaS(MultiAgentEnv):
         # Allow to override total or partial network link properties for each
         # edge in the network.
         #
-        # The configuration expects a dictionary with keys (source_node,
-        # dest_node), and as value a dictionary with custom properties (keys
-        # "access_delay_ms" and "bandwidth_mbps_cfg").
+
+        # The configuration expects a dictionary with the source node as key,
+        # the dest node as subkey and as value a dictionary with custom
+        # properties (keys "access_delay_ms" and "bandwidth_mbps_cfg").
+        # An example is '{"node_0": {"node_1": {"access_delay_ms": 4}}}'.
         #
         # The "bandwidth_mbps_cfg" can be a static value (int/float), a full trace
         # (same length of env steps), or None (auto-generated).
-        for (u, v), props in config.get("network_links", {}).items():
-            if not self.network.has_edge(u, v):
-                raise ValueError(f"Given ({u}, {v}) link but it does not exist in the network!")
+        for src, dests in config.get("network_links", {}).items():
+            for dest, props in dests.items():
+                if not self.network.has_edge(src, dest):
+                    raise ValueError(f"Given ({src}, {dest}) link but it does not exist in the network!")
 
-            params_keys = {"access_delay_ms", "bandwidth_mbps_cfg"}
+                params_keys = {"access_delay_ms", "bandwidth_mbps_cfg"}
 
-            # Check that the user give the correct network link properties and
-            # complain if there is a unrecognized key.
-            unrecognized_props = params_keys.difference(self.network[u][v].keys())
-            if len(unrecognized_props) > 0:
-                raise ValueError(f"Unrecognized network link properties: {unrecognized_props}")
+                # Check that the user give the correct network link properties and
+                # complain if there is a unrecognized key.
+                unrecognized_props = set(props.keys()).difference(params_keys)
+                if len(unrecognized_props) > 0:
+                    raise ValueError(f"Unrecognized network link properties: {unrecognized_props}")
 
-            for prop, value in props.items():
-                self.network[u][v][prop] = value
+                for prop, value in props.items():
+                    self.network[src][dest][prop] = value
 
         # Freeze to prevent further modification of the network nodes and edges.
         self.network = nx.freeze(self.network)
