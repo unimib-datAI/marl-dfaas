@@ -110,30 +110,30 @@ class DFaaS(MultiAgentEnv):
         self.agents = list(self.network.nodes)
 
         # Default network link properties.
-        #
-        # The bandwidth_mbps_cfg determine how the bandwidth trace
-        # (bandwidth_mbps) will be generated at each reset().
-        default_link_params = {"access_delay_ms": 5, "bandwidth_mbps_cfg": 100, "bandwidth_mbps": None}
+        default_link_params = {
+            "access_delay_ms": 5,
+            "bandwidth_mbps_method": "generated",
+            "bandwidth_mbps": 100,
+        }
         for u, v in self.network.edges():
             nx.set_edge_attributes(self.network, {(u, v): default_link_params.copy()})
 
         # Allow to override total or partial network link properties for each
         # edge in the network.
         #
-
         # The configuration expects a dictionary with the source node as key,
         # the dest node as subkey and as value a dictionary with custom
-        # properties (keys "access_delay_ms" and "bandwidth_mbps_cfg").
-        # An example is '{"node_0": {"node_1": {"access_delay_ms": 4}}}'.
+        # properties. An example is '{"node_0": {"node_1": {"access_delay_ms": 4}}}'.
         #
-        # The "bandwidth_mbps_cfg" can be a static value (int/float), a full trace
-        # (same length of env steps), or None (auto-generated).
+        # The "bandwidth_mbps_method" can be "static" or "generated".
+        # If "static", "bandwidth_mbps" can be a single value (int/float) or a
+        # full trace (same length of env steps).
         for src, dests in config.get("network_links", {}).items():
             for dest, props in dests.items():
                 if not self.network.has_edge(src, dest):
                     raise ValueError(f"Given ({src}, {dest}) link but it does not exist in the network!")
 
-                params_keys = {"access_delay_ms", "bandwidth_mbps_cfg"}
+                params_keys = {"access_delay_ms", "bandwidth_mbps_method", "bandwidth_mbps"}
 
                 # Check that the user give the correct network link properties and
                 # complain if there is a unrecognized key.
@@ -354,7 +354,7 @@ class DFaaS(MultiAgentEnv):
             config["network_links"].setdefault(u, {})
             config["network_links"][u][v] = {
                 "access_delay_ms": self.network[u][v]["access_delay_ms"],
-                "bandwidth_mbps_cfg": self.network[u][v]["bandwidth_mbps_cfg"],
+                "bandwidth_mbps_method": self.network[u][v]["bandwidth_mbps_method"],
                 "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
             }
 
@@ -461,34 +461,25 @@ class DFaaS(MultiAgentEnv):
 
         # Generate the bandwidth traces for each link for each node. Note we use
         # the seed generated for this episode.
-        bandwidth_traces = bandwidth_generator.generate_traces(
-            base_trace=self._bandwidth_base_trace,
-            num_traces=len(self.network.edges()),
-            max_len=self.max_steps,
-            seed=self.seed,
-            random_noise=self.bandwidth_random_noise,
-        )
-
-        # Now assign a bandwidth trace for each link. Note we have a undirected
-        # graph, so (u, v) = (v, u) and edges() returns only one edge.
-        #
-        # Not all generated traces are assigned. Some links may have already a
-        # trace or a fixed value.
         for i, (u, v) in enumerate(self.network.edges()):
-            match self.network[u][v]["bandwidth_mbps_cfg"]:
-                case int() | float() as bandwidth_mbps:
-                    # Static: expand to constant array (trace).
-                    self.network[u][v]["bandwidth_mbps"] = np.full(self.max_steps, fill_value=bandwidth_mbps)
-                case list() | np.ndarray() as bandwidth_mbps:
-                    # Array: use as is and just check the length.
-                    self.network[u][v]["bandwidth_mbps"] = np.asarray(bandwidth_mbps)
-                    if self.network[u][v]["bandwidth_mbps"].shape[0] != self.max_steps:
-                        raise ValueError(f"Bandwidth trace has wrong length for edge ({u},{v})")
-                case None:
-                    # None: assign a new trace for this link.
-                    self.network[u][v]["bandwidth_mbps"] = bandwidth_traces[i]
+            match self.network[u][v]["bandwidth_mbps_method"]:
+                case "static":
+                    bandwidth_mbps = self.network[u][v]["bandwidth_mbps"]
+                    if isinstance(bandwidth_mbps, (int, float)):
+                        # Static: expand to constant array (trace).
+                        self.network[u][v]["bandwidth_mbps"] = np.full(self.max_steps, fill_value=bandwidth_mbps)
+                    elif isinstance(bandwidth_mbps, (list, np.ndarray)):
+                        # Array: use as is and just check the length.
+                        self.network[u][v]["bandwidth_mbps"] = np.asarray(bandwidth_mbps)
+                        if self.network[u][v]["bandwidth_mbps"].shape[0] != self.max_steps:
+                            raise ValueError(f"Bandwidth trace has wrong length for edge ({u},{v})")
+                    else:
+                        raise ValueError(f"Unsupported bandwidth_mbps type for edge ({u},{v})")
+                case "generated":
+                    # TODO: Implement custom generation logic.
+                    self.network[u][v]["bandwidth_mbps"] = np.full(self.max_steps, fill_value=100)  # WIP value
                 case _:
-                    raise ValueError("Unreachable code!")
+                    raise ValueError(f"Unsupported bandwidth_mbps_method for edge ({u},{v})")
 
         # Reset the info dictionary
         for agent in self.agents:

@@ -10,14 +10,14 @@ input_rate_same_method = true
 # per episode) or a static value (e.g., 256). Both are accepted.
 request_memory_mb = 256
 
-# Each network link has these default parameters: access_delay_ms = 5 and
-# bandwidth_mbps_cfg = 100.
+# Each network link has these default parameters: access_delay_ms = 5,
+# bandwidth_mbps_method = "generated", and bandwidth_mbps = 100.
 #
 # But these values can be configured per each link. Example below.
 # To set a static value (e.g., 150 Mbps):
 [network_links.node_0.node_1]
 access_delay_ms = 5
-# bandwidth_mbps_cfg intentionally omitted to auto-generate bandwidth traces.
+bandwidth_mbps_method = "generated"
 [network_links.node_0.node_2]
 access_delay_ms = 5
-# bandwidth_mbps_cfg intentionally omitted to auto-generate bandwidth traces.
+bandwidth_mbps_method = "generated"
