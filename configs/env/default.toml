@@ -1,0 +1,65 @@
+# Default DFaaS environment configuration.
+#
+# See the __init__ method of DFaaS class in dfaas_env.py for more information.
+
+# Network topology: undirected graph of nodes. Defined as adjacency list as list
+# of strings.
+network = ["node_0 node_1"]
+
+# Number of environment steps per episode.
+max_steps = 288
+
+
+# Each network link has these default parameters: access_delay_ms = 5 and
+# bandwidth_mbps_cfg = 100.
+#
+# But these values can be configured per each link. Example below
+[network_links]
+# To set a static value (e.g., 150 Mbps):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# bandwidth_mbps_cfg = 150
+#
+# To set a sequence/trace (must match max_steps length):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# bandwidth_mbps_cfg = [100, 110, 105, 115] # max_steps == 4
+#
+# To let the environment auto-generate bandwidth (omit the key):
+# [network_links.node_0.node_1]
+# access_delay_ms = 7
+# #bandwidth_mbps_cfg intentionally omitted
+
+# Global input data rate generation method.
+input_rate_method = "synthetic-sinusoidal"
+input_rate_same_method = true
+
+# Bandwidth trace. Useful only if bandwidth_mbps_cfg is None.
+bandwidth_base_trace_path = "dataset/5G_trace.csv"
+bandwidth_random_noise = 0.1
+
+# Data size (in bytes) for each function invocation
+data_size_bytes = 2000000
+
+# Per-node RAM in GB
+[node_ram_gb]
+# node_0 = 4  # Default.
+
+# Per-request memory demand (MB): can be a range [min, max] (uniformly sampled
+# per episode) or a static value (e.g., 256). Both are accepted.
+request_memory_mb = [128, 1024]
+# request_memory_mb = 256         # Static value example
+
+# Evaluation mode (set true for evaluation, false for train)
+evaluation = false
+
+# Performance model parameters per agent (optional override).
+#
+# Warning: maximum concurrency is calculated based on assigned RAM for each node
+# and the per-request memory demand.
+[perfmodel_params]
+# Example:
+# [perfmodel_params.node_0]
+# warm_service_time = 0.5
+# cold_service_time = 1.25
+# idle_time_before_kill = 60
