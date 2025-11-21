@@ -9,7 +9,6 @@ network = ["node_0 node_1"]
 # Number of environment steps per episode.
 max_steps = 288
 
-
 # Global input data rate generation method.
 input_rate_method = "synthetic-sinusoidal"
 input_rate_same_method = true
@@ -21,47 +20,47 @@ bandwidth_random_noise = 0.1
 # Data size (in bytes) for each function invocation
 data_size_bytes = 2000000
 
-# Per-node RAM in GB
-[node_ram_gb]
-# node_0 = 4  # Default.
+# Per-request memory demand (MB): must be a range [min, max] (uniformly sampled
+# per environment).
+request_memory_mb_range = [128, 1024]
 
-# Per-request memory demand (MB): can be a range [min, max] (uniformly sampled
-# per episode) or a static value (e.g., 256). Both are accepted.
-request_memory_mb = [128, 1024]
-# request_memory_mb = 256         # Static value example
-
-# Evaluation mode (set true for evaluation, false for train)
+# Evaluation mode (set true for evaluation, false for train).
 evaluation = false
 
-# Performance model parameters per agent (optional override).
+# Performance model parameters per agent.
 #
 # Warning: maximum concurrency is calculated based on assigned RAM for each node
 # and the per-request memory demand.
-[perfmodel_params]
-# Example:
-# [perfmodel_params.node_0]
-# warm_service_time = 0.5
-# cold_service_time = 1.25
-# idle_time_before_kill = 60
+[perfmodel_params.node_0]
+warm_service_time = 0.5
+cold_service_time = 1.25
+idle_time_before_kill = 60
 
-# Each network link has these default parameters: access_delay_ms = 5,
-# bandwidth_mbps_method = "generated", and bandwidth_mbps = 100.
-#
-# But these values can be configured per each link. Example below
-[network_links]
-# To set a static value (e.g., 150 Mbps):
-# [network_links.node_0.node_1]
-# access_delay_ms = 7
-# bandwidth_mbps_method = "static"
-# bandwidth_mbps = 150
-#
+[perfmodel_params.node_1]
+warm_service_time = 0.5
+cold_service_time = 1.25
+idle_time_before_kill = 60
+
+# Network link parameters.
+[network_links.node_0.node_1]
+access_delay_ms = 7
+bandwidth_mbps_method = "static"  # Static value of 150 for all steps.
+bandwidth_mbps_mean = 150
+
 # To set a sequence/trace (must match max_steps length):
 # [network_links.node_0.node_1]
 # access_delay_ms = 7
 # bandwidth_mbps_method = "static"
 # bandwidth_mbps = [100, 110, 105, 115] # max_steps == 4
-#
+
 # To let the environment auto-generate bandwidth:
 # [network_links.node_0.node_1]
 # access_delay_ms = 7
 # bandwidth_mbps_method = "generated"
+# bandwidth_mbps_random_noise = 0.1
+# bandwidth_mbps_mean = 100
+
+# Per-node RAM in GB
+[node_ram_gb]
+node_0 = 4  # Default.
+node_1 = 4
