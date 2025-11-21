@@ -11,6 +11,7 @@ from copy import deepcopy
 import numpy as np
 import networkx as nx
 import pandas as pd
+import yaml
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -774,7 +775,6 @@ class DFaaSCallbacks(DefaultCallbacks):
 
 def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
-    import dfaas_utils
 
     if config is None:
         # config = {"network": ["node_0 node_1", "node_1"]}
@@ -824,10 +824,10 @@ def _run_one_episode(verbose=False, config=None, seed=None):
     df.to_csv(episode_data_name, index=False, compression="gzip")
     print(f"Episode statistics saved to {episode_data_name!r}")
 
-    # Save also the environment configuration to disk as JSON file.
-    env_config_name = f"dfaas_episode_{seed}_config.json"
-    dfaas_utils.dict_to_json(env.get_config(), env_config_name)
-    print(f"Episode configuration saved to {env_config_name!r}")
+    # Save also the environment configuration to disk as YAML file.
+    env_config_path = Path(f"dfaas_episode_{seed}_config.yaml")
+    env_config_path.write_text(yaml.dump(env.get_config(), sort_keys=True, indent=4))
+    print(f"Episode configuration saved to {env_config_path.as_posix()!r}")
 
 
 def _main():
@@ -835,20 +835,19 @@ def _main():
     actions."""
     # Import these modules only if this module is called as main script.
     import argparse
-    import dfaas_utils
 
     desc = "Run a single DFaaS episode with random actions"
 
     parser = argparse.ArgumentParser(prog="dfaas_env", description=desc)
 
-    parser.add_argument("--env-config", help="Override default environment configuration (TOML file)", type=Path)
+    parser.add_argument("--env-config", help="Override default environment configuration (YAML file)", type=Path)
     parser.add_argument("--seed", type=int, help="Override default seed of input rate generation")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     args = parser.parse_args()
 
     if args.env_config is not None:
-        config = dfaas_utils.toml_to_dict(args.env_config)
+        config = yaml.safe_load(args.env_config.read_text())
     else:
         config = None
 

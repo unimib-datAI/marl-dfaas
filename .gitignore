@@ -10,4 +10,5 @@ results
 *.html
 model_results
 *.gz
+*.yaml
 *.json
