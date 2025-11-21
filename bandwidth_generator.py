@@ -52,6 +52,30 @@ def _invert_trace_middle(throughput_values) -> np.array:
     return inverted_trace
 
 
+def _adjust_trace_to_mean(throughput_values, target_mean):
+    """Adjust trace values to have a specific mean while preserving relative
+    variations.
+
+    Args:
+        throughput_values: Original trace values.
+        target_mean: Desired mean value for the adjusted trace.
+
+    Returns:
+        Adjusted trace with the target mean.
+    """
+    if target_mean is None:
+        return throughput_values
+
+    current_mean = np.mean(throughput_values)
+    if current_mean == 0:
+        return throughput_values
+
+    # Scale the trace to match the target mean
+    scale_factor = target_mean / current_mean
+    adjusted_trace = throughput_values * scale_factor
+    return adjusted_trace
+
+
 def _generate_trace_from_base(base_array, size, random_noise=0.1, rng=None):
     """Generate a new trace by randomly sampling and adding noise."""
     if rng is None:
@@ -97,7 +121,12 @@ def _plot_trace(bw, name, plot_folder, dpi=100):
 
 
 def generate_traces(
-    base_trace: np.ndarray, num_traces: int, max_len: int, seed: int = 42, random_noise: float = 0.1
+    base_trace: np.ndarray,
+    num_traces: int,
+    max_len: int,
+    seed: int = 42,
+    random_noise: float = 0.1,
+    target_mean: float = None,
 ) -> list:
     """
     Generate multiple traces from a base trace array.
@@ -108,17 +137,22 @@ def generate_traces(
         max_len (int): Length of each generated trace.
         seed (int): Seed for randomness.
         random_noise (float): Noise range to apply during generation.
+        target_mean (float): If set, adjust the base trace to have this mean value.
 
     Returns:
         List of np.ndarray traces.
     """
     # Use numpy random generator for reproducibility
     rng = np.random.default_rng(seed)
+
+    # Adjust base trace to target mean if specified.
+    adjusted_base_trace = _adjust_trace_to_mean(base_trace, target_mean)
+
     # Generate additional traces
-    additional_traces = _multiple_random_shifts(base_trace, num_shifts=5, rng=rng)
-    additional_traces.append(_invert_trace_middle(base_trace))
+    additional_traces = _multiple_random_shifts(adjusted_base_trace, num_shifts=5, rng=rng)
+    additional_traces.append(_invert_trace_middle(adjusted_base_trace))
     # concatenate
-    all_traces = np.concatenate((base_trace, np.concatenate(additional_traces)))
+    all_traces = np.concatenate((adjusted_base_trace, np.concatenate(additional_traces)))
     traces = []
     for i in range(num_traces):
         # For each trace, initialize a new RNG with deterministically different seed
@@ -129,14 +163,22 @@ def generate_traces(
 
 
 def main(
-    input_folder: Path, output_folder: Path, max_len: int, num_traces: int, seed: int = 42, skip_plots: bool = False
+    input_folder: Path,
+    output_folder: Path,
+    max_len: int,
+    num_traces: int,
+    seed: int = 42,
+    skip_plots: bool = False,
+    target_mean: float = None,
 ):
     # Load base trace.
     df = pd.read_csv(input_folder / "5G_trace.csv")
     base_trace = df["Throughput"].to_numpy()
 
     # Generate traces.
-    traces = generate_traces(base_trace=base_trace, num_traces=num_traces, max_len=max_len, seed=seed)
+    traces = generate_traces(
+        base_trace=base_trace, num_traces=num_traces, max_len=max_len, seed=seed, target_mean=target_mean
+    )
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
@@ -164,6 +206,12 @@ if __name__ == "__main__":
     parser.add_argument("--num-traces", type=int, default=10, help="Number of traces to generate")
     parser.add_argument("--seed", type=int, default=42, help="Seed for random number generators")
     parser.add_argument("--skip-plots", action="store_true", help="If set, skip plot generation (default: False)")
+    parser.add_argument(
+        "--target-mean",
+        type=float,
+        default=None,
+        help="If set, adjust the base trace to have this mean throughput value (Mbps)",
+    )
     args = parser.parse_args()
 
     main(
@@ -173,4 +221,5 @@ if __name__ == "__main__":
         num_traces=args.num_traces,
         seed=args.seed,
         skip_plots=args.skip_plots,
+        target_mean=args.target_mean,
     )

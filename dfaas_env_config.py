@@ -5,12 +5,16 @@ This modules provides the configuration as dataclasses.
 Create DFaaSConfig() to get the default configuration.
 """
 
+from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Literal
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 import scipy.stats
+
+from bandwidth_generator import generate_traces
 
 
 @dataclass
@@ -40,11 +44,19 @@ class NetworkLinkConfig:
     # bandwidth_mbps_method="generated".
     bandwidth_mbps_random_noise: float = 0.1
 
-    # Actual bandwidth trace, a list of max_steps values.
-    bandwidth_mbps: Optional[List[float]] = None
+    # Actual bandwidth trace, a list of max_steps values. Usually this field is
+    # auto-generated based on the other fields.
+    bandwidth_mbps: List[float] = None
 
-    def __post_init__(self):
-        """Validate configuration after initialization."""
+    def validate(self, max_steps: int):
+        """Validate configuration.
+
+        Args:
+            max_steps: Number of steps in the episode.
+
+        Raises:
+            ValueError: If there is a validation error.
+        """
         if self.access_delay_ms < 0:
             raise ValueError(f"access_delay_ms must be non-negative, got {self.access_delay_ms}")
 
@@ -59,33 +71,11 @@ class NetworkLinkConfig:
                 f"bandwidth_mbps_method must be 'static' or 'generated', got {self.bandwidth_mbps_method!r}"
             )
 
-    def generate_bandwidth_trace(self, max_steps: int, rng: np.random.Generator) -> None:
-        """Generate bandwidth trace based on the configured method.
+        if not self.bandwidth_mbps:
+            raise ValueError("bandwidth_mbps trace has not been generated!")
 
-        Args:
-            max_steps: Number of steps in the episode
-            rng: Random number generator
-
-        Raises:
-            ValueError: If bandwidth trace already exists with wrong length
-        """
-        if self.bandwidth_mbps is not None:
-            # Validate existing trace
-            if len(self.bandwidth_mbps) != max_steps:
-                raise ValueError(f"Bandwidth trace has wrong length {len(self.bandwidth_mbps)} != {max_steps}")
-            return
-
-        match self.bandwidth_mbps_method:
-            case "static":
-                self.bandwidth_mbps = np.full(max_steps, fill_value=self.bandwidth_mbps_mean).tolist()
-            case "generated":
-                # Generate trace with random noise around mean
-                base = np.full(max_steps, fill_value=self.bandwidth_mbps_mean)
-                noise = rng.normal(0, self.bandwidth_mbps_mean * self.bandwidth_mbps_random_noise, max_steps)
-                trace = np.maximum(base + noise, 1.0)  # Ensure positive values
-                self.bandwidth_mbps = trace.tolist()
-            case _:
-                raise ValueError(f"Unsupported bandwidth_mbps_method: {self.bandwidth_mbps_method}")
+        if len(self.bandwidth_mbps) != max_steps:
+            raise ValueError(f"bandwidth_mbps trace has wrong length {len(self.bandwidth_mbps)} != {max_steps}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
@@ -164,6 +154,11 @@ class DFaaSConfig:
 
     # Network link parameters for each link in the network.
     network_links: Dict[str, Dict[str, NetworkLinkConfig]] = field(default_factory=dict)
+
+    # Path to the bandwidth 5G base trace, used to generate the bandwidth
+    # traces. This field is used only if at least one link uses the "generated"
+    # bandwidth generation method.
+    bandwidth_base_trace_path: Optional[Path] = None
 
     # Number of steps for an episode.
     max_steps: int = 288
@@ -319,6 +314,79 @@ class DFaaSConfig:
             max_concurrency = float(np.floor((self.node_ram_gb[agent] * 1024) / self.request_memory_mb))
             self.perfmodel_params[agent].maximum_concurrency = max_concurrency
 
+    def generate_bandwidth_trace(self, rng: np.random.Generator) -> None:
+        """Generate bandwidth trace, based on the configured method defined for
+        each link.
+
+        Args:
+            rng: Random number generator
+        """
+        # Load base trace if provided.
+        if self.bandwidth_base_trace_path:
+            df = pd.read_csv(self.bandwidth_base_trace_path)
+            base_trace = df["Throughput"].to_numpy()
+        else:
+            base_trace = None
+
+        # Count how many links want to generate the bandwidth trace.
+        generated = 0
+        random_noise, target_mean = None, None
+        for src in self.network_links:
+            for dest in self.network_links[src]:
+                params = self.network_links[src][dest]
+
+                if params.bandwidth_mbps_method == "generated":
+                    generated += 1
+
+                    # FIXME: We currently support only one random noise factor
+                    # value, that must be the same for all links. So we need to
+                    # check manually all values to be the same.
+                    #
+                    # The same also for the mean.
+                    if not random_noise:
+                        random_noise = params.bandwidth_random_noise
+                    elif random_noise != params.bandwidth_random_noise:
+                        raise ValueError(
+                            "bandwidth_mbps_random_noise must be the same value for all links (known limitation)"
+                        )
+                    if not target_mean:
+                        target_mean = params.bandwidth_mbps_mean
+                    elif target_mean != params.bandwidth_mbps_mean:
+                        raise ValueError("bandwidth_mbps_mean must be the same value for all links (known limitation)")
+
+                elif not params.bandwidth_mbps:
+                    # This link has set the "static" method and provided just a
+                    # single value: expand to a static trace.
+                    params.bandwidth_mbps = np.full(self.max_steps, fill_value=params.bandwidth_mbps_mean).tolist()
+
+                else:
+                    # This link has set manually a complete trace. Use as is.
+                    pass
+
+        if generated > 0:
+            if not base_trace:
+                raise ValueError("bandwidth_base_trace_path needed but not given")
+
+            # Generate the traces.
+            traces = generate_traces(
+                base_trace=base_trace,
+                num_traces=generated,
+                max_len=self.max_steps,
+                random_noise=random_noise,
+                seed=self.seed,
+                target_mean=target_mean,
+            )
+
+            i = 0
+            # Now assign a trace to each link.
+            for src in self.network_links:
+                for dest in self.network_links[src]:
+                    params = self.network_links[src][dest]
+
+                    if params.bandwidth_mbps_method == "generated":
+                        params.bandwidth_mbps = traces[i]
+                        i += 1
+
     def initialize_defaults(self) -> None:
         """Initialize default values for node resources, performance params, and network links.
 
@@ -383,9 +451,7 @@ class DFaaSConfig:
         self.calculate_maximum_concurrency()
 
         # Step 4: Generate bandwidth traces for all network links
-        for src in self.network_links:
-            for dest in self.network_links[src]:
-                self.network_links[src][dest].generate_bandwidth_trace(self.max_steps, rng)
+        self.generate_bandwidth_trace(rng)
 
         # Step 5: Validate everything
         self.validate()
@@ -413,14 +479,7 @@ class DFaaSConfig:
             if v not in self.network_links[u]:
                 raise ValueError(f"Link ({u}, {v}) missing in network_links")
 
-            # Validate bandwidth trace length if present.
-            link_config = self.network_links[u][v]
-            if link_config.bandwidth_mbps is not None:
-                if len(link_config.bandwidth_mbps) != self.max_steps:
-                    raise ValueError(
-                        f"Bandwidth trace for ({u}, {v}) has length "
-                        f"{len(link_config.bandwidth_mbps)}, expected {self.max_steps}"
-                    )
+            self.network_links[u][v].validate(max_steps=self.max_steps)
 
         # Validate node_ram_gb.
         for agent in agents:
