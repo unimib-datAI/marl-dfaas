@@ -18,7 +18,16 @@ bandwidth_base_trace_path = "dataset/5G_trace.csv"
 bandwidth_random_noise = 0.1
 
 # Data size (in bytes) for each function invocation
-data_size_bytes = 2000000
+#data_size_bytes = 2000000
+
+# The average input data size (in bytes) for the (single) function is sampled
+# from a truncated normal distribution within a range, a mean and a standard
+# deviation.
+request_input_data_size_bytes_range = [100, 5242880]  # From 100 bytes to 5MB.
+request_input_data_size_bytes_mean_std = [1024, 1024]  # 1KB.
+# Example of a static pre-defined value.
+# request_input_data_size_bytes_range = [4096, 4096]
+#request_input_data_size_bytes_mean_std = [4096, 0]
 
 # Per-request memory demand (MB): must be a range [min, max] (uniformly sampled
 # per environment).

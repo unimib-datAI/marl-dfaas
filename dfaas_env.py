@@ -12,6 +12,7 @@ from copy import deepcopy
 import numpy as np
 import networkx as nx
 import pandas as pd
+import scipy.stats
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -146,11 +147,8 @@ class DFaaS(MultiAgentEnv):
                     f"Bandwidth trace has wrong length {len(bandwidth_mbps)} != {self.max_steps} for edge ({u},{v})"
                 )
 
-        # Average data size in bytes for a single function execution.
-        #
-        # Currently it is a constant, because we only have a single type of
-        # function.
-        self.data_size_bytes = config.get("data_size_bytes", 2_000_000)  # 2MB
+        # Average input data size in bytes for the single function.
+        self.request_input_data_size_bytes = config["request_input_data_size_bytes"]
 
         # Ensure all performance model parameters are set for all nodes.
         self.perfmodel_params = config.get("perfmodel_params")
@@ -296,7 +294,6 @@ class DFaaS(MultiAgentEnv):
             "max_steps": self.max_steps,
             "input_rate_method": self.input_rate_method,
             "input_rate_same_method": self.input_rate_same_method,
-            "data_size_bytes": self.data_size_bytes,
             "perfmodel_params": self.perfmodel_params,
             "original_config": self.config,
         }
@@ -597,7 +594,7 @@ class DFaaS(MultiAgentEnv):
                     # Calculate network delay
                     delay = _total_network_delay(
                         self.network[agent][neighbor]["access_delay_ms"],
-                        self.data_size_bytes,
+                        self.request_input_data_size_bytes,
                         self.network[agent][neighbor]["bandwidth_mbps"][self.current_step],
                     )
                     delay_key = f"network_delay_avg_to_{neighbor}"
@@ -895,6 +892,45 @@ def setup_env_config(env_config: dict[str, Any], rng: np.random.Generator) -> di
     network = nx.parse_adjlist(new_config.get("network", ["node_0 node_1"]))
     agents = list(network.nodes)
     max_steps = new_config.get("max_steps", 288)
+
+    # Input data size (in bytes) for a request.
+    #
+    # The value is sampled from a truncated normal distribution within a range,
+    # a mean and a standard deviation.
+    #
+    # Default values extracted from the original article, DOI:
+    # 10.1016/j.future.2024.02.019
+    request_input_data_size_bytes_range = new_config.get("request_input_data_size_bytes_range", [100, 5242880])
+    request_input_data_size_bytes_mean_std = new_config.get("request_input_data_size_bytes_mean_std", [1024, 1024])
+    if not isinstance(request_input_data_size_bytes_range, list):
+        raise ValueError(
+            f"Expected a list for 'request_input_data_size_bytes_range', found {type(request_input_data_size_bytes_range)}"
+        )
+    if len(request_input_data_size_bytes_range) != 2:
+        raise ValueError(
+            f"'request_input_data_size_bytes_range' must be [min, max], found {len(request_input_data_size_bytes_range)} values"
+        )
+    if not isinstance(request_input_data_size_bytes_mean_std, list):
+        raise ValueError(
+            f"Expected a list for 'request_input_data_size_bytes_mean_std', found {type(request_input_data_size_bytes_mean_std)}"
+        )
+    if len(request_input_data_size_bytes_mean_std) != 2:
+        raise ValueError(
+            f"'request_input_data_size_bytes_mean_std' must be [mean, std], found {len(request_input_data_size_bytes_mean_std)} values"
+        )
+
+    # Normalized bounds for truncnorm.
+    #
+    # See: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.truncnorm.html
+    input_data_mean, input_data_std = request_input_data_size_bytes_mean_std
+    input_data_min = (request_input_data_size_bytes_range[0] - input_data_mean) / input_data_std
+    input_data_max = (request_input_data_size_bytes_range[1] - input_data_mean) / input_data_std
+    request_input_data_size_bytes = int(
+        scipy.stats.truncnorm.rvs(
+            input_data_min, input_data_max, loc=input_data_mean, scale=input_data_std, random_state=rng
+        )
+    )
+    new_config["request_input_data_size_bytes"] = request_input_data_size_bytes
 
     # Memory demand (in MB) for a request.
     #
