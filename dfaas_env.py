@@ -6,13 +6,11 @@ associated callbacks."""
 import gymnasium as gym
 import logging
 from pathlib import Path
-from typing import Any
 from copy import deepcopy
 
 import numpy as np
 import networkx as nx
 import pandas as pd
-import scipy.stats
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -20,9 +18,9 @@ from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.algorithms.sac import SAC
 
+from dfaas_env_config import DFaaSConfig
 import perfmodel
 import dfaas_input_rate
-import bandwidth_generator
 
 # Initialize logger for this module.
 logging.basicConfig(
@@ -100,112 +98,52 @@ class DFaaS(MultiAgentEnv):
     """
 
     def __init__(self, config={}):
+        # Convert the given config to dataclass and store internally.
+        if config is None:
+            config = DFaaSConfig()
+        elif isinstance(config, dict):
+            config = DFaaSConfig.from_dict(config)
+        elif not isinstance(config, DFaaSConfig):
+            raise TypeError(f"config must be dict or DFaaSConfig, got {type(config)}")
         self.config = config
+        self.config.validate()
 
-        # By default, the network has two interconnected agents.
+        # Build the network from config.
+        self.network = nx.parse_adjlist(config.network)
+
+        # Map the network link parameters to each link.
         #
-        # The graph is represented by NetworkX's adjacency lists. Each line is a
-        # list of node labels, where the first label is the source node and the
-        # following labels are the destination nodes.
-        network_config = config.get("network", ["node_0 node_1"])
+        # This is necessary because Networkx handles the (u, v) and (v, u) edge
+        # cases, while this is not easy to do with a plain dictionary.
+        for u in self.config.network_links:
+            for v in self.config.network_links[u]:
+                self.network[u][v]["access_delay_ms"] = self.config.network_links[u][v].access_delay_ms
+                self.network[u][v]["bandwidth_mbps"] = self.config.network_links[u][v].bandwidth_mbps
 
-        self.network = nx.parse_adjlist(network_config)
-
-        # IDs of the agents in the DFaaS environment.
         self.agents = list(self.network.nodes)
+        self.max_steps = config.max_steps
 
-        # Number of steps in the environment. The default is one step for every
-        # 5 minutes of a 24-hour day.
-        self.max_steps = config.get("max_steps", 288)
-
-        # Default network link properties.
-        default_link_params = {
-            "access_delay_ms": 5,
-            "bandwidth_mbps_method": "generated",
-            "bandwidth_mbps": 100,
-        }
-        for u, v in self.network.edges():
-            nx.set_edge_attributes(self.network, {(u, v): default_link_params.copy()})
-
-        # Copy network link params inside network object.
-        for src, dests in config.get("network_links", {}).items():
-            for dest, props in dests.items():
-                for prop, value in props.items():
-                    self.network[src][dest][prop] = value
-
-        # Freeze to prevent further modification of the network nodes and edges.
+        # Freeze to prevent further modification.
         self.network = nx.freeze(self.network)
 
-        # Ensure bandwidth_mbps is always a numpy array of max_steps length.
-        for u, v in self.network.edges():
-            bandwidth_mbps = self.network[u][v].get("bandwidth_mbps")
-            if bandwidth_mbps is None:
-                raise ValueError(f"Bandwidth 'bandwidth_mbps' is missing for edge ({u},{v})")
-
-            if len(bandwidth_mbps) != self.max_steps:
-                raise ValueError(
-                    f"Bandwidth trace has wrong length {len(bandwidth_mbps)} != {self.max_steps} for edge ({u},{v})"
-                )
-
-        # Average input data size in bytes for the single function.
-        self.request_input_data_size_bytes = config["request_input_data_size_bytes"]
-
-        # Ensure all performance model parameters are set for all nodes.
-        self.perfmodel_params = config.get("perfmodel_params")
-        params = {"warm_service_time", "cold_service_time", "idle_time_before_kill", "maximum_concurrency"}
-        if not self.perfmodel_params:
-            raise ValueError("Performance parameters not given 'perfmodel_params'")
-        for agent in self.agents:
-            if agent not in self.perfmodel_params:
-                raise ValueError("Agent {agent!r} not found in 'perfmodel_params'")
-
-            if params != set(self.perfmodel_params[agent]):
-                raise ValueError("Missing/Invalid keys in 'perfmodel_params'")
-
-            # Ensure maximum_concurrency is set for all agents.
-            max_conc = self.perfmodel_params[agent]["maximum_concurrency"]
-            if max_conc <= 0:
-                raise ValueError(f"Expected positive maximum_concurrency for {agent!r}, found {max_conc}")
-
-        # It is the possible max and min value for the reward returned by the
-        # step() call.
+        # Reward range.
         self.reward_range = (-1.0, 1.0)
 
-        # Store the neighbor list for each agent for easy access.
+        # Store neighbor list for later use.
         self.agent_neighbors = {agent: list(self.network.neighbors(agent)) for agent in self.agents}
 
-        # Provide full (preferred format) observation and action spaces as
-        # Dicts mapping agent IDs to the individual agents' spaces.
-
-        self._action_space_in_preferred_format = True
+        # Define action space.
         self.action_space = gym.spaces.Dict(
-            {
-                # Distribution of how many requests are processed locally,
-                # forwarded to specific neighbors, and rejected.
-                #
-                # For each agent, the action space size is:
-                # 1 (local) + number_of_neighbors (forwarding) + 1 (reject)
-                agent: Simplex(shape=(1 + len(self.agent_neighbors[agent]) + 1,))
-                for agent in self.agents
-            }
+            {agent: Simplex(shape=(1 + len(self.agent_neighbors[agent]) + 1,)) for agent in self.agents}
         )
 
-        self._obs_space_in_preferred_format = True
+        # Define observation space.
         self.observation_space = gym.spaces.Dict(
             {
-                # Only the first observation refers to the next step, the others
-                # refers to the previous step (historical data).
                 agent: gym.spaces.Dict(
                     {
-                        # Arrival rate of input requests per second to process
-                        # for a single step.
                         "input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
-                        # Arrival rate of the previous step.
                         "prev_input_rate": gym.spaces.Box(low=1, high=150, dtype=np.int32),
-                        # How much rate has been forwarded and how much of this
-                        # has been rejected in the previous step, for each
-                        # neighbor (a node may have different neighbors).
-                        # We unpack the temporary dictionaries (**).
                         **{
                             f"prev_forward_to_{neighbor}": gym.spaces.Box(low=0, high=150, dtype=np.int32)
                             for neighbor in self.agent_neighbors[agent]
@@ -220,32 +158,16 @@ class DFaaS(MultiAgentEnv):
             }
         )
 
-        # Save the action range that is based on the minimium and maximum
-        # possibile value of input rate for all agents.
-        #
-        # Note: This assumes that all agents have the same input rate range.
+        # Save action range.
         input_rate_space = self.observation_space["node_0"]["input_rate"]
         self.action_range = (input_rate_space.low.item(), input_rate_space.high.item())
 
-        # Number of steps in the environment. The default is one step for every
-        # 5 minutes of a 24-hour day.
-        self.max_steps = config.get("max_steps", 288)
+        # Verify generation method exists.
+        #
+        # TODO: move to dfaas_env_config module!
+        dfaas_input_rate.generator(self.config.input_rate_method)
 
-        # All nodes receive their input rates from the same generation method by
-        # default.
-        self.input_rate_same_method = config.get("input_rate_same_method", True)
-
-        # Verify that the specified generation method exists. Otherwise, an
-        # exception will be raised.
-        self.input_rate_method = config.get("input_rate_method", "synthetic-sinusoidal")
-        dfaas_input_rate.generator(self.input_rate_method)
-
-        # Is the env created for evaluation only? If so, the input requests may
-        # differ from the training ones.
-        self.evaluation = config.get("evaluation", False)
-
-        # Initialize the info dictionary with node as first level keys and
-        # metrics as second level.
+        # Initialize info dictionary
         self.info = {}
         for agent in self.agents:
             self.info[agent] = self._init_agent_metrics()
@@ -287,26 +209,7 @@ class DFaaS(MultiAgentEnv):
     def get_config(self):
         """Returns a dictionary with the current configuration of the
         environment."""
-        config = {
-            "evaluation": self.evaluation,
-            "network": list(nx.generate_adjlist(self.network)),
-            "network_links": {},
-            "max_steps": self.max_steps,
-            "input_rate_method": self.input_rate_method,
-            "input_rate_same_method": self.input_rate_same_method,
-            "perfmodel_params": self.perfmodel_params,
-            "original_config": self.config,
-        }
-
-        # Do not set (u, v) as key because we may want to serialize this config
-        # as JSON (JSON supports only strings as key).
-        for u, v in self.network.edges():
-            config["network_links"].setdefault(u, {})
-            config["network_links"][u][v] = {
-                "access_delay_ms": self.network[u][v]["access_delay_ms"],
-                "bandwidth_mbps_method": self.network[u][v]["bandwidth_mbps_method"],
-                "bandwidth_mbps": self.network[u][v]["bandwidth_mbps"],
-            }
+        config = deepcopy(self.config)
 
         return config
 
@@ -337,7 +240,7 @@ class DFaaS(MultiAgentEnv):
             iinfo = np.iinfo(np.uint32)
             self.seed = self.master_rng.integers(0, high=iinfo.max, size=1)[0]
 
-        if self.evaluation:
+        if self.config.evaluation:
             # See self.set_master_seed() method.
             self.seed = self.eval_seeds[self.eval_seeds_index]
             self.eval_seeds_index = (self.eval_seeds_index + 1) % len(self.eval_seeds)
@@ -347,8 +250,8 @@ class DFaaS(MultiAgentEnv):
         self.np_random = self.rng  # Required by the Gymnasium API
 
         # Generate all input rates for the environment.
-        generator = dfaas_input_rate.generator(self.input_rate_method)
-        match self.input_rate_method:  # Each generator has its own signature.
+        generator = dfaas_input_rate.generator(self.config.input_rate_method)
+        match self.config.input_rate_method:  # Each generator has its own signature.
             case "synthetic-sinusoidal" | "synthetic-normal":
                 input_rate = generator(self.max_steps, self.agents, self.rng)
 
@@ -377,7 +280,7 @@ class DFaaS(MultiAgentEnv):
                         "max": self.observation_space[agent]["input_rate"].high.item(),
                     }
 
-                retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.evaluation)
+                retval = dfaas_input_rate.real(self.max_steps, self.agents, limits, self.rng, self.config.evaluation)
 
                 self.input_rate = retval[0]
 
@@ -388,9 +291,10 @@ class DFaaS(MultiAgentEnv):
             case _:
                 raise AssertionError("Unreachable code")
 
-                # Reset the info dictionary
-                for agent in self.agents:
-                    self.info[agent] = self._init_agent_metrics()
+        # Reset the info dictionary
+        for agent in self.agents:
+            self.info[agent] = self._init_agent_metrics()
+
         obs = self._build_observation()
 
         return obs, {}
@@ -594,7 +498,7 @@ class DFaaS(MultiAgentEnv):
                     # Calculate network delay
                     delay = _total_network_delay(
                         self.network[agent][neighbor]["access_delay_ms"],
-                        self.request_input_data_size_bytes,
+                        self.config.request_input_data_size_bytes,
                         self.network[agent][neighbor]["bandwidth_mbps"][self.current_step],
                     )
                     delay_key = f"network_delay_avg_to_{neighbor}"
@@ -612,10 +516,10 @@ class DFaaS(MultiAgentEnv):
 
             result_props, _ = perfmodel.get_sls_warm_count_dist(
                 incoming_rate_total,
-                self.perfmodel_params[agent]["warm_service_time"],
-                self.perfmodel_params[agent]["cold_service_time"],
-                self.perfmodel_params[agent]["idle_time_before_kill"],
-                maximum_concurrency=self.perfmodel_params[agent]["maximum_concurrency"],
+                self.config.perfmodel_params[agent].warm_service_time,
+                self.config.perfmodel_params[agent].cold_service_time,
+                self.config.perfmodel_params[agent].idle_time_before_kill,
+                maximum_concurrency=self.config.perfmodel_params[agent].maximum_concurrency,
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
@@ -868,175 +772,6 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def setup_env_config(env_config: dict[str, Any], rng: np.random.Generator) -> dict[str, Any]:
-    """
-    Returns the generated environment configuration based on the given config.
-
-    The returned configuration should then given to the DFaaS class.
-
-    This function is optional to call, one can just initialize DFaaS without
-    it, but this function can generate the bandwidth traces and the maximum
-    concurrency.
-
-    Parameters:
-        config (dict): Environment configuration.
-        rng (np.random.Generator): Random number generator.
-
-    Returns:
-        A new dictionary with the generated configuration.
-    """
-    # A deep copy to avoid modifying the original config.
-    new_config = deepcopy(env_config)
-
-    # We need to get the network to check nodes and edges.
-    network = nx.parse_adjlist(new_config.get("network", ["node_0 node_1"]))
-    agents = list(network.nodes)
-    max_steps = new_config.get("max_steps", 288)
-
-    # Input data size (in bytes) for a request.
-    #
-    # The value is sampled from a truncated normal distribution within a range,
-    # a mean and a standard deviation.
-    #
-    # Default values extracted from the original article, DOI:
-    # 10.1016/j.future.2024.02.019
-    request_input_data_size_bytes_range = new_config.get("request_input_data_size_bytes_range", [100, 5242880])
-    request_input_data_size_bytes_mean_std = new_config.get("request_input_data_size_bytes_mean_std", [1024, 1024])
-    if not isinstance(request_input_data_size_bytes_range, list):
-        raise ValueError(
-            f"Expected a list for 'request_input_data_size_bytes_range', found {type(request_input_data_size_bytes_range)}"
-        )
-    if len(request_input_data_size_bytes_range) != 2:
-        raise ValueError(
-            f"'request_input_data_size_bytes_range' must be [min, max], found {len(request_input_data_size_bytes_range)} values"
-        )
-    if not isinstance(request_input_data_size_bytes_mean_std, list):
-        raise ValueError(
-            f"Expected a list for 'request_input_data_size_bytes_mean_std', found {type(request_input_data_size_bytes_mean_std)}"
-        )
-    if len(request_input_data_size_bytes_mean_std) != 2:
-        raise ValueError(
-            f"'request_input_data_size_bytes_mean_std' must be [mean, std], found {len(request_input_data_size_bytes_mean_std)} values"
-        )
-
-    # Normalized bounds for truncnorm.
-    #
-    # See: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.truncnorm.html
-    input_data_mean, input_data_std = request_input_data_size_bytes_mean_std
-    input_data_min = (request_input_data_size_bytes_range[0] - input_data_mean) / input_data_std
-    input_data_max = (request_input_data_size_bytes_range[1] - input_data_mean) / input_data_std
-    request_input_data_size_bytes = int(
-        scipy.stats.truncnorm.rvs(
-            input_data_min, input_data_max, loc=input_data_mean, scale=input_data_std, random_state=rng
-        )
-    )
-    new_config["request_input_data_size_bytes"] = request_input_data_size_bytes
-
-    # Memory demand (in MB) for a request.
-    #
-    # Must be a range (inclusive). To have a single value, just put [min, min].
-    request_memory_mb_range = new_config.get("request_memory_mb_range", [128, 1024])
-    if not isinstance(request_memory_mb_range, list):
-        raise ValueError(f"Expected a list for 'request_memory_mb_range', found {type(request_memory_mb_range)}")
-    if len(request_memory_mb_range) != 2:
-        raise ValueError(f"Request memory range must be [min, max], found {len(request_memory_mb_range)} values")
-    min_mem, max_mem = request_memory_mb_range
-    request_memory_mb = rng.integers(min_mem, high=max_mem, endpoint=True)
-    new_config["request_memory_mb"] = request_memory_mb
-
-    # RAM (in GB) per each node.
-    node_ram_gb = {agent: 4 for agent in agents}
-    node_ram_gb_cfg = new_config.get("node_ram_gb", {})
-    for agent, ram in node_ram_gb_cfg.items():
-        if agent not in agents:
-            raise ValueError(f"Node {agent!r} not found in env network!")
-        node_ram_gb[agent] = ram
-
-    # Inizialize perfmodel_params if not present in the config.
-    perfmodel_params = new_config.get("perfmodel_params", {})
-    if not perfmodel_params:
-        default_params = {
-            "warm_service_time": 0.5,
-            "cold_service_time": 1.25,
-            "idle_time_before_kill": 60,
-        }
-        perfmodel_params = {agent: default_params for agent in agents}
-
-    # Maximum concurrency.
-    #
-    # Required values: request_memory_mb and node_ram_gb.
-    for agent in agents:
-        max_concurrency = np.floor((node_ram_gb[agent] * 1024) / request_memory_mb)
-
-        if agent not in perfmodel_params:
-            raise ValueError(f"Node {agent!r} not found in 'perfmodel_params'!")
-
-        perfmodel_params[agent]["maximum_concurrency"] = max_concurrency
-    new_config["perfmodel_params"] = perfmodel_params
-
-    # Default values for the network link parameters.
-    default_link_params = {
-        "access_delay_ms": 5,
-        "bandwidth_mbps_method": "generated",
-        "bandwidth_mbps_mean": 100,
-        "bandwidth_mbps_random_noise": 0.1,
-        "bandwidth_mbps": None,  # This is the trace, will be generated.
-    }
-
-    # Set default link parameters for all edges.
-    network_links = new_config.get("network_links", {})
-    for u, v in network.edges():
-        network_links.setdefault(u, {})
-
-        # Set default parameters only if the link is not already configured.
-        if v not in network_links[u]:
-            network_links[u][v] = default_link_params.copy()
-        else:
-            # If the link is configured, ensure all default keys are present.
-            for key, value in default_link_params.items():
-                if key not in network_links[u][v]:
-                    network_links[u][v][key] = value
-
-    # Override link parameters with user-provided configurations.
-    for src, dests in env_config.get("network_links", {}).items():
-        for dest, props in dests.items():
-            if not network.has_edge(src, dest):
-                raise ValueError(f"Given ({src}, {dest}) link does not exist in the network!")
-
-            for prop, value in props.items():
-                network_links[src][dest][prop] = value
-
-    # Generate bandwidth traces.
-    for u, v in network.edges():
-        link_props = network_links[u][v]
-        match link_props["bandwidth_mbps_method"]:
-            case "static":
-                # If bandwidth_mbps is already given, must be a valid trace,
-                # otherwise we generate a static trace from bandwidth_mbps_mean.
-                if bandwidth_mbps := link_props.get("bandwidth_mbps"):
-                    if len(bandwidth_mbps) != max_steps:
-                        raise ValueError(
-                            f"Bandwidth trace has wrong length {len(bandwidth_mbps)} != {max_steps} for edge ({u},{v})"
-                        )
-                else:
-                    bandwidth_mbps_mean = link_props["bandwidth_mbps_mean"]
-                    link_props["bandwidth_mbps"] = np.full(max_steps, fill_value=bandwidth_mbps_mean).tolist()
-
-            case "generated":
-                raise NotImplementedError()
-
-                # TODO: Implement custom generation logic.
-                link_props["bandwidth_mbps"] = np.full(max_steps, fill_value=100).tolist()  # WIP value
-            case _:
-                raise ValueError(
-                    f"Unsupported bandwidth_mbps_method {link_props['bandwidth_mbps_method']!r} for edge ({u},{v})"
-                )
-
-    new_config["network_links"] = network_links
-
-    return new_config
-
-
 def _run_one_episode(verbose=False, config=None, seed=None):
     """Run a test episode of the DFaaS environment."""
     import dfaas_utils
@@ -1047,7 +782,9 @@ def _run_one_episode(verbose=False, config=None, seed=None):
     if seed is None:
         seed = 42
 
-    env_config = setup_env_config(config, np.random.default_rng(seed=seed))
+    # Generate the environment configuration.
+    env_config = DFaaSConfig.from_dict(config)
+    env_config.generate_all(np.random.default_rng(seed=seed))
 
     env = DFaaS(config=env_config)
     _ = env.reset(seed=seed)
