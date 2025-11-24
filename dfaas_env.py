@@ -8,6 +8,10 @@ import logging
 from pathlib import Path
 from copy import deepcopy
 
+# By default Ray uses DEBUG level, but I prefer the ERROR level and this must be
+# set manually!
+logging.basicConfig(level=logging.ERROR)
+
 import numpy as np
 import networkx as nx
 import pandas as pd
@@ -19,7 +23,6 @@ from ray.tune.registry import register_env
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.algorithms.sac import SAC
 
-from dfaas_env_config import DFaaSConfig
 import perfmodel
 import dfaas_input_rate
 
@@ -88,8 +91,8 @@ def reward_fn(action, additional_reject):
 class DFaaS(MultiAgentEnv):
     """DFaaS multi-agent reinforcement learning environment.
 
-    The constructor accepts a config dictionary with the environment
-    configuration.
+    You should not initialize this environment directly, use DFaaSConfig builder
+    instead.
 
     Metrics can be accessed from the self.info dictionary. This dictionary
     contains an entry for each agent, and for every agent, a list of metrics
@@ -99,27 +102,25 @@ class DFaaS(MultiAgentEnv):
     """
 
     def __init__(self, config={}):
-        # Convert the given config to dataclass and store internally.
-        if config is None:
-            config = DFaaSConfig()
-        elif isinstance(config, dict):
-            config = DFaaSConfig.from_dict(config)
-        elif not isinstance(config, DFaaSConfig):
-            raise TypeError(f"config must be dict or DFaaSConfig, got {type(config)}")
+        from dfaas_env_config import DFaaSConfig
+
+        # Convert and validate the given config to DFaaSConfig.
+        if config is None or not isinstance(config, DFaaSConfig):
+            raise TypeError(f"config must be a DFaaSConfig object, got {type(config)}")
         self.config = config
         self.config.validate()
 
-        # Build the network from config.
-        self.network = nx.parse_adjlist(config.network)
+        # Get the network graph from config.
+        self.network = self.config._network
 
         # Map the network link parameters to each link.
         #
-        # This is necessary because Networkx handles the (u, v) and (v, u) edge
+        # This is necessary because NetworkX handles the (u, v) and (v, u) edge
         # cases, while this is not easy to do with a plain dictionary.
         for u in self.config.network_links:
             for v in self.config.network_links[u]:
-                self.network[u][v]["access_delay_ms"] = self.config.network_links[u][v].access_delay_ms
-                self.network[u][v]["bandwidth_mbps"] = self.config.network_links[u][v].bandwidth_mbps
+                self.network[u][v]["access_delay_ms"] = self.config.network_links[u][v]["access_delay_ms"]
+                self.network[u][v]["bandwidth_mbps"] = self.config.network_links[u][v]["bandwidth_mbps"]
 
         self.agents = list(self.network.nodes)
         self.max_steps = config.max_steps
@@ -517,10 +518,10 @@ class DFaaS(MultiAgentEnv):
 
             result_props, _ = perfmodel.get_sls_warm_count_dist(
                 incoming_rate_total,
-                self.config.perfmodel_params[agent].warm_service_time,
-                self.config.perfmodel_params[agent].cold_service_time,
-                self.config.perfmodel_params[agent].idle_time_before_kill,
-                maximum_concurrency=self.config.perfmodel_params[agent].maximum_concurrency,
+                self.config.perfmodel_params[agent]["warm_service_time"],
+                self.config.perfmodel_params[agent]["cold_service_time"],
+                self.config.perfmodel_params[agent]["idle_time_before_kill"],
+                maximum_concurrency=self.config.perfmodel_params[agent]["maximum_concurrency"],
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
@@ -684,6 +685,7 @@ def _convert_arrival_rate_dist(arrival_rate, action_dist):
 # Register the environments with Ray so that they can be used automatically when
 # creating experiments.
 def register(env_class):
+    # TODO: Add DFaaSConfig.
     register_env(env_class.__name__, lambda env_config: env_class(config=env_config))
 
 
@@ -773,20 +775,21 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def _run_one_episode(verbose=False, config=None, seed=None):
+def _run_one_episode(config, seed, verbose=False):
     """Run a test episode of the DFaaS environment."""
+    from dfaas_env_config import DFaaSConfig
 
-    if config is None:
-        # config = {"network": ["node_0 node_1", "node_1"]}
-        config = {"network": ["node_0 node_1 node_2", "node_3 node_2 node_0", "node_1 node_4"]}
+    # Create the env config and then the environment.
+    env_config = DFaaSConfig.from_dict(config)
+    env = env_config.build()
+
+    # Save the environment configuration to disk as YAML file.
+    env_config_path = Path(f"dfaas_episode_{seed}_config.yaml")
+    env_config_path.write_text(yaml.dump(env_config.to_dict(), sort_keys=True, indent=4))
+    print(f"Episode configuration saved to {env_config_path.as_posix()!r}")
+
     if seed is None:
         seed = 42
-
-    # Generate the environment configuration.
-    env_config = DFaaSConfig.from_dict(config)
-    env_config.generate_all(np.random.default_rng(seed=seed))
-
-    env = DFaaS(config=env_config)
     _ = env.reset(seed=seed)
 
     if verbose:
@@ -824,11 +827,6 @@ def _run_one_episode(verbose=False, config=None, seed=None):
     df.to_csv(episode_data_name, index=False, compression="gzip")
     print(f"Episode statistics saved to {episode_data_name!r}")
 
-    # Save also the environment configuration to disk as YAML file.
-    env_config_path = Path(f"dfaas_episode_{seed}_config.yaml")
-    env_config_path.write_text(yaml.dump(env.get_config(), sort_keys=True, indent=4))
-    print(f"Episode configuration saved to {env_config_path.as_posix()!r}")
-
 
 def _main():
     """Main entry point for running a single DFaaS episode with random
@@ -836,12 +834,13 @@ def _main():
     # Import these modules only if this module is called as main script.
     import argparse
 
-    desc = "Run a single DFaaS episode with random actions"
+    desc = "Run a single DFaaS episode with random actions."
 
     parser = argparse.ArgumentParser(prog="dfaas_env", description=desc)
 
-    parser.add_argument("--env-config", help="Override default environment configuration (YAML file)", type=Path)
-    parser.add_argument("--seed", type=int, help="Override default seed of input rate generation")
+    parser.add_argument("--env-config", type=Path, help="Override default environment configuration (YAML file)")
+    parser.add_argument("--build-seed", type=int, help="Override default seed for DFaaSConfig")
+    parser.add_argument("--seed", type=int, default=42, help="Override default seed for DFaaS")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
 
     args = parser.parse_args()
@@ -849,9 +848,12 @@ def _main():
     if args.env_config is not None:
         config = yaml.safe_load(args.env_config.read_text())
     else:
-        config = None
+        config = {}
 
-    _run_one_episode(args.verbose, config, args.seed)
+    if args.build_seed is not None:
+        config["build_seed"] = args.build_seed
+
+    _run_one_episode(config, args.seed, args.verbose)
 
 
 if __name__ == "__main__":

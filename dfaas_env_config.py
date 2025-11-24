@@ -1,328 +1,323 @@
 """Configuration module for the DFaaS multi-agent environment.
 
-This modules provides the configuration as dataclasses.
+This module provided DFaaSConfig, a class that follows the build pattern to
+create, validate and enrich the configuration for the DFaaS environment.
 
-Create DFaaSConfig() to get the default configuration.
+I took inspiration from the PPOConfig class defined in Ray RLLib (2.X old
+stack).
 """
 
 from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Literal
+from copy import deepcopy
 
 import networkx as nx
 import numpy as np
 import pandas as pd
 import scipy.stats
 
+from dfaas_env import DFaaS
 from bandwidth_generator import generate_traces
 
 
-@dataclass
-class NetworkLinkConfig:
-    """Configuration for a network link between two nodes.
-
-    The bandwidth trace can be given in three ways:
-
-    1. Use "generated" method, and it will be automatically generated around the
-    given mean and with the given random noise.
-    2. Use "static" method, and the given mean value will be repeated for all
-    steps.
-    3. Use "static" method and give directly the bandwidth trace in
-    bandwidth_mbps.
-    """
-
-    # Access delay in milliseconds (for latency).
-    access_delay_ms: float = 5.0
-
-    # Method for bandwidth trace generation.
-    bandwidth_mbps_method: Literal["static", "generated"] = "generated"
-
-    # Mean bandwidth value in Mbps, used for generation.
-    bandwidth_mbps_mean: float = 100.0
-
-    # Random noise factor for bandwidth trace generation [0, 1]. Useful only if
-    # bandwidth_mbps_method="generated".
-    bandwidth_mbps_random_noise: float = 0.1
-
-    # Actual bandwidth trace, a list of max_steps values. Usually this field is
-    # auto-generated based on the other fields.
-    bandwidth_mbps: List[float] = None
-
-    def validate(self, max_steps: int):
-        """Validate configuration.
-
-        Args:
-            max_steps: Number of steps in the episode.
-
-        Raises:
-            ValueError: If there is a validation error.
-        """
-        if self.access_delay_ms < 0:
-            raise ValueError(f"access_delay_ms must be non-negative, got {self.access_delay_ms}")
-
-        if self.bandwidth_mbps_mean <= 0:
-            raise ValueError(f"bandwidth_mbps_mean must be positive, got {self.bandwidth_mbps_mean}")
-
-        if not 0.0 <= self.bandwidth_mbps_random_noise <= 1.0:
-            raise ValueError(f"bandwidth_mbps_random_noise must be in [0, 1], got {self.bandwidth_mbps_random_noise}")
-
-        if self.bandwidth_mbps_method not in ["static", "generated"]:
-            raise ValueError(
-                f"bandwidth_mbps_method must be 'static' or 'generated', got {self.bandwidth_mbps_method!r}"
-            )
-
-        if not self.bandwidth_mbps:
-            raise ValueError("bandwidth_mbps trace has not been generated!")
-
-        if len(self.bandwidth_mbps) != max_steps:
-            raise ValueError(f"bandwidth_mbps trace has wrong length {len(self.bandwidth_mbps)} != {max_steps}")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "NetworkLinkConfig":
-        """Create NetworkLinkConfig from dictionary."""
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
-
-
-@dataclass
-class PerfModelParams:
-    """Performance model parameters for a single agent/node.
-
-    Attributes:
-        warm_service_time: Service time for warm starts (seconds)
-        cold_service_time: Service time for cold starts (seconds)
-        idle_time_before_kill: Time before idle container is killed (seconds)
-        maximum_concurrency: Maximum number of concurrent requests the node can handle
-    """
-
-    # Service time for wam starts in seconds.
-    warm_service_time: float
-
-    # Cold service time in seconds.
-    cold_service_time: float
-
-    # Time before idle container is killed in seconds.
-    idle_time_before_kill: float
-
-    # Maximum number of concurrent requests a node can handle. Will be
-    # calculated if not provided.
-    maximum_concurrency: Optional[float] = 0.0
-
-    def __post_init__(self):
-        """Validate performance parameters."""
-        if self.warm_service_time < 0:
-            raise ValueError(f"warm_service_time must be non-negative, got {self.warm_service_time}")
-
-        if self.cold_service_time < 0:
-            raise ValueError(f"cold_service_time must be non-negative, got {self.cold_service_time}")
-
-        if self.cold_service_time < self.warm_service_time:
-            raise ValueError(
-                f"cold_service_time ({self.cold_service_time}) should be >= "
-                f"warm_service_time ({self.warm_service_time})"
-            )
-
-        if self.idle_time_before_kill < 0:
-            raise ValueError(f"idle_time_before_kill must be non-negative, got {self.idle_time_before_kill}")
-
-        if self.maximum_concurrency < 0:
-            raise ValueError(f"maximum_concurrency must be non-negative, got {self.maximum_concurrency}")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "PerfModelParams":
-        """Create PerfModelParams from dictionary."""
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
-
-
-@dataclass
 class DFaaSConfig:
-    """Main configuration for the DFaaS multi-agent environment.
+    """Defines a configuration class from which a DFaaS env can be built."""
 
-    This dataclass encapsulates all configuration parameters for the DFaaS
-    environment.
-    """
+    def __init__(self):
+        """Initializes a DFaaSConfig instance with default values."""
 
-    # Network structure given as Networkx's adjacency list.
-    network: List[str] = field(default_factory=lambda: ["node_0 node_1"])
+        # Network structure given as Networkx's adjacency list.
+        self.network = ["node_0 node_1"]
 
-    # Network link parameters for each link in the network.
-    network_links: Dict[str, Dict[str, NetworkLinkConfig]] = field(default_factory=dict)
+        # Internal network representation as NetworkX graph (field used
+        # internally to pass to the environment).
+        self._network = nx.parse_adjlist(self.network)
 
-    # Path to the bandwidth 5G base trace, used to generate the bandwidth
-    # traces. This field is used only if at least one link uses the "generated"
-    # bandwidth generation method.
-    bandwidth_base_trace_path: Optional[Path] = None
+        # Number of steps for an episode.
+        self.max_steps = 288
 
-    # Number of steps for an episode.
-    max_steps: int = 288
+        # Input rate generation configuration.
+        self.input_rate_method = "synthetic-sinusoidal"
 
-    # Input rate generation configuration.
-    input_rate_method: str = "synthetic-sinusoidal"
-    input_rate_same_method: bool = True
+        # All nodes have the same input rate generation method.
+        self.input_rate_same_method = True
 
-    # Environment mode.
-    evaluation: bool = False
+        # Environment mode.
+        self.evaluation = False
 
-    # Performance model parameters.
-    perfmodel_params: Dict[str, PerfModelParams] = field(default_factory=dict)
+        # Path to the bandwidth 5G base trace, used to generate the bandwidth
+        # traces. This field is used only if at least one link uses the
+        # "generated" bandwidth generation method.
+        self.bandwidth_base_trace_path = Path("dataset/5G_trace.csv")
 
-    # Data input size (in bytes) of the single function. The size values is
-    # extracted from a truncated normal distribution with the given range
-    # (inclusive) and given mean and standard deviation.
-    #
-    # To have a single value, just put the range [min, min] and mean/std to
-    # [min, 0].
-    request_input_data_size_bytes_range: List[int] = field(default_factory=lambda: [100, 5242880])
-    request_input_data_size_bytes_mean_std: List[float] = field(default_factory=lambda: [1024.0, 1024.0])
+        # Default link parameters value for a single link in the network.
+        #
+        # The parameters are:
+        #
+        # - access_delay_ms: Access delay in milliseconds.
+        #
+        # - bandwidth_mbps_method: Method for bandwidth generation
+        # ("static-single", "static-trace" or "generated").
+        #
+        # - bandwidth_mbps_mean: Mean bandwidth value in Mbps, used for static
+        # or generated methods. Ignored if using "static-trace" method.
+        #
+        # - bandwidth_mbps_random_noise: Random noise factor for bandwidth trace
+        # generation (range in [0, 1]). Ignored if using static methods.
+        #
+        # - bandwidth_mbps: Actual bandwidth trace, of value for each
+        # environment step (list of size max_steps). Ignored if using
+        # "static-single" or "generated" methods.
+        #
+        # The bandwidth trace can be given in three ways:
+        #
+        # 1. Use "generated" method, and it will be automatically generated
+        # around the given mean and with the given random noise. Values are
+        # rounded to integers.
+        #
+        # 2. Use "static-single" method, and the given mean value will be
+        # repeated for all steps.
+        #
+        # 3. Use "static-trace" method and give directly the bandwidth trace in
+        # bandwidth_mbps.
+        #
+        # Note: for the generation method the base trace is read from
+        # bandwidth_base_trace_path configuration option.
+        self._network_links_params = {
+            "access_delay_ms": 5,
+            "bandwidth_mbps_method": "generated",
+            "bandwidth_mbps_mean": 100,
+            "bandwidth_mbps_random_noise": 0.1,
+            "bandwidth_mbps": None,
+        }
 
-    # Memory demand (in MB) for the single function. The demand value is
-    # extracted uniformly from the given (inclusive) range.
-    #
-    # To have a single value, just put the range to [min, min].
-    request_memory_mb_range: List[int] = field(default_factory=lambda: [128, 1024])
+        # Network link parameters for each link in the network.
+        #
+        # Note: since the network links are undirected, you can specify only a
+        # direction of the link.
+        self.network_links = {"node_0": {"node_1": self._network_links_params.copy()}}
 
-    # RAM capacity in GB for each node.
-    node_ram_gb: Dict[str, float] = field(default_factory=dict)
+        # Data input size (in bytes) of the single function. The actual value
+        # "request_input_data_size_bytes" is extracted from a truncated normal
+        # distribution with the given range (inclusive) and given mean and
+        # standard deviation.
+        #
+        # To have a fixed value, just put the range [min, min] and mean/std to
+        # [min, 0].
+        self.request_input_data_size_bytes_range = [100, 5242880]
+        self.request_input_data_size_bytes_mean_std = [1024.0, 1024.0]
+        self.request_input_data_size_bytes = None
 
-    # Generated values.
-    request_input_data_size_bytes: Optional[int] = None
-    request_memory_mb: Optional[int] = None
+        # Memory demand (in MB) for the single function. The demand value
+        # "request_memory_mb" is extracted uniformly from the given (inclusive)
+        # range.
+        #
+        # To have a single value, just put the range to [min, min].
+        self.request_memory_mb_range = [128, 1024]
+        self.request_memory_mb = None
 
-    # Seed for random generation (optional).
-    seed: Optional[int] = None
+        # RAM capacity in GB for each node.
+        self.node_ram_gb = {"node_0": 4, "node_1": 4}
 
-    def __post_init__(self):
-        """Validate configuration after initialization and auto-generate values."""
+        # Performance model default parameters for a node in the network.
+        #
+        # The parameters are:
+        #
+        # - warm_service_time: Service time for warm function invocation
+        # in seconds.
+        #
+        # - cold_service_time: Cold service time in seconds.
+        #
+        # - idle_time_before_kill: Time before idle container is killed in
+        # seconds.
+        #
+        # - maximum_concurrency: Maximum number of concurrent requests a node
+        # can handle.
+        #
+        # Note: if maximum_concurrency is None, the value will be calculated
+        # based on request_memory_mb and node_ram_gb.
+        self._perfmodel_params = {
+            "warm_service_time": 1,
+            "cold_service_time": 2,
+            "idle_time_before_kill": 30,
+            "maximum_concurrency": None,
+        }
+
+        # Performance model parameters for each node in the network.
+        self.perfmodel_params = {"node_0": self._perfmodel_params.copy(), "node_1": self._perfmodel_params.copy()}
+
+        # Seed used when building the environment. Warning: it is not used
+        # to reset the environment!
+        self.build_seed = 42
+
+    def validate(self):
+        """Validates configuration. Automatically called by build().
+
+        Raise ValueError, TypeError or KeyError on validation error."""
+        # self.max_steps validation.
+        if not isinstance(self.max_steps, int):
+            raise TypeError(f"max_steps must be int, got {type(self.max_steps)}")
         if self.max_steps <= 0:
             raise ValueError(f"max_steps must be positive, got {self.max_steps}")
 
+        # self.request_input_data_size_bytes_range validation.
         if len(self.request_input_data_size_bytes_range) != 2:
-            raise ValueError(
-                f"request_input_data_size_bytes_range must be [min, max], "
-                f"got {len(self.request_input_data_size_bytes_range)} values"
-            )
-
-        if len(self.request_input_data_size_bytes_mean_std) != 2:
-            raise ValueError(
-                f"request_input_data_size_bytes_mean_std must be [mean, std], "
-                f"got {len(self.request_input_data_size_bytes_mean_std)} values"
-            )
-
-        if len(self.request_memory_mb_range) != 2:
-            raise ValueError(
-                f"request_memory_mb_range must be [min, max], got {len(self.request_memory_mb_range)} values"
-            )
-
-        # Validate ranges.
+            raise ValueError("request_input_data_size_bytes_range must be [min, max]")
+        if self.request_input_data_size_bytes_range[0] < 0:
+            raise ValueError("request_input_data_size_bytes_range: min must be non negative")
+        if self.request_input_data_size_bytes_range[1] < 0:
+            raise ValueError("request_input_data_size_bytes_range: max must be non negative")
         if self.request_input_data_size_bytes_range[0] > self.request_input_data_size_bytes_range[1]:
             raise ValueError("request_input_data_size_bytes_range: min > max")
 
+        # self.request_input_data_size_bytes_mean_std validation.
+        if len(self.request_input_data_size_bytes_mean_std) != 2:
+            raise ValueError(
+                f"request_input_data_size_bytes_mean_std must be [mean, std], got {len(self.request_input_data_size_bytes_mean_std)} values"
+            )
+        if self.request_input_data_size_bytes_mean_std[0] < 0:
+            raise ValueError("request_input_data_size_bytes_mean_std: mean must be non negative")
+        if self.request_input_data_size_bytes_mean_std[1] < 0:
+            raise ValueError("request_input_data_size_bytes_mean_std: std must be non negative")
+
+        # self.request_input_data_size_bytes validation.
+        if self.request_input_data_size_bytes is None:
+            raise TypeError("request_input_data_size_bytes should not be None")
+
+        # self.request_memory_mb_range validation.
+        if len(self.request_memory_mb_range) != 2:
+            raise ValueError("request_memory_mb_range must be [min, max]")
+        if self.request_memory_mb_range[0] < 0:
+            raise ValueError("request_memory_mb_range: min must be non negative")
+        if self.request_memory_mb_range[1] < 0:
+            raise ValueError("request_memory_mb_range: max must be non negative")
         if self.request_memory_mb_range[0] > self.request_memory_mb_range[1]:
             raise ValueError("request_memory_mb_range: min > max")
 
-        # Convert network_links dict values to NetworkLinkConfig if they're
-        # plain dicts.
-        for src in self.network_links:
-            for dest in self.network_links[src]:
-                if isinstance(self.network_links[src][dest], dict):
-                    self.network_links[src][dest] = NetworkLinkConfig.from_dict(self.network_links[src][dest])
+        # self.request_memory_mb validation.
+        if self.request_memory_mb is None:
+            raise TypeError("request_memory_mb should not be None")
 
-        # Convert perfmodel_params dict values to PerfModelParams if they're
-        # plain dicts.
-        for agent in list(self.perfmodel_params.keys()):
-            if isinstance(self.perfmodel_params[agent], dict):
-                self.perfmodel_params[agent] = PerfModelParams.from_dict(self.perfmodel_params[agent])
+        # Validate perfmodel_params for all nodes.
+        perfmodel_keys = set(self._perfmodel_params.keys())
+        for node in self._network.nodes:
+            # Node exists?
+            if node not in self.perfmodel_params:
+                raise ValueError(f"perfmodel_params: node {node!r} missing")
 
-        # Auto-generate all values with the provided seed (or random if None)
-        rng = np.random.default_rng(seed=self.seed)
-        self.generate_all(rng)
+            # Node has all keys?
+            node_perfmodel_keys = self.perfmodel_params[node].keys()
+            if perfmodel_keys != node_perfmodel_keys:
+                raise ValueError(f"perfmodel_params: node {node!r} has different set of keys!")
 
-    def generate_request_input_data_size(self, rng: np.random.Generator) -> None:
-        """Generate request input data size from truncated normal distribution.
+            # All required keys have the right values?
+            warm_sv_time = self.perfmodel_params[node]["warm_service_time"]
+            cold_sv_time = self.perfmodel_params[node]["cold_service_time"]
+            idle_time = self.perfmodel_params[node]["idle_time_before_kill"]
+            max_conc = self.perfmodel_params[node]["maximum_concurrency"]
+            if warm_sv_time <= 0:
+                raise ValueError(
+                    f"perfmodel_params: node {node!r}: warm_service_time must be positive, got {warm_sv_time}"
+                )
+            if cold_sv_time <= 0:
+                raise ValueError(
+                    f"perfmodel_params: node {node!r}: cold_service_time must be positive, got {cold_sv_time}"
+                )
+            if cold_sv_time < warm_sv_time:
+                raise ValueError(f"perfmodel_params: node {node!r}: cold_service_time < warm_service_time")
+            if idle_time < 0:
+                raise ValueError(f"perfmodel_params: node {node!r}: idle_time must be non-negative, got {idle_time}")
+            if not isinstance(max_conc, int):
+                raise TypeError(
+                    f"perfmodel_params: node {node!r}: maximum_concurrency must be of type int, got {type(max_conc)}"
+                )
+            if max_conc <= 0:
+                raise ValueError(
+                    f"perfmodel_params: node {node!r}: maximum_concurrency must be non-negative, got {max_conc}"
+                )
 
-        The value is sampled from a truncated normal distribution within a range,
-        a mean and a standard deviation.
+        # Validate node_ram_gb for all nodes.
+        for node in self._network.nodes:
+            # Node exists?
+            if node not in self.node_ram_gb:
+                raise ValueError(f"node_ram_gb: node {node!r} missing")
 
-        Default values extracted from the original article, DOI:
-        10.1016/j.future.2024.02.019
+            # Node has the right value?
+            if self.node_ram_gb[node] <= 0:
+                raise ValueError(f"node_ram_gb: node {node!r}: must be positive, got {self.node_ram_gb[node]}")
 
-        Args:
-            rng: Random number generator
-        """
-        if self.request_input_data_size_bytes is not None:
-            return  # Already generated.
+        # Validate network_links for all edges.
+        seen = {}
+        link_params_keys = set(self._network_links_params.keys())
+        for u, v in self._network.edges():
+            if (u, v) or (v, u) in seen:
+                # This edge is already validated, since the graph is undirected.
+                continue
 
+            # Search the edge in network_links. Try both (u, v) and (v, u).
+            link_params = None
+            try:
+                link_params = self.network_links[u][v]
+            except KeyError:
+                pass
+            if link_params is None:
+                try:
+                    link_params = self.network_links[u][v]
+                except KeyError:
+                    raise KeyError(f"network_links: undirected link ({u}, {v}) not found")
+
+            # The edge has all parameters?
+            if link_params_keys != set(link_params.keys()):
+                raise ValueError(f"network_links: undirected link ({u}, {v}) has different set of keys")
+
+            # The edge has right values?
+            if link_params["access_delay_ms"] < 0:
+                raise ValueError(f"network_links: undirected link ({u}, {v}): access_delay_ms must be non-negative")
+            if link_params["bandwidth_mbps_mean"] <= 0:
+                raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps_mean must be non-negative")
+            if not 0.0 <= link_params["bandwidth_mbps_random_noise"] <= 1.0:
+                raise ValueError(
+                    f"network_links: undirected link ({u}, {v}): bandwidth_mbps_random_noise must be in [0, 1]"
+                )
+            if link_params["bandwidth_mbps_method"] not in ["static-single", "static-trace", "generated"]:
+                raise ValueError(f"network_links: undirected link ({u}, {v}): unrecognized bandwidth_mbps_method")
+            if link_params["bandwidth_mbps"] is None:
+                raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps should not be None")
+            if len(link_params["bandwidth_mbps"]) != self.max_steps:
+                raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps trace has wrong length")
+
+            seen.add((u, v), (v, u))
+
+    def build(self):
+        """Build the DFaaS environment from this configuration.
+
+        Return an initialized (but not started) DFaaS environment."""
+        rng = np.random.default_rng(seed=self.build_seed)
+
+        # Generate NetworkX graph (internal attribute).
+        self._network = nx.parse_adjlist(self.network)
+
+        # Generate "request_input_data_size_bytes".
         mean, std = self.request_input_data_size_bytes_mean_std
         min_val, max_val = self.request_input_data_size_bytes_range
-
         # Normalized bounds for truncnorm.
         #
         # See: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.truncnorm.html
         a = (min_val - mean) / std
         b = (max_val - mean) / std
-
         self.request_input_data_size_bytes = int(scipy.stats.truncnorm.rvs(a, b, loc=mean, scale=std, random_state=rng))
 
-    def generate_request_memory(self, rng: np.random.Generator) -> None:
-        """Generate request memory demand uniformly from configured range.
-
-        Memory demand (in MB) for a request.
-
-
-        Args:
-            rng: Random number generator
-        """
-        if self.request_memory_mb is not None:
-            return  # Already generated
-
+        # Generate "request_memory_mb".
         min_mem, max_mem = self.request_memory_mb_range
         self.request_memory_mb = int(rng.integers(min_mem, high=max_mem, endpoint=True))
 
-    def calculate_maximum_concurrency(self) -> None:
-        """Calculate maximum concurrency for each agent based on RAM and memory demand.
+        # Calculate maximum_concurrency for each node.
+        for node in self._network.nodes:
+            max_concurrency = int(np.floor((self.node_ram_gb[node] * 1024) / self.request_memory_mb))
+            self.perfmodel_params[node]["maximum_concurrency"] = max_concurrency
 
-        Maximum concurrency.
-
-        Required values: request_memory_mb and node_ram_gb.
-
-        Requires:
-            - request_memory_mb must be set
-            - node_ram_gb must be populated for all agents
-            - perfmodel_params must be initialized for all agents
-
-        Raises:
-            ValueError: If required values are not set
-        """
-        if self.request_memory_mb is None:
-            raise ValueError("request_memory_mb must be generated before calculating concurrency")
-
-        agents = self.get_agents()
-
-        for agent in agents:
-            if agent not in self.node_ram_gb:
-                raise ValueError(f"node_ram_gb not set for agent {agent}")
-            if agent not in self.perfmodel_params:
-                raise ValueError(f"perfmodel_params not set for agent {agent}")
-
-            max_concurrency = float(np.floor((self.node_ram_gb[agent] * 1024) / self.request_memory_mb))
-            self.perfmodel_params[agent].maximum_concurrency = max_concurrency
-
-    def generate_bandwidth_trace(self, rng: np.random.Generator) -> None:
-        """Generate bandwidth trace, based on the configured method defined for
-        each link.
-
-        Args:
-            rng: Random number generator
-        """
-        # Load base trace if provided.
+        # Generate bandwidth trace.
         if self.bandwidth_base_trace_path:
+            # Load base trace if provided.
             df = pd.read_csv(self.bandwidth_base_trace_path)
             base_trace = df["Throughput"].to_numpy()
         else:
@@ -331,11 +326,23 @@ class DFaaSConfig:
         # Count how many links want to generate the bandwidth trace.
         generated = 0
         random_noise, target_mean = None, None
-        for src in self.network_links:
-            for dest in self.network_links[src]:
-                params = self.network_links[src][dest]
+        for u, v in self._network.edges():
+            # Search the link in self.network_links. We may swap (u, v) since
+            # the graph is undirected.
+            params = None
+            try:
+                params = self.network_links[u][v]
+            except KeyError:
+                pass
+            if not params:
+                try:
+                    params = self.network_links[v][u]
+                    u, v = v, u
+                except KeyError:
+                    raise KeyError(f"network_links: undirected link ({u}, {v}) not found")
 
-                if params.bandwidth_mbps_method == "generated":
+            match params["bandwidth_mbps_method"]:
+                case "generated":
                     generated += 1
 
                     # FIXME: We currently support only one random noise factor
@@ -344,228 +351,115 @@ class DFaaSConfig:
                     #
                     # The same also for the mean.
                     if not random_noise:
-                        random_noise = params.bandwidth_random_noise
-                    elif random_noise != params.bandwidth_random_noise:
+                        random_noise = params["bandwidth_mbps_random_noise"]
+                    elif random_noise != params["bandwidth_mbps_random_noise"]:
                         raise ValueError(
-                            "bandwidth_mbps_random_noise must be the same value for all links (known limitation)"
+                            f"network_links: undirected link ({u}, {v}): bandwidth_mbps_random_noise must be the same value for all links (known limitation)"
                         )
                     if not target_mean:
-                        target_mean = params.bandwidth_mbps_mean
-                    elif target_mean != params.bandwidth_mbps_mean:
-                        raise ValueError("bandwidth_mbps_mean must be the same value for all links (known limitation)")
+                        target_mean = params["bandwidth_mbps_mean"]
+                    elif target_mean != params["bandwidth_mbps_mean"]:
+                        raise ValueError(
+                            f"network_links: undirected link ({u}, {v}): bandwidth_mbps_mean must be the same value for all links (known limitation)"
+                        )
 
-                elif not params.bandwidth_mbps:
+                case "static-single":
                     # This link has set the "static" method and provided just a
                     # single value: expand to a static trace.
-                    params.bandwidth_mbps = np.full(self.max_steps, fill_value=params.bandwidth_mbps_mean).tolist()
+                    params["bandwidth_mbps"] = np.full(
+                        self.max_steps, fill_value=params["bandwidth_mbps_mean"]
+                    ).tolist()
 
-                else:
+                case "static-trace":
                     # This link has set manually a complete trace. Use as is.
                     pass
 
         if generated > 0:
-            if not base_trace:
+            if not self.bandwidth_base_trace_path:
                 raise ValueError("bandwidth_base_trace_path needed but not given")
+            if base_trace is None:
+                raise ValueError("base_trace should not be none")
 
-            # Generate the traces.
+            # Generate the bandwidth traces.
             traces = generate_traces(
                 base_trace=base_trace,
                 num_traces=generated,
                 max_len=self.max_steps,
                 random_noise=random_noise,
-                seed=self.seed,
+                seed=self.build_seed,
                 target_mean=target_mean,
             )
 
             i = 0
             # Now assign a trace to each link.
-            for src in self.network_links:
-                for dest in self.network_links[src]:
-                    params = self.network_links[src][dest]
+            for u, v in self._network.edges():
+                # Search the link in self.network_links. We may swap (u, v) since
+                # the graph is undirected.
+                params = None
+                try:
+                    params = self.network_links[u][v]
+                except KeyError:
+                    pass
+                if not params:
+                    try:
+                        params = self.network_links[v][u]
+                        u, v = v, u
+                    except KeyError:
+                        raise KeyError(f"network_links: undirected link ({u}, {v}) not found")
 
-                    if params.bandwidth_mbps_method == "generated":
-                        params.bandwidth_mbps = traces[i]
-                        i += 1
+                if params["bandwidth_mbps_method"] == "generated":
+                    # Force integer values, not floating point values.
+                    params["bandwidth_mbps"] = np.round(traces[i]).astype(int)
+                    i += 1
 
-    def initialize_defaults(self) -> None:
-        """Initialize default values for node resources, performance params, and network links.
+        return DFaaS(config=self)
 
-        Sets:
-            - Default node RAM (4 GB per agent) if not provided
-            - Default performance model parameters if not provided
-            - Default network link parameters for all edges if not provided
-        """
-        agents = self.get_agents()
-        network = nx.parse_adjlist(self.network)
-
-        # RAM (in GB) per each node.
-        for agent in agents:
-            if agent not in self.node_ram_gb:
-                self.node_ram_gb[agent] = 4.0
-
-        # Initialize perfmodel_params if not present in the config.
-        if not self.perfmodel_params:
-            default_params = PerfModelParams(
-                warm_service_time=0.5,
-                cold_service_time=1.25,
-                idle_time_before_kill=60.0,
-                maximum_concurrency=0.0,  # Will be calculated later
-            )
-            self.perfmodel_params = {agent: default_params for agent in agents}
-        else:
-            # Ensure all agents have perfmodel_params
-            default_params = PerfModelParams(
-                warm_service_time=0.5, cold_service_time=1.25, idle_time_before_kill=60.0, maximum_concurrency=0.0
-            )
-            for agent in agents:
-                if agent not in self.perfmodel_params:
-                    self.perfmodel_params[agent] = default_params
-
-        # Default values for the network link parameters.
-        for u, v in network.edges():
-            self.network_links.setdefault(u, {})
-            if v not in self.network_links[u]:
-                self.network_links[u][v] = NetworkLinkConfig()
-
-    def generate_all(self, rng: np.random.Generator) -> None:
-        """Generate all configuration values in the correct order.
-
-        This method orchestrates the generation of all derived and random values:
-        1. Initialize defaults for nodes and links
-        2. Generate request characteristics (data size and memory)
-        3. Calculate maximum concurrency based on resources
-        4. Generate bandwidth traces for all network links
-        5. Validate the complete configuration
-
-        Args:
-            rng: Random number generator
-        """
-        # Step 1: Initialize defaults
-        self.initialize_defaults()
-
-        # Step 2: Generate request characteristics
-        self.generate_request_input_data_size(rng)
-        self.generate_request_memory(rng)
-
-        # Step 3: Calculate derived values
-        self.calculate_maximum_concurrency()
-
-        # Step 4: Generate bandwidth traces for all network links
-        self.generate_bandwidth_trace(rng)
-
-        # Step 5: Validate everything
-        self.validate()
-
-    def validate(self) -> None:
-        """Validate the complete configuration for consistency.
-
-        Raises:
-            ValueError: If configuration is invalid or inconsistent
-        """
-
-        # Parse network to get agents.
-        network = nx.parse_adjlist(self.network)
-        agents = list(network.nodes)
-
-        # Validate perfmodel_params has entries for all agents.
-        for agent in agents:
-            if agent not in self.perfmodel_params:
-                raise ValueError(f"Agent {agent!r} missing in perfmodel_params")
-
-        # Validate network_links for all edges.
-        for u, v in network.edges():
-            if u not in self.network_links:
-                raise ValueError(f"Source node {u!r} missing in network_links")
-            if v not in self.network_links[u]:
-                raise ValueError(f"Link ({u}, {v}) missing in network_links")
-
-            self.network_links[u][v].validate(max_steps=self.max_steps)
-
-        # Validate node_ram_gb.
-        for agent in agents:
-            if agent in self.node_ram_gb:
-                if self.node_ram_gb[agent] <= 0:
-                    raise ValueError(f"Node RAM for {agent!r} must be positive")
-
-        # Validate generated values if present.
-        if self.request_input_data_size_bytes is not None:
-            min_size, max_size = self.request_input_data_size_bytes_range
-            if not (min_size <= self.request_input_data_size_bytes <= max_size):
-                raise ValueError(
-                    f"request_input_data_size_bytes ({self.request_input_data_size_bytes}) "
-                    f"outside range [{min_size}, {max_size}]"
-                )
-
-        if self.request_memory_mb is not None:
-            min_mem, max_mem = self.request_memory_mb_range
-            if not (min_mem <= self.request_memory_mb <= max_mem):
-                raise ValueError(f"request_memory_mb ({self.request_memory_mb}) outside range [{min_mem}, {max_mem}]")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert configuration to dictionary format.
-
-        Returns:
-            Dictionary representation compatible with original dict-based config
-        """
+    def to_dict(self):
+        """Convert DFaaSConfig to a dict, safe to serialize as JSON or YAML."""
         result = {}
 
-        # Simple fields.
-        result["network"] = self.network
-        result["max_steps"] = self.max_steps
-        result["input_rate_method"] = self.input_rate_method
-        result["input_rate_same_method"] = self.input_rate_same_method
-        result["evaluation"] = self.evaluation
+        # Iterate over all object's attributes (only variables).
+        for attr, value in vars(self).items():
+            if attr.startswith("_"):
+                continue
 
-        # Convert network_links.
-        result["network_links"] = {}
-        for src, dests in self.network_links.items():
-            result["network_links"][src] = {}
-            for dest, config in dests.items():
-                result["network_links"][src][dest] = config.to_dict()
+            match attr:
+                case "bandwidth_base_trace_path":
+                    # Must convert Path to plain string.
+                    result[attr] = value.as_posix()
 
-        # Convert perfmodel_params.
-        result["perfmodel_params"] = {}
-        for agent, params in self.perfmodel_params.items():
-            result["perfmodel_params"][agent] = params.to_dict()
+                case "network_links":
+                    # Must convert manually bandwidth_mbps (NumPy arrays) to
+                    # plain lists.
+                    result[attr] = deepcopy(value)
+                    for src, dests in result[attr].items():
+                        for dst, params in dests.items():
+                            params["bandwidth_mbps"] = params["bandwidth_mbps"].tolist()
 
-        # Request configuration.
-        result["request_input_data_size_bytes_range"] = self.request_input_data_size_bytes_range
-        result["request_input_data_size_bytes_mean_std"] = self.request_input_data_size_bytes_mean_std
-        result["request_memory_mb_range"] = self.request_memory_mb_range
-
-        # Node resources.
-        if self.node_ram_gb:
-            result["node_ram_gb"] = self.node_ram_gb
-
-        # Generated values.
-        if self.request_input_data_size_bytes is not None:
-            result["request_input_data_size_bytes"] = self.request_input_data_size_bytes
-
-        if self.request_memory_mb is not None:
-            result["request_memory_mb"] = self.request_memory_mb
+                case _:
+                    result[attr] = value
 
         return result
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "DFaaSConfig":
-        """Create DFaaSConfig from dictionary.
+    def from_dict(cls, config_dict):
+        """Create a DFaaSConfig from a dict."""
+        obj = cls()
 
-        Args:
-            d: Dictionary with configuration values
+        if config_dict is None:
+            return obj
 
-        Returns:
-            DFaaSConfig instance
-        """
-        # Extract fields that match the dataclass.
-        kwargs = {}
+        # Iterate over given dictionary and assign to the DFaaSConfig.
+        # Validation will be done on build().
+        for key, value in config_dict:
+            if key not in vars(obj):
+                raise KeyError(f"Unrecognized key {key!r}")
 
-        for field_name in cls.__dataclass_fields__:
-            if field_name in d:
-                kwargs[field_name] = d[field_name]
+            match key:
+                case "bandwidth_base_trace_path":
+                    setattr(obj, key, Path(value))
 
-        return cls(**kwargs)
+                case _:
+                    setattr(obj, key, value)
 
-    def get_agents(self) -> List[str]:
-        """Get list of agent IDs from the network configuration."""
-        network = nx.parse_adjlist(self.network)
-        return list(network.nodes)
+        return obj
