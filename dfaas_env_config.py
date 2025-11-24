@@ -123,12 +123,12 @@ class DFaaSConfig:
         # The parameters are:
         #
         # - warm_service_time: Service time for warm function invocation
-        # in seconds.
+        # in milliseconds.
         #
-        # - cold_service_time: Cold service time in seconds.
+        # - cold_service_time: Cold service time in milliseconds.
         #
         # - idle_time_before_kill: Time before idle container is killed in
-        # seconds.
+        # milliseconds.
         #
         # - maximum_concurrency: Maximum number of concurrent requests a node
         # can handle.
