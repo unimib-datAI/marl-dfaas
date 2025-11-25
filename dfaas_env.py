@@ -775,7 +775,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         result["callbacks_ok"] = True
 
 
-def _run_one_episode(config, seed, verbose=False):
+def _run_one_episode(config, seed, verbose=False, output_dir=Path("results")):
     """Run a test episode of the DFaaS environment."""
     from dfaas_env_config import DFaaSConfig
 
@@ -784,7 +784,7 @@ def _run_one_episode(config, seed, verbose=False):
     env = env_config.build()
 
     # Save the environment configuration to disk as YAML file.
-    env_config_path = Path(f"dfaas_episode_{seed}_config.yaml")
+    env_config_path = output_dir / f"dfaas_episode_{seed}_config.yaml"
     env_config_path.write_text(yaml.dump(env_config.to_dict(), sort_keys=True, indent=4))
     print(f"Episode configuration saved to {env_config_path.as_posix()!r}")
 
@@ -823,9 +823,9 @@ def _run_one_episode(config, seed, verbose=False):
 
     # Save the DataFrame as compressed CSV.
     df = pd.DataFrame(step_data)
-    episode_data_name = f"dfaas_episode_{seed}_stats.csv.gz"
-    df.to_csv(episode_data_name, index=False, compression="gzip")
-    print(f"Episode statistics saved to {episode_data_name!r}")
+    episode_data_path = output_dir / f"dfaas_episode_{seed}_stats.csv.gz"
+    df.to_csv(episode_data_path, index=False, compression="gzip")
+    print(f"Episode statistics saved to {episode_data_path.as_posix()!r}")
 
 
 def _main():
@@ -836,12 +836,17 @@ def _main():
 
     desc = "Run a single DFaaS episode with random actions."
 
-    parser = argparse.ArgumentParser(prog="dfaas_env", description=desc)
+    parser = argparse.ArgumentParser(
+        prog="dfaas_env", description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
 
     parser.add_argument("--env-config", type=Path, help="Override default environment configuration (YAML file)")
     parser.add_argument("--build-seed", type=int, help="Override default seed for DFaaSConfig")
     parser.add_argument("--seed", type=int, default=42, help="Override default seed for DFaaS")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument(
+        "--output-dir", type=Path, help="Override output directory where .csv.gz and .yaml files are saved"
+    )
 
     args = parser.parse_args()
 
@@ -853,7 +858,7 @@ def _main():
     if args.build_seed is not None:
         config["build_seed"] = args.build_seed
 
-    _run_one_episode(config, args.seed, args.verbose)
+    _run_one_episode(config, args.seed, args.verbose, args.output_dir)
 
 
 if __name__ == "__main__":
