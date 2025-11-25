@@ -75,7 +75,7 @@ kiwisolver==1.4.7
 lazy_loader==0.4
 loro==1.8.1
 lz4==4.3.3
-marimo==0.17.0
+marimo==0.18.0
 Markdown==3.9
 markdown-it-py==3.0.0
 MarkupSafe==3.0.2
