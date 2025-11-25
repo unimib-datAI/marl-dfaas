@@ -115,6 +115,17 @@ class DFaaSConfig:
         self.request_memory_mb_range = [128, 1024]
         self.request_memory_mb = None
 
+        # Warm and cold service time (in ms) for the single function. The
+        # values "warm_service_time" and "cold_service_time" are extracted
+        # uniformly from the given (inclusive) range. On extraction is guarantee
+        # that warm_service_time < cold_service_time.
+        #
+        # To have a single value, just put the range to [min, min].
+        self.warm_service_time_range = [100, 500]
+        self.cold_service_time_range = [250, 750]
+        self.warm_service_time = None
+        self.cold_service_time = None
+
         # RAM capacity in GB for each node.
         self.node_ram_gb = {"node_0": 4, "node_1": 4}
 
@@ -133,11 +144,14 @@ class DFaaSConfig:
         # - maximum_concurrency: Maximum number of concurrent requests a node
         # can handle.
         #
-        # Note: if maximum_concurrency is None, the value will be calculated
-        # based on request_memory_mb and node_ram_gb.
+        # Note: the parameters (except idle_time_before_kill) should be set to
+        # None to allow to be calculated on build(). For maximum_concurrency,
+        # the calculated value considers request_memory_mb and node_ram_gb. For
+        # warm/cold_service_time, the value considers
+        # warm/cold_service_time_range.
         self._perfmodel_params = {
-            "warm_service_time": 1,
-            "cold_service_time": 2,
+            "warm_service_time": None,
+            "cold_service_time": None,
             "idle_time_before_kill": 30,
             "maximum_concurrency": None,
         }
@@ -149,8 +163,10 @@ class DFaaSConfig:
         # to reset the environment!
         self.build_seed = 42
 
-    def validate(self):
+    def validate(self, skip_generated=False):
         """Validates configuration. Automatically called by build().
+
+        If skip_generated is True, the generated config values are skipped.
 
         Raise ValueError, TypeError or KeyError on validation error."""
         # self.max_steps validation.
@@ -180,8 +196,9 @@ class DFaaSConfig:
             raise ValueError("request_input_data_size_bytes_mean_std: std must be non negative")
 
         # self.request_input_data_size_bytes validation.
-        if self.request_input_data_size_bytes is None:
-            raise TypeError("request_input_data_size_bytes should not be None")
+        if not skip_generated:
+            if self.request_input_data_size_bytes is None:
+                raise TypeError("request_input_data_size_bytes should not be None")
 
         # self.request_memory_mb_range validation.
         if len(self.request_memory_mb_range) != 2:
@@ -193,9 +210,40 @@ class DFaaSConfig:
         if self.request_memory_mb_range[0] > self.request_memory_mb_range[1]:
             raise ValueError("request_memory_mb_range: min > max")
 
-        # self.request_memory_mb validation.
-        if self.request_memory_mb is None:
-            raise TypeError("request_memory_mb should not be None")
+        if not skip_generated:
+            # self.request_memory_mb validation.
+            if self.request_memory_mb is None:
+                raise TypeError("request_memory_mb should not be None")
+
+        # self.warm_service_time_range validation.
+        if len(self.warm_service_time_range) != 2:
+            raise ValueError("warm_service_time_range must be [min, max]")
+        if self.warm_service_time_range[0] < 0:
+            raise ValueError("warm_service_time_range: min must be non negative")
+        if self.warm_service_time_range[1] < 0:
+            raise ValueError("warm_service_time_range: max must be non negative")
+        if self.warm_service_time_range[0] > self.warm_service_time_range[1]:
+            raise ValueError("warm_service_time_range: min > max")
+
+        if not skip_generated:
+            # self.warm_service_time validation.
+            if self.warm_service_time is None:
+                raise TypeError("warm_service_time should not be None")
+
+        # self.cold_service_time_range validation.
+        if len(self.cold_service_time_range) != 2:
+            raise ValueError("cold_service_time_range must be [min, max]")
+        if self.cold_service_time_range[0] < 0:
+            raise ValueError("cold_service_time_range: min must be non negative")
+        if self.cold_service_time_range[1] < 0:
+            raise ValueError("cold_service_time_range: max must be non negative")
+        if self.cold_service_time_range[0] > self.cold_service_time_range[1]:
+            raise ValueError("cold_service_time_range: min > max")
+
+        if not skip_generated:
+            # self.cold_service_time validation.
+            if self.cold_service_time is None:
+                raise TypeError("cold_service_time should not be None")
 
         # Validate perfmodel_params for all nodes.
         perfmodel_keys = set(self._perfmodel_params.keys())
@@ -209,15 +257,24 @@ class DFaaSConfig:
             if perfmodel_keys != node_perfmodel_keys:
                 raise ValueError(f"perfmodel_params: node {node!r} has different set of keys!")
 
+            if skip_generated:
+                # Skip single key check for now, even if idle_time_before_kill
+                # is not generated.
+                continue
+
             # All required keys have the right values?
             warm_sv_time = self.perfmodel_params[node]["warm_service_time"]
             cold_sv_time = self.perfmodel_params[node]["cold_service_time"]
             idle_time = self.perfmodel_params[node]["idle_time_before_kill"]
             max_conc = self.perfmodel_params[node]["maximum_concurrency"]
+            if warm_sv_time is None:
+                raise TypeError(f"perfmodel_params: node {node!r}: warm_service_time cannot be None")
             if warm_sv_time <= 0:
                 raise ValueError(
                     f"perfmodel_params: node {node!r}: warm_service_time must be positive, got {warm_sv_time}"
                 )
+            if cold_sv_time is None:
+                raise TypeError(f"perfmodel_params: node {node!r}: cold_service_time cannot be None")
             if cold_sv_time <= 0:
                 raise ValueError(
                     f"perfmodel_params: node {node!r}: cold_service_time must be positive, got {cold_sv_time}"
@@ -280,10 +337,14 @@ class DFaaSConfig:
                 )
             if link_params["bandwidth_mbps_method"] not in ["static-single", "static-trace", "generated"]:
                 raise ValueError(f"network_links: undirected link ({u}, {v}): unrecognized bandwidth_mbps_method")
-            if link_params["bandwidth_mbps"] is None:
-                raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps should not be None")
-            if len(link_params["bandwidth_mbps"]) != self.max_steps:
-                raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps trace has wrong length")
+
+            if not skip_generated:
+                if link_params["bandwidth_mbps"] is None:
+                    raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps should not be None")
+                if len(link_params["bandwidth_mbps"]) != self.max_steps:
+                    raise ValueError(
+                        f"network_links: undirected link ({u}, {v}): bandwidth_mbps trace has wrong length"
+                    )
 
             seen.add((u, v), (v, u))
 
@@ -291,6 +352,10 @@ class DFaaSConfig:
         """Build the DFaaS environment from this configuration.
 
         Return an initialized (but not started) DFaaS environment."""
+        # Run a first validation skipping the generated values, since we
+        # generate these now.
+        self.validate(skip_generated=True)
+
         rng = np.random.default_rng(seed=self.build_seed)
 
         # Generate NetworkX graph (internal attribute).
@@ -310,8 +375,24 @@ class DFaaSConfig:
         min_mem, max_mem = self.request_memory_mb_range
         self.request_memory_mb = int(rng.integers(min_mem, high=max_mem, endpoint=True))
 
+        # Generate "warm_service_time" and "cold_service_time".
+        # We need to guarantee warm_service_time < cold_service_time.
+        min_warm, max_warm = self.warm_service_time_range
+        min_cold, max_cold = self.cold_service_time_range
+        while True:
+            warm_service_time = int(rng.integers(min_warm, high=max_warm, endpoint=True))
+            cold_service_time = int(rng.integers(min_cold, high=max_cold, endpoint=True))
+            if warm_service_time <= cold_service_time:
+                self.warm_service_time = warm_service_time
+                self.cold_service_time = cold_service_time
+                break
+
         # Calculate maximum_concurrency for each node.
         for node in self._network.nodes:
+            # Set warm and cold service time for each node.
+            self.perfmodel_params[node]["warm_service_time"] = self.warm_service_time
+            self.perfmodel_params[node]["cold_service_time"] = self.cold_service_time
+
             max_concurrency = int(np.floor((self.node_ram_gb[node] * 1024) / self.request_memory_mb))
             self.perfmodel_params[node]["maximum_concurrency"] = max_concurrency
 
@@ -412,6 +493,8 @@ class DFaaSConfig:
                     params["bandwidth_mbps"] = np.round(traces[i]).astype(int)
                     i += 1
 
+        # Create and return the DFaaS env. Note in its init method it will
+        # validate the config.
         return DFaaS(config=self)
 
     def to_dict(self):
