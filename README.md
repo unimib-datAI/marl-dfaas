@@ -120,6 +120,33 @@ experiment. To configure it, use the **DFaaSConfig** class from
 pattern, and you can call the `build()` method to obtain a fully working DFaaS
 environment. For more details, refer to the DFaaSConfig's source code.
 
+The environment structure is largely inspired by the work "QoS-aware offloading
+policies for serverless functions in the Cloud-to-Edge continuum" by G. Russo
+Russo, D. Ferrarelli, D. Pasquali et al. DOI:
+https://doi.org/10.1016/j.future.2024.02.019. See Section 6.1 for more
+information.
+
+There are some differences compared to the work of Russo Russo et al.:
+
+1. In DFaaS, only edge nodes are present,
+2. In DFaaS, the network bandwidth for each link follows a trace that can be
+   generated from the `dataset/5G_trace.csv` file,
+3. In DFaaS, there is only a single function,
+4. The DFaaS environment is based on groups of function invocations to be
+   observed and acted upon, while in the cited article nodes can make decisions
+   for each individual function invocation.
+
+You can run an example DFaaS episode by executing the `dfaas_env.py` file as a
+script:
+
+```console
+$ python dfaas_env.py
+Episode configuration saved to 'results/dfaas_episode_42_config.yaml'
+Episode statistics saved to 'results/dfaas_episode_42_stats.csv.gz'
+```
+
+Run `dfaas_env.py` with `--help` option to see available options.
+
 ## How to run the experiments
 
 > [!WARNING]
