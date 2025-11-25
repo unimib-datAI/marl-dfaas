@@ -1,0 +1,2 @@
+network: ["node_0 node_1", "node_1"]
+input_rate_method: "synthetic-linear-growth"

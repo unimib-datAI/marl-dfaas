@@ -11,7 +11,7 @@
 #   │        │         │        │     
 #   └────────┘         └────────┘     
 #                                     
-#network = ["node_0 node_1 node_2", "node_1 node_2"]
+#network: ["node_0 node_1 node_2", "node_1 node_2"]
 
 #              ┌────────┐             
 #              │        │             
@@ -26,7 +26,6 @@
 #    │        │         │        │    
 #    └────────┘         └────────┘    
 # 
-network = ["node_0 node_1 node_2", "node_1 node_0", "node_2 node_0"]
+network: ["node_0 node_1 node_2", "node_1 node_0", "node_2 node_0"]
 
-input_rate_same_method = true
-input_rate_method = "synthetic-sinusoidal"
+input_rate_method: "synthetic-sinusoidal"

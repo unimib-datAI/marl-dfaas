@@ -28,7 +28,20 @@ class DFaaSConfig:
     def __init__(self):
         """Initializes a DFaaSConfig instance with default values."""
 
+        # Implementation note: when you add a new config parameter, make sure to
+        # add the default values here (inside a _X attribute) and then update
+        # validate() and build().
+        #
+        # If the config parameter depends on some other values (like network
+        # nodes), you may want also to update from/to_dict() and build(). See
+        # how self.network_links is implemented for more information.
+
         # Network structure given as Networkx's adjacency list.
+        #
+        # If you changhe this, you may want also to update "perfmodel_params",
+        # "network_links" and "node_ram_gb". Note: if you use from_dict() and do
+        # not provide these parameters, they will be generated with default
+        # values.
         self.network = ["node_0 node_1"]
 
         # Internal network representation as NetworkX graph (field used
@@ -129,8 +142,11 @@ class DFaaSConfig:
         self.warm_service_time = None
         self.cold_service_time = None
 
+        # Default RAM capacity in GB for a node.
+        self._node_ram_gb_default = 4
+
         # RAM capacity in GB for each node.
-        self.node_ram_gb = {"node_0": 4, "node_1": 4}
+        self.node_ram_gb = {node: self._node_ram_gb_default for node in self._network.nodes}
 
         # Performance model default parameters for a node in the network.
         #
@@ -172,6 +188,9 @@ class DFaaSConfig:
         If skip_generated is True, the generated config values are skipped.
 
         Raise ValueError, TypeError or KeyError on validation error."""
+        # Generate the network object, it will be used to check nodes and edges.
+        self._network = nx.parse_adjlist(self.network)
+
         # self.max_steps validation.
         if not isinstance(self.max_steps, int):
             raise TypeError(f"max_steps must be int, got {type(self.max_steps)}")
@@ -249,6 +268,8 @@ class DFaaSConfig:
                 raise TypeError("cold_service_time should not be None")
 
         # Validate perfmodel_params for all nodes.
+        if self.perfmodel_params is None:
+            raise ValueError("network_links should not be None")
         perfmodel_keys = set(self._perfmodel_params.keys())
         for node in self._network.nodes:
             # Node exists?
@@ -296,6 +317,8 @@ class DFaaSConfig:
                 )
 
         # Validate node_ram_gb for all nodes.
+        if self.node_ram_gb is None:
+            raise ValueError("node_ram_gb should not be None")
         for node in self._network.nodes:
             # Node exists?
             if node not in self.node_ram_gb:
@@ -306,6 +329,8 @@ class DFaaSConfig:
                 raise ValueError(f"node_ram_gb: node {node!r}: must be positive, got {self.node_ram_gb[node]}")
 
         # Validate network_links for all edges.
+        if self.network_links is None:
+            raise ValueError("network_links should not be None")
         seen = {}
         link_params_keys = set(self._network_links_params.keys())
         for u, v in self._network.edges():
@@ -351,18 +376,39 @@ class DFaaSConfig:
 
             seen.add((u, v), (v, u))
 
+        if self.build_seed is None:
+            raise TypeError("build_seed should not be None")
+
     def build(self):
         """Build the DFaaS environment from this configuration.
 
         Return an initialized (but not started) DFaaS environment."""
+        # Generate NetworkX graph (internal attribute).
+        self._network = nx.parse_adjlist(self.network)
+
+        # network_links may be none if the user give an update network but no
+        # network_links.
+        if self.network_links is None:
+            self.network_links = {}
+            for u, v in self._network.edges:
+                self.network_links.setdefault(u, {})
+                self.network_links[u][v] = self._network_links_params.copy()
+
+        # Same as network_links, see above comment.
+        if self.perfmodel_params is None:
+            self.perfmodel_params = {}
+            for u in self._network.nodes:
+                self.perfmodel_params[u] = self._perfmodel_params.copy()
+
+        # Same as network_links, see above comment.
+        if self.node_ram_gb is None:
+            self.node_ram_gb = {u: self._node_ram_gb_default for u in self._network.nodes}
+
         # Run a first validation skipping the generated values, since we
         # generate these now.
         self.validate(skip_generated=True)
 
         rng = np.random.default_rng(seed=self.build_seed)
-
-        # Generate NetworkX graph (internal attribute).
-        self._network = nx.parse_adjlist(self.network)
 
         # Generate "request_input_data_size_bytes".
         mean, std = self.request_input_data_size_bytes_mean_std
@@ -501,7 +547,12 @@ class DFaaSConfig:
         return DFaaS(config=self)
 
     def to_dict(self):
-        """Convert DFaaSConfig to a dict, safe to serialize as JSON or YAML."""
+        """Convert DFaaSConfig to a dict, safe to serialize as JSON or YAML.
+
+        WARNING: if you created a modified DFaaSConfig class, eg. with
+        from_dict(), make sure to export as dict AFTER you call build(), because
+        build() updates/generates some configuration parameters! Call to_dict()
+        without build() only if you want the default configuration."""
         result = {}
 
         # Iterate over all object's attributes (only variables).
@@ -539,6 +590,10 @@ class DFaaSConfig:
 
         # Iterate over given dictionary and assign to the DFaaSConfig.
         # Validation will be done on build().
+        network_changed = False
+        perfmodel_params_changed = False
+        network_links_changed = False
+        node_ram_gb_changed = False
         for key, value in config_dict.items():
             if key not in vars(obj):
                 raise KeyError(f"Unrecognized key {key!r}")
@@ -547,8 +602,40 @@ class DFaaSConfig:
                 case "bandwidth_base_trace_path":
                     setattr(obj, key, Path(value))
 
+                case "network":
+                    network_changed = True
+                    setattr(obj, key, value)
+
+                case "network_links":
+                    network_links_changed = True
+                    setattr(obj, key, value)
+
+                case "perfmodel_params_changed":
+                    perfmodel_params_changed = True
+                    setattr(obj, key, value)
+
+                case "node_ram_gb":
+                    node_ram_gb_changed = False
+                    setattr(obj, key, value)
+
                 case _:
                     setattr(obj, key, value)
+
+        # If network has changed, also the nodes are changed. We need to make
+        # sure also perfmodel_params and network_links have been updated,
+        # otherwise they have just the default nodes/links.
+        #
+        # In case the updated params are not given, set to None and they will be
+        # automatically generated with default values.
+        if network_changed:
+            if not perfmodel_params_changed:
+                obj.perfmodel_params = None
+
+            if not network_links_changed:
+                obj.network_links = None
+
+            if not node_ram_gb_changed:
+                obj.node_ram_gb = None
 
         return obj
 

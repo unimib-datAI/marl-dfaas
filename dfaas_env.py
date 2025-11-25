@@ -850,7 +850,10 @@ def _main():
     parser.add_argument("--seed", type=int, default=42, help="Override default seed for DFaaS")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument(
-        "--output-dir", type=Path, help="Override output directory where .csv.gz and .yaml files are saved"
+        "--output-dir",
+        type=Path,
+        default=Path("results"),
+        help="Override output directory where .csv.gz and .yaml files are saved",
     )
 
     args = parser.parse_args()

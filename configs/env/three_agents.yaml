@@ -11,6 +11,5 @@
 #   │        │         │        │     
 #   └────────┘         └────────┘     
 #                                     
-network = ["node_0 node_1 node_2", "node_1 node_2"]
-input_rate_same_method = true
-input_rate_method = "synthetic-sinusoidal"
+network: ["node_0 node_1 node_2", "node_1 node_2"]
+input_rate_method: "synthetic-sinusoidal"

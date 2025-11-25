@@ -1,0 +1,2 @@
+# All other values are keep default.
+network: ["node_0 node_1"]
