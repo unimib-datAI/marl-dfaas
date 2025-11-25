@@ -1,10 +1,13 @@
 """Configuration module for the DFaaS multi-agent environment.
 
-This module provided DFaaSConfig, a class that follows the build pattern to
+This module provides DFaaSConfig, a class that follows the build pattern to
 create, validate and enrich the configuration for the DFaaS environment.
 
 I took inspiration from the PPOConfig class defined in Ray RLLib (2.X old
 stack).
+
+This module can also be called as script to read/write configurations. Call it
+with "--help" flag for more information.
 """
 
 from pathlib import Path
@@ -548,3 +551,36 @@ class DFaaSConfig:
                     setattr(obj, key, value)
 
         return obj
+
+
+def _main():
+    """Main entry point for dfaas_env_config script."""
+    # Import these modules only if this module is called as main script.
+    import argparse
+    import yaml
+    from datetime import datetime
+
+    desc = "Write a DFaaSConfig configuration."
+    parser = argparse.ArgumentParser(
+        prog="dfaas_env_config", description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--output", type=Path, default=Path("configs/env/default.yaml"), help="Override output file path"
+    )
+
+    args = parser.parse_args()
+
+    config_dump = yaml.dump(DFaaSConfig().to_dict(), sort_keys=True, indent=4)
+    now = datetime.now().astimezone().isoformat()
+    class_filename = Path(__file__).name
+
+    with args.output.open(mode="w") as out:
+        print("# Automatically generated default DFaaSConfig configuration.", file=out)
+        print(f"# See {class_filename!r} for more information.", file=out)
+        print(f"# Generated on {now}", file=out)
+        print("", file=out)
+        out.write(config_dump)
+
+
+if __name__ == "__main__":
+    _main()
