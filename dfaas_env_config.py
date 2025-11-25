@@ -517,7 +517,9 @@ class DFaaSConfig:
                     result[attr] = deepcopy(value)
                     for src, dests in result[attr].items():
                         for dst, params in dests.items():
-                            params["bandwidth_mbps"] = params["bandwidth_mbps"].tolist()
+                            # "bandwidth_mbps" may be not yet generated/set!
+                            if params["bandwidth_mbps"] is not None:
+                                params["bandwidth_mbps"] = params["bandwidth_mbps"].tolist()
 
                 case _:
                     result[attr] = value
@@ -534,7 +536,7 @@ class DFaaSConfig:
 
         # Iterate over given dictionary and assign to the DFaaSConfig.
         # Validation will be done on build().
-        for key, value in config_dict:
+        for key, value in config_dict.items():
             if key not in vars(obj):
                 raise KeyError(f"Unrecognized key {key!r}")
 
