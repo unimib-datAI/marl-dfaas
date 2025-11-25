@@ -776,7 +776,14 @@ class DFaaSCallbacks(DefaultCallbacks):
 
 
 def _run_one_episode(config, seed, verbose=False, output_dir=Path("results")):
-    """Run a test episode of the DFaaS environment."""
+    """Run a single DFaaS episode with random actions.
+
+    The DFaaS env will be created using the given config and seed.
+
+    If verbose is True, a log will be printed for each environment step.
+
+    The output_dir is a directory where the .csv.gz (environment metrics) and
+    .yaml (configuration) files will be saved."""
     from dfaas_env_config import DFaaSConfig
 
     # Create the env config and then the environment.
@@ -829,13 +836,11 @@ def _run_one_episode(config, seed, verbose=False, output_dir=Path("results")):
 
 
 def _main():
-    """Main entry point for running a single DFaaS episode with random
-    actions."""
+    """Main entry point for dfaas_env script."""
     # Import these modules only if this module is called as main script.
     import argparse
 
     desc = "Run a single DFaaS episode with random actions."
-
     parser = argparse.ArgumentParser(
         prog="dfaas_env", description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
