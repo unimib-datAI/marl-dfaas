@@ -111,6 +111,15 @@ The [`requirements.txt`](requirements.txt) also contains some development tools:
 * [`pre-commit`](https://pre-commit.com): to run hooks when doing a Git commit,
   notebooks before committing them.
 
+## The DFaaS environment
+
+You can find the **DFaaS environment** in the [`dfaas_env.py`](dfaas_env.py)
+file as the DFaaS class. You can use this environment independently of any
+experiment. To configure it, use the **DFaaSConfig** class from
+[`dfaas_env_config.py`](dfaas_env_config.py). DFaaSConfig follows a builder
+pattern, and you can call the `build()` method to obtain a fully working DFaaS
+environment. For more details, refer to the DFaaSConfig's source code.
+
 ## How to run the experiments
 
 > [!WARNING]

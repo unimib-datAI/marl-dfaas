@@ -23,14 +23,48 @@ from bandwidth_generator import generate_traces
 
 
 class DFaaSConfig:
-    """Defines a configuration class from which a DFaaS env can be built."""
+    """Defines a configuration class from which a DFaaS env can be built.
+
+    See the __init__ method for the specific parameters.
+
+    Example usage:
+        from dfaas_env_config import DFaaSConfig
+
+        # Create an env using the default configuration.
+        env_config = DFaaSConfig()
+        env = env_config.build()
+
+        # Export the configuration as dict (safe to write as YAML/JSON).
+        config_dict = env_config.to_dict()
+
+        # Load a configuration from a dict. When you load with from_dict(), some
+        # parameters if not provided they will be automatically generated.
+        config = {"network": ["node_0 node_1", "node_1 node_2"]}
+        env_config = DFaaSConfig.from_dict(config)
+
+        # Do not call manually _validate()! It will be called automatically on
+        # build().
+        env = env_config.build()  # Also validate the config!
+
+        # If you created a DFaaSConfig with from_dict(), make sure to export as
+        # dict AFTER you called build().
+        config = {"network": ["node_0 node_1", "node_1 node_2"]}
+        env_config = DFaaSConfig.from_dict(config)
+        env = env_config.build()
+        config_dict = env_config.to_dict()  # Safe to write as YAML/JSON.
+    """
 
     def __init__(self):
-        """Initializes a DFaaSConfig instance with default values."""
+        """Initialize a DFaaSConfig instance with default values."""
+
+        # Note: the default parameters are taken from this article: "QoS-aware
+        # offloading policies for serverless functions in the Cloud-to-Edge
+        # continuum" of G. Russo Russo, D. Ferrarelli, D. Pasquali et al. DOI:
+        # https://doi.org/10.1016/j.future.2024.02.019
 
         # Implementation note: when you add a new config parameter, make sure to
         # add the default values here (inside a _X attribute) and then update
-        # validate() and build().
+        # _validate() and build().
         #
         # If the config parameter depends on some other values (like network
         # nodes), you may want also to update from/to_dict() and build(). See
@@ -182,8 +216,8 @@ class DFaaSConfig:
         # to reset the environment!
         self.build_seed = 42
 
-    def validate(self, skip_generated=False):
-        """Validates configuration. Automatically called by build().
+    def _validate(self, skip_generated=False):
+        """Validate configuration. Automatically called by build().
 
         If skip_generated is True, the generated config values are skipped.
 
@@ -406,7 +440,7 @@ class DFaaSConfig:
 
         # Run a first validation skipping the generated values, since we
         # generate these now.
-        self.validate(skip_generated=True)
+        self._validate(skip_generated=True)
 
         rng = np.random.default_rng(seed=self.build_seed)
 

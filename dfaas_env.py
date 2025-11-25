@@ -108,7 +108,7 @@ class DFaaS(MultiAgentEnv):
         if config is None or not isinstance(config, DFaaSConfig):
             raise TypeError(f"config must be a DFaaSConfig object, got {type(config)}")
         self.config = config
-        self.config.validate()
+        self.config._validate()
 
         # Get the network graph from config.
         self.network = self.config._network
