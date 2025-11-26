@@ -14,8 +14,6 @@ logging.basicConfig(level=logging.ERROR)
 
 import numpy as np
 import networkx as nx
-import pandas as pd
-import yaml
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.simplex import Simplex
@@ -785,6 +783,8 @@ def _run_one_episode(config, seed, verbose=False, output_dir=Path("results")):
     The output_dir is a directory where the .csv.gz (environment metrics) and
     .yaml (configuration) files will be saved."""
     from dfaas_env_config import DFaaSConfig
+    import yaml
+    import pandas as pd
 
     # Create the env config and then the environment.
     env_config = DFaaSConfig.from_dict(config)
