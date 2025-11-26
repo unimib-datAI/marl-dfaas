@@ -1,0 +1,19 @@
+disable_gpu: false
+iterations: 500
+algorithm:
+  name: "PPO"
+  gamma: 0.7
+  lambda: 0.3
+training_num_episodes: 1
+runners: 1
+model: "configs/models/softplus.json"
+seed: 42
+checkpoint_interval: 0
+evaluation_interval: 25
+evaluation_num_episodes: 10
+
+policies:
+  - name: "policy_node_0"
+    class: "APLPolicy"
+  - name: "policy_node_1"
+    # Use default policy (PPO) (class = None).

@@ -8,6 +8,7 @@ import logging
 import argparse
 
 import tqdm
+import yaml
 
 import ray
 from ray.rllib.algorithms.sac import SACConfig
@@ -17,8 +18,9 @@ from ray.rllib.models.catalog import MODEL_DEFAULTS
 
 from json_gzip_logger import JsonGzipLogger
 import dfaas_utils
-import dfaas_env
 import dfaas_apl
+import dfaas_env
+from dfaas_env_config import DFaaSConfig
 
 # Disable Ray's warnings.
 import warnings
@@ -58,7 +60,7 @@ def run_experiment(
             exp_config[option] = override_values[option]
 
     # Set default experiment configuration values if not provided. See
-    # configs/exp/ppo.toml for docs.
+    # configs/exp/ppo.yaml for docs.
     exp_config["iterations"] = exp_config.get("iterations", 100)
     exp_config["disable_gpu"] = exp_config.get("disable_gpu", False)
     exp_config["training_num_episodes"] = exp_config.get("training_num_episodes", 1)
@@ -80,7 +82,6 @@ def run_experiment(
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
-    exp_config["env"] = dfaas_env.DFaaS.__name__
 
     logger.info("Experiment configuration")
     for key, value in exp_config.items():
@@ -94,11 +95,10 @@ def run_experiment(
     else:
         env_config = {}
 
-    # Create a dummy environment, used as reference.
-    dummy_env = dfaas_env.DFaaS(config=env_config)
-    logger.info("Environment configuration")
-    for key, value in dummy_env.get_config().items():
-        logger.info(f"{key:>25}: {value}")
+    # Create a dummy environment, used as reference. This will also validate the
+    # given configuration.
+    dummy_env = DFaaSConfig.from_dict(env_config).build()
+    logger.info("Environment configuration loaded and validated!")
 
     # For the evaluation phase at the end, the env_config is different than the
     # training one.
@@ -141,7 +141,7 @@ def run_experiment(
         )
         policies_to_train.append(policy_name)
 
-    # Allow to overwrite the default policies with the TOML config file.
+    # Allow to overwrite the default policies with the YAML config file.
     if exp_config.get("policies") is not None:
         policies.clear()
         policies_to_train.clear()
@@ -261,9 +261,9 @@ def run_experiment(
     dfaas_utils.dict_to_json(exp_config, exp_file)
     logger.info(f"Experiment configuration saved to: {exp_file.as_posix()!r}")
 
-    dummy_config = dummy_env.get_config()
-    env_config_path = logdir / "env_config.json"
-    dfaas_utils.dict_to_json(dummy_config, env_config_path)
+    # Save environment configuration to disk as YAML file.
+    env_config_path = logdir / "env_config.yaml"
+    env_config_path.write_text(yaml.dump(dummy_env.get_config().to_dict(), sort_keys=True, indent=4))
     logger.info(f"Environment configuration saved to: {env_config_path.as_posix()!r}")
 
     # Save the model architecture for all policies (if the algorithm provides
@@ -279,7 +279,13 @@ def run_experiment(
     # Copy the environment source file (and its associated code) into the
     # experiment directory. This ensures that the original environment used for
     # the experiment is preserved.
-    for filename in ["dfaas_env.py", "perfmodel.py", "dfaas_input_rate.py"]:
+    for filename in [
+        "dfaas_env.py",
+        "dfaas_env_config.py",
+        "bandwidth_generator.py",
+        "perfmodel.py",
+        "dfaas_input_rate.py",
+    ]:
         src_path = Path.cwd() / filename
         dst_path = logdir / filename
 
@@ -333,7 +339,7 @@ def run_experiment(
     evaluation_interval = exp_config["evaluation_interval"]
     if evaluation_interval < 0:
         raise ValueError("Evaluation interval must be non negative!")
-    logger.info("Training start")
+    logger.info(f"Training start ({max_iterations} iterations)")
     with tqdm.tqdm(total=max_iterations) as progress_bar:
         for iteration in range(max_iterations):
             experiment.train()
@@ -705,13 +711,13 @@ def build_apl(**kwargs):
 def main():
     epilog = """Some command line options can override the configuration of
     --exp-config option, if provided."""
-    description = "Run a training experiment on the DFaaS environment."
+    description = "Run a training experiment with the DFaaS environment."
 
     parser = argparse.ArgumentParser(prog="dfaas_train", description=description, epilog=epilog)
 
     parser.add_argument(dest="suffix", help="A string to append to experiment directory name")
-    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (TOML file)")
-    parser.add_argument("--env-config", type=Path, help="Override default environment config (TOML file)")
+    parser.add_argument("--exp-config", type=Path, help="Override default experiment config (YAML file)")
+    parser.add_argument("--env-config", type=Path, help="Override default environment config (YAML file)")
     parser.add_argument("--runners", type=int, help="Number of parallel runners to play episodes")
     parser.add_argument("--seed", type=int, help="Seed of the experiment")
     parser.add_argument(
@@ -724,12 +730,12 @@ def main():
 
     # Read configuration files as dicts here, before calling run_experiment.
     if args.exp_config is not None:
-        exp_config = dfaas_utils.toml_to_dict(args.exp_config)
+        exp_config = dfaas_utils.yaml_to_dict(args.exp_config)
     else:
         exp_config = {}
 
     if args.env_config is not None:
-        env_config = dfaas_utils.toml_to_dict(args.env_config)
+        env_config = dfaas_utils.yaml_to_dict(args.env_config)
     else:
         env_config = {}
 

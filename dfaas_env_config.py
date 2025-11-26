@@ -216,6 +216,10 @@ class DFaaSConfig:
         # to reset the environment!
         self.build_seed = 42
 
+        # Seed used by DFaaS env on reset. Note: this may be overwrote with
+        # DFaas.set_master_seed() method.
+        self.seed = 42
+
     def _validate(self, skip_generated=False):
         """Validate configuration. Automatically called by build().
 

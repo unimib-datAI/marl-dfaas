@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import tomllib
+import yaml
 import gzip
 
 import orjson
@@ -43,6 +44,21 @@ def toml_to_dict(file_path):
     except IOError as e:
         print(
             f"Failed to read toml file from {file_path.as_posix()!r}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def yaml_to_dict(file_path):
+    """Loads a YAML file into a dictionary."""
+    file_path = to_pathlib(file_path)
+
+    try:
+        with open(file_path, "r") as file:
+            return yaml.safe_load(file)
+    except IOError as e:
+        print(
+            f"Failed to read yaml file from {file_path.as_posix()!r}: {e}",
             file=sys.stderr,
         )
         sys.exit(1)

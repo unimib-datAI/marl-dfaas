@@ -4,13 +4,15 @@ also includes functions or methods strictly related to the environment, like the
 associated callbacks."""
 
 import gymnasium as gym
-import logging
 from pathlib import Path
 from copy import deepcopy
 
-# By default Ray uses DEBUG level, but I prefer the ERROR level and this must be
-# set manually!
-logging.basicConfig(level=logging.ERROR)
+if __name__ == "__main__":
+    import logging
+
+    # By default Ray uses DEBUG level, but I prefer the ERROR level and this
+    # must be set manually!
+    logging.basicConfig(level=logging.ERROR)
 
 import numpy as np
 import networkx as nx
@@ -23,13 +25,6 @@ from ray.rllib.algorithms.sac import SAC
 
 import perfmodel
 import dfaas_input_rate
-
-# Initialize logger for this module.
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d -- %(message)s",
-    level=logging.DEBUG,
-)
-_logger = logging.getLogger(Path(__file__).name)
 
 
 def _total_network_delay(access_delay_ms, data_size_bytes, bandwidth_mbps):
@@ -680,14 +675,18 @@ def _convert_arrival_rate_dist(arrival_rate, action_dist):
     return tuple(raw_rates)
 
 
+def _register_env_dfaas(env_config):
+    """Automatically called by Ray RLLib when creating the DFaaS environment.
+
+    Returns a new DFaaS environment, created with the given config."""
+    from dfaas_env_config import DFaaSConfig
+
+    return DFaaSConfig.from_dict(env_config).build()
+
+
 # Register the environments with Ray so that they can be used automatically when
 # creating experiments.
-def register(env_class):
-    # TODO: Add DFaaSConfig.
-    register_env(env_class.__name__, lambda env_config: env_class(config=env_config))
-
-
-register(DFaaS)
+register_env(DFaaS.__name__, _register_env_dfaas)
 
 
 class DFaaSCallbacks(DefaultCallbacks):
@@ -724,7 +723,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         # If the environment has real input requests, we need to store the
         # hashes of all the requests used in the episode (one for each agent) in
         # order to identify the individual requests.
-        if env.input_rate_same_method and env.input_rate_method == "real":
+        if env.config.input_rate_same_method and env.config.input_rate_method == "real":
             episode.hist_data["hashes"] = [env.input_rate_hashes]
 
     def on_episode_end(self, *, episode, base_env, **kwargs):
@@ -738,7 +737,7 @@ class DFaaSCallbacks(DefaultCallbacks):
         except AttributeError:
             env = base_env.get_sub_environments()[0]
 
-        assert env.current_step == env.max_steps, (
+        assert env.current_step == env.config.max_steps, (
             f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
         )
 
@@ -769,6 +768,11 @@ class DFaaSCallbacks(DefaultCallbacks):
             result["info"]["replay_buffer"] = {}
             result["info"]["replay_buffer"]["capacity_per_policy"] = algorithm.local_replay_buffer.capacity
             result["info"]["replay_buffer"].update(algorithm.local_replay_buffer.stats())
+
+        # Hide env_config from the result dictionary since it is already
+        # reported and saved to a dedicated file (see dfaas_train.py).
+        if "env_config" in result["config"]:
+            result["config"]["env_config"] = "HIDDEN"
 
         result["callbacks_ok"] = True
 
@@ -839,6 +843,7 @@ def _main():
     """Main entry point for dfaas_env script."""
     # Import these modules only if this module is called as main script.
     import argparse
+    import yaml
 
     desc = "Run a single DFaaS episode with random actions."
     parser = argparse.ArgumentParser(

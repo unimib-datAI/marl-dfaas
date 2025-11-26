@@ -1,0 +1,52 @@
+algorithm:
+  # Algorithm to use. Supported values: "PPO".
+  name: "PPO"
+  # The reward is not delayed based on how the environment works; it is the direct
+  # result of the previous action. Therefore, we can use lower gamma and lambda
+  # hyperparameter values.
+  gamma: 0.7
+  lambda: 0.3
+  # Start value of PPO's entropy coefficient, it follows a slow decay over time.
+  entropy_coeff: 0.02
+  # By default the entropy coeff. is constant.
+  entropy_coeff_decay_enable: true
+  # % of iterations where the entropy coeff. will linearly decay to 1e-6.
+  entropy_coeff_decay_iterations: 0.7
+
+# Do not use the GPU to train neural networks.
+disable_gpu: false
+
+# Number of training iterations to run.
+#iterations: 2000
+iterations: 2
+
+# Number of episodes to play for each training iteration.
+#
+# This number must be divisible by the number of runners (all runners must play
+# the same number of episodes).
+training_num_episodes: 1
+
+# The number of parallel runners that will be launched to collect experiences in
+# a training iteration. If the number is 0, the master process will collect
+# experiences.
+runners: 0
+
+# Model configuration.
+model: "configs/models/softplus.json"
+
+# Base seed for the various RNGs used in the experiment.
+seed: 42
+
+# Create a checkpoint after the specified number of iterations. If the number is
+# 0, then no checkpoints are created except for the final one.
+checkpoint_interval: 200
+
+# Run an evaluation after the specified number of iterations. If the number is
+# 0, then no evaluation is done except for the final one.
+evaluation_interval: 25
+
+#evaluation_num_episodes: 10
+evaluation_num_episodes: 1
+
+# Disable the final evaluation.
+final_evaluation: true
