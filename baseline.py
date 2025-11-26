@@ -28,8 +28,9 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.ticker import FixedLocator, AutoMinorLocator, PercentFormatter
 
-from dfaas_env import DFaaS as DFaaSEnv
-from dfaas_utils import toml_to_dict
+from dfaas_env_config import DFaaSConfig
+from dfaas_env import DFaaS
+from dfaas_utils import yaml_to_dict
 
 
 def make_plots(df_agents: pd.DataFrame, df_all_data: pd.DataFrame) -> Figure:
@@ -145,12 +146,8 @@ def create_dataframes(info: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def run_episode(
-    env: DFaaSEnv,
+    env: DFaaS,
     exp_iter: int,
-    warm_service_time: float,
-    cold_service_time: float,
-    idle_time_before_kill: int,
-    maximum_concurrency: int,
     base_results_folder: str | Path,
     seed: int | None,
     agent_policy: str = "local",
@@ -193,22 +190,16 @@ def run_episode(
 
 
 def run(
-    env_config_file: str,
+    env_config: dict,
     seeds: list[int],
-    warm_service_time: float,
-    cold_service_time: float,
-    idle_time_before_kill: int,
-    maximum_concurrency: int,
     base_results_folder: str,
     agent_policy: str = "local",
 ):
-    env_config = toml_to_dict(env_config_file)
-
     print(f"Agent policy: {agent_policy}")
     print(f"Environment config.: {env_config}\n")
 
     # Initialize environment.
-    env = DFaaSEnv(config=env_config)
+    env = DFaaSConfig.from_dict(env_config).build()
 
     # Dummy seed, we need to call reset at least once to set up the env.
     env.reset(seed=seeds[0])
@@ -217,10 +208,6 @@ def run(
         run_episode(
             env,
             exp,
-            warm_service_time,
-            cold_service_time,
-            idle_time_before_kill,
-            maximum_concurrency,
             base_results_folder,
             seeds[exp],
             agent_policy=agent_policy,
@@ -231,7 +218,8 @@ def run(
 def main():
     # Change env config here!
     # FIXME: Maybe add a config?
-    env_config_file = "configs/env/five_agents.toml"
+    env_config_file = "configs/env/default.yaml"
+    env_config = yaml_to_dict(env_config_file)
 
     # Change seeds here!
     # FIXME: Maybe add a config?
@@ -248,21 +236,11 @@ def main():
         2730495449,
     ]
 
-    # Values taken from dfaas_env.py.
-    warm_service_time = 15
-    cold_service_time = 30
-    idle_time_before_kill = 600
-    maximum_concurrency = 1000
-
     # First run: local actions.
     base_results_folder = "baseline_local"
     run(
-        env_config_file,
+        env_config,
         seeds,
-        warm_service_time,
-        cold_service_time,
-        idle_time_before_kill,
-        maximum_concurrency,
         base_results_folder,
         agent_policy="local",
     )
@@ -270,12 +248,8 @@ def main():
     # Second run: random actions.
     base_results_folder = "baseline_random"
     run(
-        env_config_file,
+        env_config,
         seeds,
-        warm_service_time,
-        cold_service_time,
-        idle_time_before_kill,
-        maximum_concurrency,
         base_results_folder,
         agent_policy="random",
     )
