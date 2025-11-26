@@ -247,16 +247,10 @@ def main():
         help="List of seeds for the experiments.",
     )
     parser.add_argument(
-        "--local-results-folder",
+        "--results-folder",
         type=Path,
-        default="baseline_local",
-        help="Folder to store results for the 'local' policy.",
-    )
-    parser.add_argument(
-        "--random-results-folder",
-        type=Path,
-        default="baseline_random",
-        help="Folder to store results for the 'random' policy.",
+        default="results/baseline",
+        help="Folder to store results for 'local' and 'random' policies",
     )
     args = parser.parse_args()
 
@@ -266,7 +260,7 @@ def main():
     run(
         env_config,
         args.seeds,
-        args.local_results_folder,
+        args.results_folder / "local",
         agent_policy="local",
     )
 
@@ -274,7 +268,7 @@ def main():
     run(
         env_config,
         args.seeds,
-        args.random_results_folder,
+        args.results_folder / "random",
         agent_policy="random",
     )
 
