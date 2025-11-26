@@ -13,6 +13,7 @@ episodes using hardcoded random seeds (these can be modified in the main()
 function).
 """
 
+import argparse
 from pathlib import Path
 from typing import Tuple
 import logging
@@ -216,41 +217,64 @@ def run(
 
 
 def main():
-    # Change env config here!
-    # FIXME: Maybe add a config?
-    env_config_file = "configs/env/default.yaml"
-    env_config = yaml_to_dict(env_config_file)
+    """Main entry point of the script."""
+    parser = argparse.ArgumentParser(
+        description="Run baseline experiments for DFaaS environment.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "--env-config",
+        type=Path,
+        default="configs/env/default.yaml",
+        help="Path to the environment configuration file.",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=[
+            1114399290,
+            586248983,
+            1296339178,
+            980462265,
+            2807237418,
+            3153669498,
+            1573623524,
+            1657272726,
+            409898216,
+            2730495449,
+        ],
+        help="List of seeds for the experiments.",
+    )
+    parser.add_argument(
+        "--local-results-folder",
+        type=Path,
+        default="baseline_local",
+        help="Folder to store results for the 'local' policy.",
+    )
+    parser.add_argument(
+        "--random-results-folder",
+        type=Path,
+        default="baseline_random",
+        help="Folder to store results for the 'random' policy.",
+    )
+    args = parser.parse_args()
 
-    # Change seeds here!
-    # FIXME: Maybe add a config?
-    seeds = [
-        1114399290,
-        586248983,
-        1296339178,
-        980462265,
-        2807237418,
-        3153669498,
-        1573623524,
-        1657272726,
-        409898216,
-        2730495449,
-    ]
+    env_config = yaml_to_dict(args.env_config)
 
     # First run: local actions.
-    base_results_folder = "baseline_local"
     run(
         env_config,
-        seeds,
-        base_results_folder,
+        args.seeds,
+        args.local_results_folder,
         agent_policy="local",
     )
 
     # Second run: random actions.
-    base_results_folder = "baseline_random"
     run(
         env_config,
-        seeds,
-        base_results_folder,
+        args.seeds,
+        args.random_results_folder,
         agent_policy="random",
     )
 
