@@ -87,11 +87,8 @@ class DFaaS(MultiAgentEnv):
     You should not initialize this environment directly, use DFaaSConfig builder
     instead.
 
-    Metrics can be accessed from the self.info dictionary. This dictionary
-    contains an entry for each agent, and for every agent, a list of metrics
-    recorded at each step. Note that some metrics are redundant (starting with
-    "observation_prev"). The default callback associated with this environment
-    automatically skips these redundant metrics.
+    Metrics can be accessed from the self.info dictionary. See
+    _init_agent_metrics method for the documentation about the metrics.
     """
 
     def __init__(self, config={}):
@@ -170,9 +167,24 @@ class DFaaS(MultiAgentEnv):
         super().__init__()
 
     def _init_agent_metrics(self):
-        """Initialize all metrics for a single agent with zero values for each step."""
-        # List of some metrics to track for each agent. Additional metrics are
-        # defined below.
+        """Initialize all metrics in self.info attribute.
+
+        The self.info attribute is a dictionary with a key for each agent and as
+        value a dictionary with a key for each metric and a value for each step.
+        An example:
+
+            # How much incoming rate the agent has decided to process locally
+            # for node "node_1" and step 42.
+            self.info["node_1"]["action_local"][42]
+
+        See the method's implementation for know which metrics are stored and
+        how.
+
+        Note that some metrics are redundant (starting with "observation_prev").
+        The default callback associated with this environment automatically
+        skips these redundant metrics.
+        """
+        # Basic metrics.
         metrics = [
             "action_local",
             "action_forward",
@@ -185,18 +197,36 @@ class DFaaS(MultiAgentEnv):
             "incoming_rate_forward_reject",
             "forward_reject_rate",
             "reward",
-            "response_time_avg",
+            # Average response time for local rate, returned by the performance
+            # model.
+            "response_time_avg_local",
+            # Average response time for all forwarded rates (excluding network
+            # delay). See response_time_avg_to_X for a specific agent X.
+            #
+            # Note: neighbors without at least one forward rate are excluded!
+            #
+            # Warning: if a neighbor rejected all forwarded rate the response
+            # time is in any case included!
+            "response_time_avg_forwarded",
+            # Average network delay for all neighbours. See
+            # network_delay_avg_to_X for a specific agent X.
+            #
+            # Note: neighbors without at least one forward rate are excluded!
             "network_delay_avg",
         ]
 
         # Create a zero-filled array for each metric.
         result = {metric: [0 for _ in range(self.max_steps)] for metric in metrics}
 
-        # Add specific metrics for forward actions and rejects to each neighbor.
+        # Metrics for each neighbor.
         for agent, neighbors in self.agent_neighbors.items():
             for neighbor in neighbors:
                 result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
                 result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+
+                # Reminder: these two metrics are relevant only if the agent
+                # forwards at least one rate to that neighbor!
+                result[f"response_time_avg_forwarded_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
                 result[f"network_delay_avg_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
 
         return result
@@ -480,7 +510,7 @@ class DFaaS(MultiAgentEnv):
         for agent in self.agents:
             neighbors = self.agent_neighbors[agent]
 
-            # For each neighbor, forward the specific amount (no longer evenly distributed)
+            # For each neighbor, forward the specific amount.
             for i, neighbor in enumerate(neighbors):
                 # Index 1 to len(neighbors) are the forwarding actions
                 forward_rate = action[agent][i + 1]
@@ -548,39 +578,45 @@ class DFaaS(MultiAgentEnv):
                     # Update the incoming forward reject rate for the receiving agent
                     self.info[agent]["incoming_rate_forward_reject"][self.current_step] += reject_share
 
-        # Calculate response_time_avg for each link for each agent.
+        # Update metrics about response time and network delay for each agent.
         for agent in self.agents:
-            total_resp_time = 0
-            total_reqs = 0
-            delays_sum = 0
-
-            # Local requests
-            local_reqs = self.info[agent]["incoming_rate_local"][self.current_step]
-            if local_reqs > 0:
-                total_resp_time += node_avg_resp_time[agent] * local_reqs
-                total_reqs += local_reqs
-
-            # Forwarded requests originated from this agent
-            for i, neighbor in enumerate(self.agent_neighbors[agent]):
-                forwarded_reqs = action[agent][i + 1]
-                if forwarded_reqs > 0:
-                    delay_key = f"network_delay_avg_to_{neighbor}"
-                    network_delay = self.info[agent][delay_key][self.current_step]
-                    neighbor_resp_time = node_avg_resp_time[neighbor]
-                    total_resp_time += (network_delay + neighbor_resp_time) * forwarded_reqs
-                    total_reqs += forwarded_reqs
-
-                    # Save for network_delay_avg across all links
-                    delays_sum += network_delay
-
-            if total_reqs > 0:
-                avg_resp_time = total_resp_time / total_reqs
-                self.info[agent]["response_time_avg"][self.current_step] = avg_resp_time
-
-            if (num_neighbors := len(self.agent_neighbors[agent])) > 0:
-                self.info[agent]["network_delay_avg"][self.current_step] = delays_sum / num_neighbors
+            # For local rate.
+            local_rate = self.info[agent]["incoming_rate_local"][self.current_step]
+            if local_rate > 0:
+                response_time_avg = node_avg_resp_time[agent]
             else:
-                self.info[agent]["network_delay_avg"][self.current_step] = 0
+                response_time_avg = 0
+            self.info[agent]["response_time_avg_local"][self.current_step] = response_time_avg
+
+            # For forward rate.
+            response_time_avg_forwarded, network_delay_avg = [], []
+            for neighbor in self.agent_neighbors[agent]:
+                forward_rate = self.info[agent][f"action_forward_to_{neighbor}"]
+
+                # Skip a neighbor with no forward rate: the is no network delay
+                # and the response time is useless.
+                if forward_rate == 0:
+                    continue
+
+                self.info[agent][f"response_time_avg_forwarded_to_{neighbor}"][self.current_step] = node_avg_resp_time[
+                    neighbor
+                ]
+                response_time_avg_forwarded.append(node_avg_resp_time[neighbor])
+
+                # Needed to calculate average network delay.
+                network_delay_avg.append(self.info[agent][f"network_delay_avg_to_{neighbor}"][self.current_step])
+
+            # Average metrics for forward rate across all neighbors.
+            if len(response_time_avg_forwarded) > 0:
+                # Average response time.
+                self.info[agent]["response_time_avg_forwarded"][self.current_step] = sum(
+                    response_time_avg_forwarded
+                ) / len(response_time_avg_forwarded)
+
+                # Average network delay.
+                self.info[agent]["network_delay_avg"][self.current_step] = sum(network_delay_avg) / len(
+                    network_delay_avg
+                )
 
     def set_master_seed(self, master_seed, episodes):
         """Set the master seed of the environment. This function is usually
