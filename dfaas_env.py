@@ -212,7 +212,9 @@ class DFaaS(MultiAgentEnv):
             # network_delay_avg_to_X for a specific agent X.
             #
             # Note: neighbors without at least one forward rate are excluded!
-            "network_delay_avg",
+            "network_forward_delay_avg",
+            # Same as network_forward_delay_avg but for the return.
+            "network_return_delay_avg",
         ]
 
         # Create a zero-filled array for each metric.
@@ -224,10 +226,11 @@ class DFaaS(MultiAgentEnv):
                 result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
                 result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
 
-                # Reminder: these two metrics are relevant only if the agent
+                # Reminder: the following metrics are relevant only if the agent
                 # forwards at least one rate to that neighbor!
                 result[f"response_time_avg_forwarded_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
-                result[f"network_delay_avg_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"network_forward_delay_avg_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"network_return_delay_avg_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
 
         return result
 
@@ -520,14 +523,20 @@ class DFaaS(MultiAgentEnv):
                     incoming_rate_agents[neighbor].append(agent)
                     self.info[neighbor]["incoming_rate_forward"][self.current_step] += forward_rate
 
-                    # Calculate network delay
-                    delay = _total_network_delay(
+                    # Calculate network delay (send and reply).
+                    forward_delay = _total_network_delay(
                         self.network[agent][neighbor]["access_delay_ms"],
                         self.config.request_input_data_size_bytes,
                         self.network[agent][neighbor]["bandwidth_mbps"][self.current_step],
                     )
-                    delay_key = f"network_delay_avg_to_{neighbor}"
-                    self.info[agent][delay_key][self.current_step] = delay
+                    return_delay = _total_network_delay(
+                        self.network[agent][neighbor]["access_delay_ms"],
+                        self.config.request_output_data_size_bytes,
+                        self.network[agent][neighbor]["bandwidth_mbps"][self.current_step],
+                    )
+
+                    self.info[agent][f"network_forward_delay_avg_to_{neighbor}"][self.current_step] = forward_delay
+                    self.info[agent][f"network_return_delay_avg_to_{neighbor}"][self.current_step] = return_delay
 
         # Then call the pacsltk's function for each agent.
         node_avg_resp_time = {}  # Store avg_resp_time for each node
@@ -583,15 +592,12 @@ class DFaaS(MultiAgentEnv):
             # For local rate.
             local_rate = self.info[agent]["incoming_rate_local"][self.current_step]
             if local_rate > 0:
-                response_time_avg = node_avg_resp_time[agent]
-            else:
-                response_time_avg = 0
-            self.info[agent]["response_time_avg_local"][self.current_step] = response_time_avg
+                self.info[agent]["response_time_avg_local"][self.current_step] = node_avg_resp_time[agent]
 
-            # For forward rate.
-            response_time_avg_forwarded, network_delay_avg = [], []
+            # For forward rate (request and reply).
+            response_time_avg_forwarded, network_forward_delay_avg, network_return_delay_avg = [], [], []
             for neighbor in self.agent_neighbors[agent]:
-                forward_rate = self.info[agent][f"action_forward_to_{neighbor}"]
+                forward_rate = self.info[agent][f"action_forward_to_{neighbor}"][self.current_step]
 
                 # Skip a neighbor with no forward rate: the is no network delay
                 # and the response time is useless.
@@ -604,7 +610,12 @@ class DFaaS(MultiAgentEnv):
                 response_time_avg_forwarded.append(node_avg_resp_time[neighbor])
 
                 # Needed to calculate average network delay.
-                network_delay_avg.append(self.info[agent][f"network_delay_avg_to_{neighbor}"][self.current_step])
+                network_forward_delay_avg.append(
+                    self.info[agent][f"network_forward_delay_avg_to_{neighbor}"][self.current_step]
+                )
+                network_return_delay_avg.append(
+                    self.info[agent][f"network_return_delay_avg_to_{neighbor}"][self.current_step]
+                )
 
             # Average metrics for forward rate across all neighbors.
             if len(response_time_avg_forwarded) > 0:
@@ -613,9 +624,12 @@ class DFaaS(MultiAgentEnv):
                     response_time_avg_forwarded
                 ) / len(response_time_avg_forwarded)
 
-                # Average network delay.
-                self.info[agent]["network_delay_avg"][self.current_step] = sum(network_delay_avg) / len(
-                    network_delay_avg
+                # Average network delay (request and reply).
+                self.info[agent]["network_forward_delay_avg"][self.current_step] = sum(network_forward_delay_avg) / len(
+                    network_forward_delay_avg
+                )
+                self.info[agent]["network_return_delay_avg"][self.current_step] = sum(network_return_delay_avg) / len(
+                    network_return_delay_avg
                 )
 
     def set_master_seed(self, master_seed, episodes):

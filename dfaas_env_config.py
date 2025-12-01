@@ -157,6 +157,17 @@ class DFaaSConfig:
         self.request_input_data_size_bytes_mean_std = [1024.0, 1024.0]
         self.request_input_data_size_bytes = None
 
+        # Data output size (in bytes) of the single function. The actual value
+        # "request_output_data_size_bytes" is extracted from a truncated normal
+        # distribution with the given range (inclusive) and given mean and
+        # standard deviation.
+        #
+        # To have a fixed value, just put the range [min, min] and mean/std to
+        # [min, 0].
+        self.request_output_data_size_bytes_range = [100, 5242880]
+        self.request_output_data_size_bytes_mean_std = [1024.0, 1024.0]
+        self.request_output_data_size_bytes = None
+
         # Memory demand (in MB) for the single function. The demand value
         # "request_memory_mb" is extracted uniformly from the given (inclusive)
         # range.
@@ -259,6 +270,33 @@ class DFaaSConfig:
         if not skip_generated:
             if self.request_input_data_size_bytes is None:
                 raise TypeError("request_input_data_size_bytes should not be None")
+
+        # self.request_output_data_size_bytes_range validation.
+        if len(self.request_output_data_size_bytes_range) != 2:
+            raise ValueError("request_output_data_size_bytes_range must be [min, max]")
+        if self.request_output_data_size_bytes_range[0] < 0:
+            raise ValueError("request_output_data_size_bytes_range: min must be non negative")
+        if self.request_output_data_size_bytes_range[1] < 0:
+            raise ValueError("request_output_data_size_bytes_range: max must be non negative")
+        if self.request_output_data_size_bytes_range[0] > self.request_output_data_size_bytes_range[1]:
+            raise ValueError("request_output_data_size_bytes_range: min > max")
+
+        # self.request_output_data_size_bytes_mean_std validation.
+        if len(self.request_output_data_size_bytes_mean_std) != 2:
+            raise ValueError(
+                "request_output_data_size_bytes_mean_std must be [mean, std], got {} values".format(
+                    len(self.request_output_data_size_bytes_mean_std)
+                )
+            )
+        if self.request_output_data_size_bytes_mean_std[0] < 0:
+            raise ValueError("request_output_data_size_bytes_mean_std: mean must be non negative")
+        if self.request_output_data_size_bytes_mean_std[1] < 0:
+            raise ValueError("request_output_data_size_bytes_mean_std: std must be non negative")
+
+        # self.request_output_data_size_bytes validation.
+        if not skip_generated:
+            if self.request_output_data_size_bytes is None:
+                raise TypeError("request_output_data_size_bytes should not be None")
 
         # self.request_memory_mb_range validation.
         if len(self.request_memory_mb_range) != 2:
@@ -457,6 +495,18 @@ class DFaaSConfig:
         a = (min_val - mean) / std
         b = (max_val - mean) / std
         self.request_input_data_size_bytes = int(scipy.stats.truncnorm.rvs(a, b, loc=mean, scale=std, random_state=rng))
+
+        # Generate "request_output_data_size_bytes".
+        mean, std = self.request_output_data_size_bytes_mean_std
+        min_val, max_val = self.request_output_data_size_bytes_range
+        # Normalized bounds for truncnorm.
+        #
+        # See: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.truncnorm.html
+        a = (min_val - mean) / std
+        b = (max_val - mean) / std
+        self.request_output_data_size_bytes = int(
+            scipy.stats.truncnorm.rvs(a, b, loc=mean, scale=std, random_state=rng)
+        )
 
         # Generate "request_memory_mb".
         min_mem, max_mem = self.request_memory_mb_range
