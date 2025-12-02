@@ -165,7 +165,7 @@ Run the [`dfaas_train.py`](dfaas_train.py) Python script.
 Example:
 
 ```console
-$ python dfaas_train.py --env-config configs/env/three_agents.toml --exp-config configs/exp/ppo.toml three
+$ python dfaas_train.py --env-config configs/env/three_agents.yaml --exp-config configs/exp/ppo.yaml three
 ```
 
 ### Evaluation
