@@ -33,7 +33,7 @@ def _get_data(exp_dir):
     data = {}
 
     # Read data from experiment directory.
-    iters = dfaas_utils.parse_result_file(exp_dir / "result.json")
+    iters = dfaas_utils.parse_result_file(exp_dir / "result.json.gz")
     agents = plot_utils.get_env(exp_dir).agents
 
     data["agents"] = agents
