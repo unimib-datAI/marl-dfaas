@@ -133,6 +133,17 @@ def create_dataframes(info: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         agents_data[f"reject_rate_{agent}"] = action_reject + forward_reject + local_reject
 
+        # Latency
+        agents_data[f"response_time_avg_local_{agent}"] = np.array(info[agent]["response_time_avg_local"])
+        agents_data[f"exec_time_avg_forwarded_{agent}"] = np.array(info[agent]["response_time_avg_forwarded"])
+        agents_data[f"network_forward_delay_avg_{agent}"] = np.array(info[agent]["network_forward_delay_avg"])
+        agents_data[f"network_return_delay_avg_{agent}"] = np.array(info[agent]["network_return_delay_avg"])
+        agents_data[f"response_time_avg_forwarded_{agent}"] = (
+            agents_data[f"exec_time_avg_forwarded_{agent}"] + 
+                agents_data[f"network_forward_delay_avg_{agent}"] +
+                    agents_data[f"network_return_delay_avg_{agent}"]
+        )
+
     df_agents = pd.DataFrame(agents_data, columns=sorted(agents_data))
 
     # Cumulate metrics for all agent under the "all" agent.
@@ -140,6 +151,11 @@ def create_dataframes(info: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
     all_data["input_rate"] = df_agents.filter(regex="^input_rate_").sum(axis=1)
     all_data["reject_rate"] = df_agents.filter(regex="^reject_rate_").sum(axis=1)
     all_data["reward"] = df_agents.filter(regex="^reward").sum(axis=1)
+    all_data["response_time_avg_local"] = df_agents.filter(regex="^response_time_avg_local_").sum(axis=1) / len(agents)
+    all_data["exec_time_avg_forwarded"] = df_agents.filter(regex="^exec_time_avg_forwarded_").sum(axis=1) / len(agents)
+    all_data["response_time_avg_forwarded"] = df_agents.filter(regex="^response_time_avg_forwarded_").sum(axis=1) / len(agents)
+    all_data["network_forward_delay_avg"] = df_agents.filter(regex="^network_forward_delay_avg_").sum(axis=1) / len(agents)
+    all_data["network_return_delay_avg"] = df_agents.filter(regex="^network_return_delay_avg_").sum(axis=1) / len(agents)
 
     df_all_data = pd.DataFrame(all_data)
 
