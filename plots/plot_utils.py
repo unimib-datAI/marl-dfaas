@@ -3,7 +3,7 @@ import logging
 
 import matplotlib
 
-import dfaas_env
+from dfaas_env_config import DFaaSConfig
 import dfaas_utils
 
 # Reset the matplotlib logger to warning, because Ray (called by dfaas_env
@@ -34,11 +34,11 @@ def _env_init(exp_dir):
     exp_config = dfaas_utils.json_to_dict(exp_dir / "exp_config.json")
 
     # Environment configuration (read the existing one).
-    env_config = dfaas_utils.json_to_dict(exp_dir / "env_config.json")
+    env_config = dfaas_utils.yaml_to_dict(exp_dir / "env_config.yaml")
 
     # Create the environment with the given env config.
     global _env
-    _env[exp_dir] = dfaas_env.DFaaS(config=env_config)
+    _env[exp_dir] = DFaaSConfig.from_dict(env_config).build()
 
 
 def get_env(exp_dir):
