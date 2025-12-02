@@ -81,6 +81,46 @@ def reward_fn(action, additional_reject):
     return float(norm_reward)
 
 
+def latency_based_reward(info, agent, current_step, input_rate):
+    # compute local and fwd. latency
+    rt_loc = info[agent]["response_time_avg_local"][current_step]
+    rt_fwd = info[agent]["response_time_avg_forwarded"][current_step]
+    nd_fwd = info[agent]["network_forward_delay_avg"][current_step]
+    nd_bwd = info[agent]["network_return_delay_avg"][current_step]
+    rt_fwd = rt_fwd + nd_fwd + nd_bwd
+    # reject
+    l_rej = info[agent]["incoming_rate_local_reject"][current_step]
+    f_rej = info[agent]["forward_reject_rate"][current_step]
+    # compare latency with threshold and compute utility
+    threshold = 800
+    # -- local
+    loc_utility = 0.0
+    loc_perc = info[agent]["action_local"][current_step] / input_rate[agent][current_step]
+    if rt_loc < threshold and l_rej <= 0:
+        loc_utility = 1.0 * loc_perc
+    elif rt_loc < threshold and l_rej > 0:
+        loc_utility = 1.0 * (
+            loc_perc - l_rej / info[agent]["incoming_rate_local"][current_step]
+        )
+    else:
+        loc_utility = -1 * loc_perc
+    # -- forward
+    fwd_utility = 0.0
+    fwd_perc = info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
+    if rt_fwd < threshold and f_rej <= 0:
+        fwd_utility = 1.0 * fwd_perc
+    elif rt_fwd < threshold and f_rej > 0:
+        fwd_utility = 1.0 * (
+            fwd_perc - f_rej / info[agent]["incoming_rate_forward"][current_step]
+        )
+    else:
+        fwd_utility = -1 * info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
+    # reject
+    return float(
+        loc_utility + fwd_utility - 1.0 * info[agent]["action_reject"][current_step] / input_rate[agent][current_step]
+    )
+
+
 class DFaaS(MultiAgentEnv):
     """DFaaS multi-agent reinforcement learning environment.
 
@@ -368,7 +408,8 @@ class DFaaS(MultiAgentEnv):
                 self.info[agent]["forward_reject_rate"][self.current_step],
             )
 
-            reward = reward_fn(action[agent], additional_rejects)
+            # reward = reward_fn(action[agent], additional_rejects)
+            reward = latency_based_reward(self.info, agent, self.current_step, self.input_rate)
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
