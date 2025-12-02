@@ -87,17 +87,17 @@ There are two requirements files for `pip` in the repository:
 Run the following commands to set up the development environment with Ubuntu:
 
 ```console
-$ sudo apt install python3.12-venv
-$ git clone https://github.com/unimib-datAI/marl-dfaas.git
-$ cd marl-dfaas
-$ python3.12 -m venv .env
-$ source .env/bin/activate
-$ pip install --requirement requirements.base.txt
+sudo apt install python3.12-venv
+git clone https://github.com/unimib-datAI/marl-dfaas.git
+cd marl-dfaas
+python3.12 -m venv .env
+source .env/bin/activate
+pip install --requirement requirements.base.txt
 ```
 
 Or, for a perfect reproducibility:
 
-    $ pip install --requirement requirements.txt
+    pip install --requirement requirements.txt
 
 Please note that the requirements file expects a machine with an NVIDIA GPU and
 CUDA (at least 12.4) installed for PyTorch. PyTorch can also be used with a CPU,
@@ -156,7 +156,7 @@ Run `dfaas_env.py` with `--help` option to see available options.
 allow loading of commonly used modules (`dfaas_env.py`...). As example, if you
 need to run a test script:
 
-    $ python tests/env/local_strategy.py
+    python tests/env/local_strategy.py
 
 ### Training
 
@@ -165,7 +165,7 @@ Run the [`dfaas_train.py`](dfaas_train.py) Python script.
 Example:
 
 ```console
-$ python dfaas_train.py --env-config configs/env/three_agents.yaml --exp-config configs/exp/ppo.yaml three
+python dfaas_train.py --env-config configs/env/three_agents.yaml --exp-config configs/exp/ppo.yaml three
 ```
 
 ### Evaluation
@@ -177,7 +177,7 @@ Run the [`dfaas_evaluate.py`](dfaas_evaluate_ppo.py) Python script.
 Just run:
 
 ```console
-$ marimo edit notebooks/ --port 9090 --headless --no-token
+marimo edit notebooks/ --port 9090 --headless --no-token
 ```
 
 Then open http://localhost:9090/ in a Web browser. You can export a notebook as
