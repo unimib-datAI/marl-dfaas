@@ -140,7 +140,12 @@ You can run an example DFaaS episode by executing the `dfaas_env.py` file as a
 script:
 
 ```console
-$ python dfaas_env.py
+python dfaas_env.py
+```
+
+with expected output:
+
+```console
 Episode configuration saved to 'results/dfaas_episode_42_config.yaml'
 Episode statistics saved to 'results/dfaas_episode_42_stats.csv.gz'
 ```
