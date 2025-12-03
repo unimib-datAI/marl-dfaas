@@ -116,9 +116,8 @@ def latency_based_reward(info, agent, current_step, input_rate):
     else:
         fwd_utility = -1 * info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
     # reject
-    return float(
-        loc_utility + fwd_utility - 1.0 * info[agent]["action_reject"][current_step] / input_rate[agent][current_step]
-    )
+    rej_penalty = 1.0 * info[agent]["action_reject"][current_step] / input_rate[agent][current_step]
+    return float(loc_utility + fwd_utility - rej_penalty), float(loc_utility), float(fwd_utility), float(rej_penalty)
 
 
 class DFaaS(MultiAgentEnv):
@@ -226,16 +225,16 @@ class DFaaS(MultiAgentEnv):
         """
         # Basic metrics.
         metrics = [
-            "action_local",
+            "action_local",                         # number of local requests
             "action_forward",
             "action_reject",
-            "incoming_rate",
+            "incoming_rate",                        # number of enqueued requests, incoming_rate_local+incoming_rate_forward
             "incoming_rate_local",
             "incoming_rate_forward",
-            "incoming_rate_reject",
+            "incoming_rate_reject",                 # number of enqueued requests that are rejected, incoming_rate_local_reject+incoming_rate_forward_reject
             "incoming_rate_local_reject",
             "incoming_rate_forward_reject",
-            "forward_reject_rate",
+            "forward_reject_rate",                  # number of forwarded requests rejected by neighbors
             "reward",
             # Average response time for local rate, returned by the performance
             # model.
@@ -255,6 +254,9 @@ class DFaaS(MultiAgentEnv):
             "network_forward_delay_avg",
             # Same as network_forward_delay_avg but for the return.
             "network_return_delay_avg",
+            "loc_utility",
+            "fwd_utility",
+            "rej_penalty",
         ]
 
         # Create a zero-filled array for each metric.
@@ -264,7 +266,7 @@ class DFaaS(MultiAgentEnv):
         for agent, neighbors in self.agent_neighbors.items():
             for neighbor in neighbors:
                 result[f"action_forward_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
-                result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]
+                result[f"forward_rejects_to_{neighbor}"] = [0 for _ in range(self.max_steps)]       # number of requests forwarded to `neighbor` that it rejects
 
                 # Reminder: the following metrics are relevant only if the agent
                 # forwards at least one rate to that neighbor!
@@ -409,11 +411,14 @@ class DFaaS(MultiAgentEnv):
             )
 
             # reward = reward_fn(action[agent], additional_rejects)
-            reward = latency_based_reward(self.info, agent, self.current_step, self.input_rate)
+            reward, loc_utility, fwd_utility, rej_penalty = latency_based_reward(self.info, agent, self.current_step, self.input_rate)
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward
             self.info[agent]["reward"][self.current_step] = reward
+            self.info[agent]["loc_utility"][self.current_step] = loc_utility
+            self.info[agent]["fwd_utility"][self.current_step] = fwd_utility
+            self.info[agent]["rej_penalty"][self.current_step] = rej_penalty
 
         # Go to the next step.
         self.current_step += 1
