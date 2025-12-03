@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.17.0"
+__generated_with = "0.18.0"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -17,8 +17,7 @@ with app.setup:
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     # Train summary of a single experiment
 
     This notebook presents plots related to a single experiment. It can display plots and information from two sources:
@@ -26,14 +25,15 @@ def _():
     1. **Training iterations**: in each iteration, the same number of episodes is played, with a different set of randomly generated seeds each time.
 
     2. **Evaluation iterations**: same as the training iteration, but the seeds are kept constant across iterations. This is useful to evaluate the agents over time on the same episodes.
-    """
-    )
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""## Experiment loading""")
+    mo.md(r"""
+    ## Experiment loading
+    """)
     return
 
 
@@ -59,6 +59,7 @@ def _():
 def _(exp_dir_mode_widget, exp_dir_widget):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
+    # NOTE: to select a directory, click on its icon
     mo.stop(exp_dir_widget.path() is None)
 
     _exp_dir = exp_dir_widget.path().resolve().absolute()
@@ -82,7 +83,9 @@ def _(exp_dir_mode_widget, exp_dir_widget):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""### Network topology""")
+    mo.md(r"""
+    ### Network topology
+    """)
     return
 
 
@@ -113,7 +116,9 @@ def _(env):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""### Loading episodes data""")
+    mo.md(r"""
+    ### Loading episodes data
+    """)
     return
 
 
@@ -199,19 +204,19 @@ def _():
 
 @app.cell
 def _():
-    mo.md(r"""## Reward""")
+    mo.md(r"""
+    ## Reward
+    """)
     return
 
 
 @app.cell
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Cumulative reward per episode
 
     It is the cumulative reward per episode. Since we have one episode per iteration, it is simply the total reward for that episode. The reward of the "all" agent is the sum of the rewards obtained by all agents.
-    """
-    )
+    """)
     return
 
 
@@ -270,13 +275,11 @@ def _(reward_sum):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Average reward per step
 
     It is the average reward per step for each agent. The special "all" agent represents the average across all agents.
-    """
-    )
+    """)
     return
 
 
@@ -328,6 +331,16 @@ def _(reward_avg_step):
         return mo.vstack(figures)
 
     make_avg_reward_per_step_plot(reward_avg_step)
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
     return
 
 

@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.17.0"
+__generated_with = "0.18.0"
 app = marimo.App(width="medium")
 
 with app.setup:
@@ -16,19 +16,19 @@ with app.setup:
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     # Train statistics of a single experiment (PPO)
 
     This notebook presents training statistics for the policies that have been trained with the PPO algorithm.
-    """
-    )
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""## Experiment loading""")
+    mo.md(r"""
+    ## Experiment loading
+    """)
     return
 
 
@@ -46,6 +46,7 @@ def _():
 def _(exp_dir_widget):
     # exp_dir_widget.path() is None at the start of the notebook! So we wait until a directory
     # has been selected.
+    # NOTE: to select a directory, click on its icon
     mo.stop(exp_dir_widget.path() is None)
 
     _exp_dir = exp_dir_widget.path().resolve().absolute()
@@ -65,7 +66,9 @@ def _(exp_dir_widget):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""### Network topology""")
+    mo.md(r"""
+    ### Network topology
+    """)
     return
 
 
@@ -96,7 +99,9 @@ def _(env):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""### Loading training data""")
+    mo.md(r"""
+    ### Loading training data
+    """)
     return
 
 
@@ -204,14 +209,15 @@ def make_stats_plot(training_data, stats_key, stats_name, stats_ylabel, policy_n
 
 @app.cell
 def _():
-    mo.md(r"""## Stats""")
+    mo.md(r"""
+    ## Stats
+    """)
     return
 
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Total Loss
 
     The overall loss is used to update the policy network in a single gradient step. It is a combination of:
@@ -223,8 +229,7 @@ def _():
     * Entropy coefficient.
 
     The range depends on the reward scale.
-    """
-    )
+    """)
     return
 
 
@@ -236,13 +241,11 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Policy loss
 
     This is the loss associated with the policy (actor) network.
-    """
-    )
+    """)
     return
 
 
@@ -254,13 +257,11 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Value function Loss
 
     This is the loss associated with the value (critic) network. It measures how closely the predictions of the value network match the actual returns observed during training.
-    """
-    )
+    """)
     return
 
 
@@ -272,8 +273,7 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Value Function Explained Variance
 
     This is a normalised measure of how well the value function's predictions explain the variation in actual returns. The typical range is from negative to 1. Values should be closer to 1.
@@ -281,8 +281,7 @@ def _():
     * 1: perfect prediction.
     * 0: the predictions are no better than the mean of the targets.
     * <0: predictions are worse than just using the mean
-    """
-    )
+    """)
     return
 
 
@@ -294,8 +293,7 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Differential Entropy
 
     /// attention | Warning!
@@ -315,8 +313,7 @@ def _():
     * If one or more parameters are larger, the distribution spreads toward the center of the simplex, and the differential entropy increases, meaning the distribution is more spread out.
 
     Note that the plot shows the average differential entropy for each training iteration.
-    """
-    )
+    """)
     return
 
 
@@ -328,8 +325,7 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### KL divergence
 
     The KL divergence measures how much the new policy has changed compared to the old policy.
@@ -338,8 +334,7 @@ def _():
     * A lower mean KL means the policy is not changing much (possibly learning too slowly).
 
     It is a non-negative metric.
-    """
-    )
+    """)
     return
 
 
@@ -351,8 +346,7 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(
-        r"""
+    mo.md(r"""
     ### Global Gradient Norm
 
     The Global Gradient Norm is the Euclidean norm of the gradients computed during a single optimisation step. It measures the size of the policy/value gradients during learning.
@@ -361,8 +355,7 @@ def _():
     * A very small value (close to zero) means the model's parameters are barely changing (possibly due to vanishing gradients or convergence).
 
     The scale of the value is influenced by the network's structure and the distribution of actions. Fluctuations are normal.
-    """
-    )
+    """)
     return
 
 
@@ -374,13 +367,20 @@ def _(training_data):
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""### Entropy Coefficient""")
+    mo.md(r"""
+    ### Entropy Coefficient
+    """)
     return
 
 
 @app.cell
 def _(training_data):
     make_stats_plot(training_data, "entropy_coeff", "Entropy Coefficient", "Entropy Coefficient")
+    return
+
+
+@app.cell
+def _():
     return
 
 
