@@ -600,6 +600,7 @@ class DFaaS(MultiAgentEnv):
                 self.config.perfmodel_params[agent]["cold_service_time"],
                 self.config.perfmodel_params[agent]["idle_time_before_kill"],
                 maximum_concurrency=self.config.perfmodel_params[agent]["maximum_concurrency"],
+                faster_solution = (self.config.perfmodel_params[agent]["maximum_concurrency"] <= 30)     # otherwise it is cut to 30
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
