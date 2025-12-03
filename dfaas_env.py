@@ -105,7 +105,7 @@ def latency_based_reward(info, agent, current_step, input_rate):
             loc_perc - l_rej / info[agent]["incoming_rate_local"][current_step]
         )
     else:
-        loc_utility = -1 * loc_perc
+        loc_utility = -0.75 * loc_perc
     # -- forward
     fwd_utility = 0.0
     fwd_perc = info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
@@ -118,8 +118,9 @@ def latency_based_reward(info, agent, current_step, input_rate):
     else:
         fwd_utility = -1 * info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
     # reject
-    rej_penalty = 1.0 * info[agent]["action_reject"][current_step] / input_rate[agent][current_step]
-    return float(loc_utility + fwd_utility - rej_penalty), float(loc_utility), float(fwd_utility), float(rej_penalty)
+    rej_penalty = -0.5 * info[agent]["action_reject"][current_step] / input_rate[agent][current_step]
+    reward = loc_utility + fwd_utility + rej_penalty
+    return float(reward), float(loc_utility), float(fwd_utility), float(rej_penalty)
 
 
 class DFaaS(MultiAgentEnv):
