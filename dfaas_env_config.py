@@ -698,7 +698,7 @@ class DFaaSConfig:
                     network_links_changed = True
                     setattr(obj, key, value)
 
-                case "perfmodel_params_changed":
+                case "perfmodel_params":
                     perfmodel_params_changed = True
                     setattr(obj, key, value)
 
