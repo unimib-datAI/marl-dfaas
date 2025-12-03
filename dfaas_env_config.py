@@ -176,14 +176,14 @@ class DFaaSConfig:
         self.request_memory_mb_range = [128, 1024]
         self.request_memory_mb = None
 
-        # Warm and cold service time (in ms) for the single function. The
+        # Warm and cold service time (in s) for the single function. The
         # values "warm_service_time" and "cold_service_time" are extracted
         # uniformly from the given (inclusive) range. On extraction is guarantee
         # that warm_service_time < cold_service_time.
         #
         # To have a single value, just put the range to [min, min].
-        self.warm_service_time_range = [100, 500]
-        self.cold_service_time_range = [250, 750]
+        self.warm_service_time_range = [0.1, 0.5]
+        self.cold_service_time_range = [0.25, 0.75]
         self.warm_service_time = None
         self.cold_service_time = None
 
@@ -198,12 +198,12 @@ class DFaaSConfig:
         # The parameters are:
         #
         # - warm_service_time: Service time for warm function invocation
-        # in milliseconds.
+        # in seconds.
         #
-        # - cold_service_time: Cold service time in milliseconds.
+        # - cold_service_time: Cold service time in seconds.
         #
         # - idle_time_before_kill: Time before idle container is killed in
-        # milliseconds.
+        # seconds.
         #
         # - maximum_concurrency: Maximum number of concurrent requests a node
         # can handle.

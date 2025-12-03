@@ -29,7 +29,7 @@ import dfaas_input_rate
 
 def _total_network_delay(access_delay_ms, data_size_bytes, bandwidth_mbps):
     """
-    Calculate total network delay (in milliseconds).
+    Calculate total network delay (in seconds).
 
     Parameters:
         access_delay_ms (float): Access delay in milliseconds
@@ -37,7 +37,7 @@ def _total_network_delay(access_delay_ms, data_size_bytes, bandwidth_mbps):
         bandwidth_mbps (float): Bandwidth in megabits per second (Mbps)
 
     Returns:
-        float: Total delay in milliseconds
+        float: Total delay in seconds
     """
     data_size_bits = data_size_bytes * 8  # From bytes to bits.
     bandwidth_bps = bandwidth_mbps * 1_000_000  # From Mbps to bps.
@@ -50,7 +50,9 @@ def _total_network_delay(access_delay_ms, data_size_bytes, bandwidth_mbps):
 
     # Total delay in milliseconds.
     total_delay_ms = access_delay_ms + transmission_delay_ms
-    return total_delay_ms
+
+    # Return total delay in seconds
+    return total_delay_ms / 1000
 
 
 def reward_fn(action, additional_reject):
