@@ -94,7 +94,7 @@ def latency_based_reward(info, agent, current_step, input_rate):
     l_rej = info[agent]["incoming_rate_local_reject"][current_step]
     f_rej = info[agent]["forward_reject_rate"][current_step]
     # compare latency with threshold and compute utility
-    threshold = 800
+    threshold = 0.5
     # -- local
     loc_utility = 0.0
     loc_perc = info[agent]["action_local"][current_step] / input_rate[agent][current_step]
@@ -113,7 +113,7 @@ def latency_based_reward(info, agent, current_step, input_rate):
         fwd_utility = 1.0 * fwd_perc
     elif rt_fwd < threshold and f_rej > 0:
         fwd_utility = 1.0 * (
-            fwd_perc - f_rej / info[agent]["incoming_rate_forward"][current_step]
+            fwd_perc - f_rej / info[agent]["action_forward"][current_step]
         )
     else:
         fwd_utility = -1 * info[agent]["action_forward"][current_step] / input_rate[agent][current_step]
@@ -817,7 +817,7 @@ class DFaaSCallbacks(DefaultCallbacks):
             env = base_env.get_sub_environments()[0]
 
         # Save environment seed directly in hist_data.
-        episode.hist_data["seed"] = [env.seed]
+        episode.hist_data["seed"] = [int(env.seed)]
 
         # If the environment has real input requests, we need to store the
         # hashes of all the requests used in the episode (one for each agent) in
