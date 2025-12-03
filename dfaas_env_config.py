@@ -517,8 +517,8 @@ class DFaaSConfig:
         min_warm, max_warm = self.warm_service_time_range
         min_cold, max_cold = self.cold_service_time_range
         while True:
-            warm_service_time = int(rng.integers(min_warm, high=max_warm, endpoint=True))
-            cold_service_time = int(rng.integers(min_cold, high=max_cold, endpoint=True))
+            warm_service_time = float(rng.uniform(min_warm, high=max_warm+1e-6))
+            cold_service_time = float(rng.uniform(min_cold, high=max_cold+1e-6))
             if warm_service_time <= cold_service_time:
                 self.warm_service_time = warm_service_time
                 self.cold_service_time = cold_service_time
