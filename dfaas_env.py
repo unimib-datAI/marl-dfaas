@@ -260,6 +260,7 @@ class DFaaS(MultiAgentEnv):
             "loc_utility",
             "fwd_utility",
             "rej_penalty",
+            "cold_prob",
         ]
 
         # Create a zero-filled array for each metric.
@@ -607,6 +608,9 @@ class DFaaS(MultiAgentEnv):
             )
             rejection_rate = result_props["rejection_rate"]
             node_avg_resp_time[agent] = result_props.get("avg_resp_time", 0)
+            cold_prob = result_props["cold_prob"]
+
+            self.info[agent]["cold_prob"][self.current_step] = float(cold_prob)
 
             # Distribute the rejection rate to all agents (itself and its
             # neighbors).
