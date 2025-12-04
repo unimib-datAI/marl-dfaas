@@ -3,6 +3,7 @@ from pathlib import Path
 import gzip
 import json
 import csv
+import io
 
 from ray.tune.utils.util import SafeFallbackEncoder
 from ray.air.constants import EXPR_PROGRESS_FILE
@@ -90,22 +91,44 @@ class CsvGzipLogger(CSVLogger):
     def _maybe_init(self):
         """CSV outputted with Headers as first set of results."""
         if not self._initialized:
-            super()._maybe_init()
-            evaluation_file = Path(self.logdir, "evaluations.csv")
+            progress_file = Path(self.logdir, f"{EXPR_PROGRESS_FILE}.gz")
+            self._continuing = (
+                progress_file.exists() and progress_file.stat().st_size > 0
+            )
+            self._file = gzip.open(progress_file, "wb")
+            self._wrapper = io.TextIOWrapper(self._file, encoding='utf-8')
+            self._csv_out = None
+            # eval
+            evaluation_file = Path(self.logdir, "evaluations.csv.gz")
             self._eval_continuing = (
                 evaluation_file.exists() and evaluation_file.stat().st_size > 0
             )
-            self._eval_file = evaluation_file.open("a")
+            self._eval_file = gzip.open(evaluation_file, "wb")
+            self._eval_wrapper = io.TextIOWrapper(self._eval_file, encoding='utf-8')
             self._eval_csv_out = None
+            self._initialized = True
 
     def on_result(self, result: Dict):
-        super().on_result(result)
-        
+        self._maybe_init()
+
         tmp = result.copy()
+        if "config" in tmp:
+            del tmp["config"]
+        
+        result = flatten_dict(tmp, delimiter="/")
+        if self._csv_out is None:
+            self._csv_out = csv.DictWriter(self._wrapper, result.keys())
+            if not self._continuing:
+                self._csv_out.writeheader()
+        self._csv_out.writerow(
+            {k: v for k, v in result.items() if k in self._csv_out.fieldnames}
+        )
+        self._file.flush()
+        
         if "evaluation" in tmp:
             eval_result = flatten_dict(tmp["evaluation"], delimiter="/")
             if self._eval_csv_out is None:
-                self._eval_csv_out = csv.DictWriter(self._eval_file, eval_result.keys())
+                self._eval_csv_out = csv.DictWriter(self._eval_wrapper, eval_result.keys())
                 if not self._continuing:
                     self._eval_csv_out.writeheader()
             self._eval_csv_out.writerow(
@@ -119,6 +142,6 @@ class CsvGzipLogger(CSVLogger):
             self._eval_file.flush()
 
     def close(self):
+        super().close()
         if self._initialized:
-            self._file.close()
             self._eval_file.close()
