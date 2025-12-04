@@ -55,7 +55,9 @@ def load_progress_file(
   return all_hist_stats, all_episode_hist_stats
 
 
-def plot_action(df: pd.DataFrame, agents: list, plot_folder: str = None):
+def plot_action(
+    df: pd.DataFrame, agents: list, plot_folder: str = None, suffix: str = ""
+  ):
   _, axs = plt.subplots(nrows = len(agents), ncols = 1, figsize = (30,8))
   for idx, agent in enumerate(agents):
     # -- input load
@@ -81,7 +83,7 @@ def plot_action(df: pd.DataFrame, agents: list, plot_folder: str = None):
     axs[idx].grid(visible = True, axis = "y")
   if plot_folder is not None:
     plt.savefig(
-      os.path.join(plot_folder, "actions.png"),
+      os.path.join(plot_folder, f"actions{suffix}.png"),
       dpi = 300,
       format = "png",
       bbox_inches = "tight"
@@ -128,9 +130,22 @@ def plot_moving_average(
     plt.show()
 
 
-def unpack_step_values(all_hist_stats: pd.DataFrame) -> pd.DataFrame:
+def sum_latency(df: pd.DataFrame, agent: str) -> pd.Series:
+  return df[
+    f"response_time_avg_forwarded-{agent}"
+  ] + df[
+    f"network_forward_delay_avg-{agent}"
+  ] + df[
+    f"network_return_delay_avg-{agent}"
+  ]
+
+
+def unpack_step_values(
+    all_hist_stats: pd.DataFrame
+  ) -> Tuple[pd.DataFrame, set]:
   to_convert = all_hist_stats.select_dtypes("object").copy(deep = True)
   new_df = pd.DataFrame()
+  all_agents = set()
   for col in to_convert:
     print(col)
     df_col = pd.DataFrame()
@@ -142,6 +157,7 @@ def unpack_step_values(all_hist_stats: pd.DataFrame) -> pd.DataFrame:
         for agent in agents:
           df_dict[f"{col}-{agent}"] = to_convert.loc[iteration,col][agent]
           n_steps = len(to_convert.loc[iteration,col][agent])
+          all_agents.add(agent)
         df_dict["step"] = range(n_steps)
         df_dict["iter"] = iteration
         # merge
@@ -157,10 +173,15 @@ def unpack_step_values(all_hist_stats: pd.DataFrame) -> pd.DataFrame:
         on = ["iter", "step"],
         how = "inner"
       )
-  return new_df
+  return new_df, all_agents
 
 
-def main(exp_folder: str, moving_average_window: int = 10, last_iter: int = 0):
+def main(
+    exp_folder: str, 
+    moving_average_window: int = 10, 
+    last_iter: int = 0,
+    plot_iterations: list = []
+  ):
   # create folder to store plots
   plot_folder = os.path.join(exp_folder, "plots")
   os.makedirs(plot_folder, exist_ok = True)
@@ -168,6 +189,8 @@ def main(exp_folder: str, moving_average_window: int = 10, last_iter: int = 0):
   all_hist_stats, all_episode_hist_stats = load_progress_file(
     exp_folder, last_iter
   )
+  # unpack by-step values
+  all_hist_stats_unpacked, agents = unpack_step_values(all_hist_stats)
   # plot episode reward moving average
   plot_moving_average(
     all_episode_hist_stats, 
@@ -179,30 +202,73 @@ def main(exp_folder: str, moving_average_window: int = 10, last_iter: int = 0):
   # -- by node
   plot_moving_average(
     all_hist_stats, 
-    ["policy_policy_node_0_reward", "policy_policy_node_1_reward"], 
+    [f"policy_policy_{a}_reward" for a in agents], 
     moving_average_window, 
     plot_folder, 
     "by_node_reward"
   )
-  # unpack by-step values
-  all_hist_stats_unpacked = unpack_step_values(all_hist_stats)
+  
   # compute by-episode average
-  avg_stats_unpacked = all_hist_stats_unpacked.groupby("iter").mean().reset_index()
+  avg_stats_unpacked = all_hist_stats_unpacked.groupby(
+    "iter"
+  ).mean().reset_index()
+  # plot utility
   plot_moving_average(
     avg_stats_unpacked, 
     [
-      "loc_utility-node_0", "fwd_utility-node_0", "rej_penalty-node_0",
-      "loc_utility-node_1", "fwd_utility-node_1", "rej_penalty-node_1"
+      f"loc_utility-{a}" for a in agents
+    ] + [
+      f"fwd_utility-{a}" for a in agents
+    ] + [
+      f"rej_penalty-{a}" for a in agents
     ], 
     moving_average_window, 
     plot_folder, 
     "utilities"
   )
+  # plot response time
+  for a in agents:
+    avg_stats_unpacked[f"response_time_avg_fwd-{a}"] = sum_latency(
+      avg_stats_unpacked, a
+    )
+  plot_moving_average(
+    avg_stats_unpacked, 
+    [
+      f"response_time_avg_local-{a}" for a in agents
+    ] + [
+      f"response_time_avg_fwd-{a}" for a in agents
+    ], 
+    moving_average_window, 
+    plot_folder, 
+    "response_time_avg"
+  )
+  # plot rejections
+  plot_moving_average(
+    avg_stats_unpacked, 
+    [
+      f"action_reject-{a}" for a in agents
+    ] + [
+      f"incoming_rate_reject-{a}" for a in agents
+    ] + [
+      f"forward_reject_rate-{a}" for a in agents
+    ], 
+    moving_average_window, 
+    plot_folder, 
+    "reject"
+  )
   # plot "average" actions
-  plot_action(avg_stats_unpacked, ["node_0", "node_1"], plot_folder)
+  plot_action(avg_stats_unpacked, agents, plot_folder)
+  # plot actions in specific iterations
+  for iteration in plot_iterations:
+    plot_action(
+      all_hist_stats_unpacked[all_hist_stats_unpacked["iter"] == iteration], 
+      agents, 
+      plot_folder,
+      f"-iter_{iteration}"
+    )
   
 
 
 if __name__ == "__main__":
-  exp_folder = "results/DF_20251203_172416_PPO_rrof_lbr"
+  exp_folder = "results/DF_20251204_120215_PPO_3agents"
   main(exp_folder)
