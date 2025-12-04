@@ -11,7 +11,7 @@ Original repo: https://github.com/pacslab/serverless-performance-modeling
 """
 
 # For computing the blocking probability
-from math import factorial, inf, exp
+from math import exp
 from functools import lru_cache
 
 from scipy.stats import expon
@@ -230,3 +230,67 @@ def get_sls_warm_count_dist(
         "steady_state_probs": solution,
         "server_counts": server_counts,
     }
+
+
+def main():
+    """
+    Small script that invokes the performance model using the provided CLI
+    arguments. Prints the input arguments and the model's output.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Invoke the performance model and output result",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("-a", "--arrival-rate", type=float, required=True, help="Request arrival rate (lambda, req/s)")
+    parser.add_argument(
+        "-w", "--warm-service-time", type=float, required=True, help="Average service time for warm container (seconds)"
+    )
+    parser.add_argument(
+        "-c", "--cold-service-time", type=float, required=True, help="Average service time for cold container (seconds)"
+    )
+    parser.add_argument(
+        "-i",
+        "--idle-time-before-kill",
+        type=float,
+        required=True,
+        help="Idle time before a container is killed (seconds)",
+    )
+    parser.add_argument(
+        "-m", "--maximum-concurrency", type=int, default=1000, help="Maximum concurrency (number of containers)"
+    )
+    parser.add_argument(
+        "-f", "--faster-solution", action="store_true", default=False, help="Use the faster cutoff algorithm"
+    )
+
+    args = parser.parse_args()
+
+    print("Input parameters for the model:")
+    print("-------------------------------")
+    print(f"Arrival rate (lambda):           {args.arrival_rate}")
+    print(f"Warm service time (seconds):     {args.warm_service_time}")
+    print(f"Cold service time (seconds):     {args.cold_service_time}")
+    print(f"Idle time before kill (seconds): {args.idle_time_before_kill}")
+    print(f"Maximum concurrency:             {args.maximum_concurrency}")
+    print(f"Faster solution:                 {args.faster_solution}")
+
+    props, extra = get_sls_warm_count_dist(
+        arrival_rate=args.arrival_rate,
+        warm_service_time=args.warm_service_time,
+        cold_service_time=args.cold_service_time,
+        idle_time_before_kill=args.idle_time_before_kill,
+        maximum_concurrency=args.maximum_concurrency,
+        faster_solution=args.faster_solution,
+    )
+
+    print_props(props)
+    print("Steady-state server counts:")
+    print(extra["server_counts"])
+    print()
+    print("Steady-state probabilities:")
+    print(extra["steady_state_probs"])
+
+
+if __name__ == "__main__":
+    main()
