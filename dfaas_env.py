@@ -83,7 +83,7 @@ def reward_fn(action, additional_reject):
     return float(norm_reward)
 
 
-def latency_based_reward(info, agent, current_step, input_rate):
+def latency_based_reward(info, agent, current_step, input_rate, threshold):
     # compute local and fwd. latency
     rt_loc = info[agent]["response_time_avg_local"][current_step]
     rt_fwd = info[agent]["response_time_avg_forwarded"][current_step]
@@ -94,7 +94,6 @@ def latency_based_reward(info, agent, current_step, input_rate):
     l_rej = info[agent]["incoming_rate_local_reject"][current_step]
     f_rej = info[agent]["forward_reject_rate"][current_step]
     # compare latency with threshold and compute utility
-    threshold = 0.5
     # -- local
     loc_utility = 0.0
     loc_perc = info[agent]["action_local"][current_step] / input_rate[agent][current_step]
@@ -415,7 +414,9 @@ class DFaaS(MultiAgentEnv):
             )
 
             # reward = reward_fn(action[agent], additional_rejects)
-            reward, loc_utility, fwd_utility, rej_penalty = latency_based_reward(self.info, agent, self.current_step, self.input_rate)
+            reward, loc_utility, fwd_utility, rej_penalty = latency_based_reward(
+                self.info, agent, self.current_step, self.input_rate, self.config.response_time_threshold
+            )
             assert isinstance(reward, float), f"Unsupported reward type {type(reward)}"
 
             rewards[agent] = reward

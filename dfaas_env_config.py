@@ -187,6 +187,15 @@ class DFaaSConfig:
         self.warm_service_time = None
         self.cold_service_time = None
 
+        # Response time threshold (in s) for the single function. The
+        # value "response_time_threshold" is generated extracting uniformly at 
+        # random from the response_time_multiplier_range (inclusive) range a 
+        # multiplier, and then computing multiplier * warm_service_time.
+        #
+        # To have a single value, just put the range to [min, min].
+        self.response_time_multiplier_range = [2, 4]
+        self.response_time_threshold = None
+
         # Default RAM capacity in GB for a node.
         self._node_ram_gb_default = 4
 
@@ -342,6 +351,21 @@ class DFaaSConfig:
             # self.cold_service_time validation.
             if self.cold_service_time is None:
                 raise TypeError("cold_service_time should not be None")
+        
+        # Validate response time threshold.
+        if len(self.response_time_multiplier_range) != 2:
+            raise ValueError("response_time_threshold_range must be [min,max]")
+        if self.response_time_multiplier_range[0] < 1:
+            raise ValueError("response_time_threshold_range: min must be >= 1")
+        if self.response_time_multiplier_range[1] < 1:
+            raise ValueError("response_time_threshold_range: max must be >= 1")
+        if self.response_time_multiplier_range[0] > self.response_time_multiplier_range[1]:
+            raise ValueError("response_time_threshold_range: min > max")
+        
+        if not skip_generated:
+            # self.response_time_threshold validation.
+            if self.response_time_threshold is None:
+                raise TypeError("response_time_threshold should not be None")
 
         # Validate perfmodel_params for all nodes.
         if self.perfmodel_params is None:
@@ -523,6 +547,11 @@ class DFaaSConfig:
                 self.warm_service_time = warm_service_time
                 self.cold_service_time = cold_service_time
                 break
+        
+        # Generate "response_time_threshold" depending on "warm_service_time" 
+        # and a random multiplier.
+        min_m, max_m = self.response_time_multiplier_range
+        self.response_time_threshold = self.warm_service_time * float(rng.uniform(min_m, high=max_m+1e-6))
 
         # Calculate maximum_concurrency for each node.
         for node in self._network.nodes:
