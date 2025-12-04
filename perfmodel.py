@@ -10,6 +10,8 @@ It is then slightly modified by me to adapt and speed up the execution.
 Original repo: https://github.com/pacslab/serverless-performance-modeling
 """
 
+# TODO: Maybe split this file to a indipendent module/package?
+
 # For computing the blocking probability
 from math import exp
 from functools import lru_cache
@@ -84,6 +86,9 @@ def get_sls_warm_count_dist(
     cold_service_rate = 1 / cold_service_time
     rho = arrival_rate / warm_service_rate
 
+    # FIXME: With a high value of maximum concurrency we may get a
+    # ZeroDivisionError (since the probability is almost zero) and also
+    # erlangb_inner_loop is recursive and there is a depth limit (Python).
     server_max = maximum_concurrency
     if faster_solution:
         server_max = min(30, maximum_concurrency)
