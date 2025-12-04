@@ -1,10 +1,13 @@
+from typing import override, Dict
 from pathlib import Path
 import gzip
 import json
-from typing import override
+import csv
 
-from ray.tune.logger import Logger
 from ray.tune.utils.util import SafeFallbackEncoder
+from ray.air.constants import EXPR_PROGRESS_FILE
+from ray.tune.logger import Logger, CSVLogger
+from ray.tune.utils import flatten_dict
 
 
 class JsonGzipLogger(Logger):
@@ -70,3 +73,52 @@ class JsonGzipLogger(Logger):
     @override
     def flush(self):
         self.file.flush()
+
+
+class CsvGzipLogger(CSVLogger):
+    """Logs results to progress.csv under the trial directory.
+
+    Automatically flattens nested dicts in the result dict before writing
+    to csv:
+
+        {"a": {"b": 1, "c": 2}} -> {"a/b": 1, "a/c": 2}
+
+    """
+    def __init__(self, config, logdir):
+        super().__init__(config, logdir)
+
+    def _maybe_init(self):
+        """CSV outputted with Headers as first set of results."""
+        if not self._initialized:
+            super()._maybe_init()
+            evaluation_file = Path(self.logdir, "evaluations.csv")
+            self._eval_continuing = (
+                evaluation_file.exists() and evaluation_file.stat().st_size > 0
+            )
+            self._eval_file = evaluation_file.open("a")
+            self._eval_csv_out = None
+
+    def on_result(self, result: Dict):
+        super().on_result(result)
+        
+        tmp = result.copy()
+        if "evaluation" in tmp:
+            eval_result = flatten_dict(tmp["evaluation"], delimiter="/")
+            if self._eval_csv_out is None:
+                self._eval_csv_out = csv.DictWriter(self._eval_file, eval_result.keys())
+                if not self._continuing:
+                    self._eval_csv_out.writeheader()
+            self._eval_csv_out.writerow(
+                {k: v for k, v in eval_result.items() if k in self._eval_csv_out.fieldnames}
+            )
+            self._eval_file.flush()
+
+    def flush(self):
+        super().flush()
+        if self._initialized and not self._eval_file.closed:
+            self._eval_file.flush()
+
+    def close(self):
+        if self._initialized:
+            self._file.close()
+            self._eval_file.close()
