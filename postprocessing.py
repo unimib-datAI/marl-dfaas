@@ -58,7 +58,9 @@ def load_progress_file(
 def plot_action(
     df: pd.DataFrame, agents: list, plot_folder: str = None, suffix: str = ""
   ):
-  _, axs = plt.subplots(nrows = len(agents), ncols = 1, figsize = (30,8))
+  _, axs = plt.subplots(
+    nrows = len(agents), ncols = 1, figsize = (30,4 * len(agents))
+  )
   for idx, agent in enumerate(agents):
     # -- input load
     df[f"observation_input_rate-{agent}"].plot(
@@ -95,6 +97,48 @@ def plot_action(
     plt.show()
 
 
+def plot_forward(
+    df: pd.DataFrame, agents: list, plot_folder: str = None, suffix: str = ""
+  ):
+  _, axs = plt.subplots(
+    nrows = len(agents), ncols = 1, figsize = (30,4 * len(agents))
+  )
+  for idx, agent in enumerate(agents):
+    # -- total number of forwarded requests
+    df[f"action_forward-{agent}"].plot(
+      linewidth = 2,
+      marker = ".",
+      color = "k",
+      ax = axs[idx],
+      label = None,
+      legend = False
+    )
+    # -- details
+    df[[
+      f"action_forward_to_{neighbor}-{agent}" 
+        for neighbor in agents if neighbor != agent
+    ]].plot.bar(
+      stacked = True,
+      ax = axs[idx],
+      # label = None,
+      # legend = False
+    )
+    axs[idx].set_ylabel(agent)
+    axs[idx].grid(visible = True, axis = "y")
+    axs[idx].legend(loc = "center left", bbox_to_anchor = (1, 0.5))
+  if plot_folder is not None:
+    plt.savefig(
+      os.path.join(plot_folder, f"offloading{suffix}.png"),
+      dpi = 300,
+      format = "png",
+      bbox_inches = "tight"
+    )
+    plt.close()
+  else:
+    plt.title(title_key)
+    plt.show()
+
+
 def plot_moving_average(
     data: pd.DataFrame, 
     columns: list, 
@@ -118,6 +162,7 @@ def plot_moving_average(
   if y_threshold is not None:
     ax.axhline(y_threshold, color = "k", linestyle = "dashed", linewidth = 2)
   plt.grid()
+  plt.legend(loc = "center left", bbox_to_anchor = (1, 0.5))
   if plot_folder is not None:
     plt.savefig(
       os.path.join(
@@ -263,9 +308,17 @@ def main(
   )
   # plot "average" actions
   plot_action(avg_stats_unpacked, agents, plot_folder)
-  # plot actions in specific iterations
+  # plot "average" detailed forwarding choices
+  plot_forward(avg_stats_unpacked, agents, plot_folder)
+  # plot actions and detailed forwarding info in specific iterations
   for iteration in plot_iterations:
     plot_action(
+      all_hist_stats_unpacked[all_hist_stats_unpacked["iter"] == iteration], 
+      agents, 
+      plot_folder,
+      f"-iter_{iteration}"
+    )
+    plot_forward(
       all_hist_stats_unpacked[all_hist_stats_unpacked["iter"] == iteration], 
       agents, 
       plot_folder,
@@ -275,5 +328,5 @@ def main(
 
 
 if __name__ == "__main__":
-  exp_folder = "results/DF_20251204_121104_PPO_3agents"
+  exp_folder = "results/DF_20251204_122058_PPO_5agents"
   main(exp_folder)
