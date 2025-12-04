@@ -80,6 +80,7 @@ def plot_action(
       label = None,
       legend = False
     )
+    axs[idx].set_ylabel(agent)
     axs[idx].grid(visible = True, axis = "y")
   if plot_folder is not None:
     plt.savefig(
@@ -99,7 +100,8 @@ def plot_moving_average(
     columns: list, 
     window: int, 
     plot_folder: str = None,
-    title_key: str = "training"
+    title_key: str = "training",
+    y_threshold: float = None
   ):
   """
   Plot the moving average over the given window of the results in the listed 
@@ -112,7 +114,9 @@ def plot_moving_average(
   min_iter = data["iter"].min()
   max_iter = data["iter"].max()
   # plot
-  avg.plot()
+  ax = avg.plot()
+  if y_threshold is not None:
+    ax.axhline(y_threshold, color = "k", linestyle = "dashed", linewidth = 2)
   plt.grid()
   if plot_folder is not None:
     plt.savefig(
@@ -240,7 +244,8 @@ def main(
     ], 
     moving_average_window, 
     plot_folder, 
-    "response_time_avg"
+    "response_time_avg",
+    y_threshold = 0.5
   )
   # plot rejections
   plot_moving_average(
@@ -270,5 +275,5 @@ def main(
 
 
 if __name__ == "__main__":
-  exp_folder = "results/DF_20251204_120215_PPO_3agents"
+  exp_folder = "results/DF_20251204_121104_PPO_3agents"
   main(exp_folder)
