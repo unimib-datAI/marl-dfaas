@@ -16,7 +16,7 @@ from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.models.catalog import MODEL_DEFAULTS
 
-from json_gzip_logger import JsonGzipLogger
+from gzip_loggers import JsonGzipLogger, CsvGzipLogger
 import dfaas_utils
 import dfaas_apl
 import dfaas_env
@@ -82,6 +82,8 @@ def run_experiment(
     exp_config["evaluation_interval"] = exp_config.get("evaluation_interval", 50)
     exp_config["evaluation_num_episodes"] = exp_config.get("evaluation_num_episodes", 10)
     exp_config["final_evaluation"] = exp_config.get("final_evaluation", True)
+    exp_config["logger_type"] = exp_config.get("logger_type", "json")
+    run_manual_evaluation = exp_config.get("run_manual_evaluation", True)
 
     logger.info("Experiment configuration")
     for key, value in exp_config.items():
@@ -196,6 +198,15 @@ def run_experiment(
     if dummy_env.max_steps != 288:
         raise ValueError("Only 288 steps supported for the environment")
 
+    # Define logger type
+    logger_type = None
+    if exp_config["logger_type"] == "json":
+        logger_type = JsonGzipLogger
+    elif exp_config["logger_type"] == "csv":
+        logger_type = CsvGzipLogger
+    else:
+        raise ValueError(f"Unexpected logger type: {exp_config['logger_type']}; Choose json (default) or csv")
+
     match exp_config["algorithm"]["name"]:
         case "PPO":
             experiment = build_ppo(
@@ -209,6 +220,7 @@ def run_experiment(
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
                 policies_to_train=policies_to_train,
+                evaluation_interval=exp_config["evaluation_interval"] if not run_manual_evaluation else None,
                 evaluation_num_episodes=exp_config["evaluation_num_episodes"],
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
@@ -217,6 +229,7 @@ def run_experiment(
                 entropy_coeff_decay_enable=exp_config["algorithm"]["entropy_coeff_decay_enable"],
                 entropy_coeff_decay_iterations=exp_config["algorithm"]["entropy_coeff_decay_iterations"],
                 max_iterations=exp_config["iterations"],
+                logger_type=logger_type
             )
         case "SAC":
             # WARNING: SAC support is experimental in the DFaaS environment. It
@@ -233,9 +246,11 @@ def run_experiment(
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
                 policies_to_train=policies_to_train,
+                evaluation_interval=exp_config["evaluation_interval"] if not run_manual_evaluation else None,
                 evaluation_num_episodes=exp_config["evaluation_num_episodes"],
                 training_num_episodes=exp_config["training_num_episodes"],
                 gamma=exp_config["algorithm"]["gamma"],
+                logger_type=logger_type
             )
         case "APL":
             experiment = build_apl(
@@ -246,6 +261,8 @@ def run_experiment(
                 exp_config=exp_config,
                 policies=policies,
                 policy_mapping_fn=policy_mapping_fn,
+                evaluation_interval=exp_config["evaluation_interval"] if not run_manual_evaluation else None,
+                logger_type=logger_type
             )
         case _:
             raise ValueError(f"Algorithm {exp_config['algorithm']['name']!r} not found")
@@ -360,11 +377,12 @@ def run_experiment(
 
             # Evaluate every evaluate_interval iterations (0 means no
             # evaluation).
-            if evaluation_interval > 0 and ((iteration + 1) % evaluation_interval) == 0:
-                logger.info(f"Evaluation of the {iteration}-th iteration")
-                evaluation = experiment.evaluate()
-                evaluation["iteration"] = iteration
-                eval_result.append(evaluation)
+            if run_manual_evaluation:
+                if evaluation_interval > 0 and ((iteration + 1) % evaluation_interval) == 0:
+                    logger.info(f"Evaluation of the {iteration}-th iteration")
+                    evaluation = experiment.evaluate()
+                    evaluation["iteration"] = iteration
+                    eval_result.append(evaluation)
 
             progress_bar.update(1)
 
@@ -439,6 +457,8 @@ def build_ppo(**kwargs):
     entropy_coeff_decay_enable = kwargs["entropy_coeff_decay_enable"]
     entropy_coeff_decay_iterations = kwargs["entropy_coeff_decay_iterations"]
     max_iterations = kwargs["max_iterations"]
+    logger_type = kwargs["logger_type"]
+    evaluation_interval = kwargs["evaluation_interval"]
 
     if not 0 <= gamma <= 1:
         raise ValueError("Gamma (discount factor) must be between 0 and 1")
@@ -532,12 +552,12 @@ def build_ppo(**kwargs):
         # Wait max 4 minutes for each iteration to collect the samples.
         .env_runners(num_env_runners=runners, sample_timeout_s=240)
         .evaluation(
-            evaluation_interval=None,
+            evaluation_interval=evaluation_interval,
             evaluation_duration=evaluation_num_episodes,
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
+        .debugging(seed=seed, logger_config={"type": logger_type})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -568,6 +588,8 @@ def build_sac(**kwargs):
     evaluation_num_episodes = kwargs["evaluation_num_episodes"]
     training_num_episodes = kwargs["training_num_episodes"]
     gamma = kwargs["gamma"]
+    logger_type = kwargs["logger_type"]
+    evaluation_interval = kwargs["evaluation_interval"]
 
     if not 0 <= gamma <= 1:
         raise ValueError("Gamma (discount factor) must be between 0 and 1")
@@ -653,12 +675,12 @@ def build_sac(**kwargs):
             sample_timeout_s=240,  # Wait max 4 minutes for each runners.
         )
         .evaluation(
-            evaluation_interval=None,
+            evaluation_interval=evaluation_interval,
             evaluation_duration=evaluation_num_episodes,
             evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=seed, logger_config={"type": JsonGzipLogger})
+        .debugging(seed=seed, logger_config={"type": logger_type})
         .resources(num_gpus=0 if no_gpu else 1)
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
@@ -679,6 +701,8 @@ def build_apl(**kwargs):
     exp_config = kwargs["exp_config"]
     policies = kwargs["policies"]
     policy_mapping_fn = kwargs["policy_mapping_fn"]
+    logger_type = kwargs["logger_type"]
+    evaluation_interval = kwargs["evaluation_interval"]
 
     # See build_ppo function.
     episodes_iter = 1 * (runners if runners > 0 else 1)
@@ -695,12 +719,12 @@ def build_apl(**kwargs):
         .training(train_batch_size=train_batch_size)
         .env_runners(num_env_runners=runners)
         .evaluation(
-            evaluation_interval=None,
+            evaluation_interval=evaluation_interval,
             evaluation_duration=10,
             evaluation_num_env_runners=1,
             evaluation_config={"env_config": env_eval_config},
         )
-        .debugging(seed=exp_config["seed"], logger_config={"type": JsonGzipLogger})
+        .debugging(seed=exp_config["seed"], logger_config={"type": logger_type})
         .callbacks(dfaas_env.DFaaSCallbacks)
         .multi_agent(policies=policies, policy_mapping_fn=policy_mapping_fn)
     )
