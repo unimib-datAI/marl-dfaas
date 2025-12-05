@@ -126,6 +126,7 @@ class CsvGzipLogger(CSVLogger):
         self._file.flush()
         
         if "evaluation" in tmp:
+            tmp["evaluation"]["after_training_iteration"] = tmp["training_iteration"]
             eval_result = flatten_dict(tmp["evaluation"], delimiter="/")
             if self._eval_csv_out is None:
                 self._eval_csv_out = csv.DictWriter(self._eval_wrapper, eval_result.keys())
