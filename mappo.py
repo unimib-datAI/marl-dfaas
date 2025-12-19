@@ -57,10 +57,13 @@ def centralized_critic_postprocessing(
     # separate lists of observations and actions
     op_obs_list = [b[SampleBatch.CUR_OBS] for b in opponent_batches]
     op_act_list = [b[SampleBatch.ACTIONS] for b in opponent_batches]
-    # average
-    opponent_obs = np.mean(np.stack(op_obs_list, axis=0), axis=0)
-    opponent_actions = np.mean(np.stack(op_act_list, axis=0), axis=0)
-    # record the average opponent obs and actions in the trajectory
+    # # average
+    # opponent_obs = np.mean(np.stack(op_obs_list, axis=0), axis=0)
+    # opponent_actions = np.mean(np.stack(op_act_list, axis=0), axis=0)
+    # concatenate along feature dimension
+    opponent_obs = np.concatenate(op_obs_list, axis=1)     # [B, N * obs_dim]
+    opponent_actions = np.concatenate(op_act_list, axis=1) # [B, N * act_dim]
+    # record the opponent obs and actions in the trajectory
     sample_batch[OPPONENT_OBS] = opponent_obs
     sample_batch[OPPONENT_ACTION] = opponent_actions
     # overwrite default VF prediction with the central VF
@@ -78,12 +81,23 @@ def centralized_critic_postprocessing(
       ).cpu().detach().numpy()
     )
   else:
+    n_agents = policy.config["model"]["custom_model_config"]["n_agents"]
     # policy hasn't been initialized yet, use zeros.
     sample_batch[OPPONENT_OBS] = np.zeros_like(
-      sample_batch[SampleBatch.CUR_OBS]
+      np.concatenate(
+        [
+          sample_batch[SampleBatch.CUR_OBS] for _ in range(n_agents - 1)
+        ], 
+        axis = 1
+      )
     )
     sample_batch[OPPONENT_ACTION] = np.zeros_like(
-      sample_batch[SampleBatch.ACTIONS]
+      np.concatenate(
+        [
+          sample_batch[SampleBatch.ACTIONS] for _ in range(n_agents - 1)
+        ],
+        axis = 1
+      )
     )
     sample_batch[SampleBatch.VF_PREDS] = np.zeros_like(
       sample_batch[SampleBatch.REWARDS], dtype=np.float32
@@ -140,7 +154,8 @@ class CustomTorchCCModel(TorchCentralizedCriticModel):
       obs_space, action_space, num_outputs, model_config, name
     )
     # central VF maps (obs, opp_obs, opp_act) -> vf_pred
-    input_size = obs_space.shape[0] * 2 + action_space.dim # obs + opp_obs + opp_act
+    n_agents = model_config.get("custom_model_config", {}).get("n_agents", 2)
+    input_size = obs_space.shape[0] * n_agents + action_space.dim * (n_agents - 1) # obs + opp_obs + opp_act
     self.central_vf = nn.Sequential(
       SlimFC(input_size, 16, activation_fn=nn.Tanh),
       SlimFC(16, 1),
