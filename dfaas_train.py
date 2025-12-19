@@ -195,8 +195,8 @@ def run_experiment(
         given_model = dfaas_utils.json_to_dict(exp_config.get("model"))
         model = model | given_model
 
-    if dummy_env.max_steps != 288:
-        raise ValueError("Only 288 steps supported for the environment")
+    # if dummy_env.max_steps != 288:
+    #     raise ValueError("Only 288 steps supported for the environment")
 
     # Define logger type
     logger_type = None
@@ -525,7 +525,7 @@ def build_ppo(**kwargs):
     # Note: if the minibatch size does not divide the training batch size, the
     # last minibatch will have a smaller size.
     num_epochs = 30
-    minibatch_size = 144
+    minibatch_size = dummy_env.max_steps // 2
 
     updates_per_epoch = train_batch_size // minibatch_size
     total_gradient_updates = num_epochs * updates_per_epoch
@@ -751,26 +751,32 @@ def main():
     )
 
     args = parser.parse_args()
+    env_config = args.env_config
+    exp_config = args.exp_config
+    suffix = args.suffix
+    seed = args.seed
+    runners = args.runners
+    dry_run = args.dry_run
 
     # Read configuration files as dicts here, before calling run_experiment.
-    if args.exp_config is not None:
-        exp_config = dfaas_utils.yaml_to_dict(args.exp_config)
+    if exp_config is not None:
+        exp_config = dfaas_utils.yaml_to_dict(exp_config)
     else:
         exp_config = {}
 
-    if args.env_config is not None:
-        env_config = dfaas_utils.yaml_to_dict(args.env_config)
+    if env_config is not None:
+        env_config = dfaas_utils.yaml_to_dict(env_config)
     else:
         env_config = {}
 
     # Pass config dicts directly to run_experiment instead of file paths.
     run_experiment(
-        suffix=args.suffix,
+        suffix=suffix,
         exp_config=exp_config,
         env_config=env_config,
-        runners=args.runners,
-        seed=args.seed,
-        dry_run=args.dry_run,
+        runners=runners,
+        seed=seed,
+        dry_run=dry_run,
     )
 
 
