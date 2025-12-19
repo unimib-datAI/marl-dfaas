@@ -189,6 +189,36 @@ def plot_moving_average(
   Plot the moving average over the given window of the results in the listed 
   columns
   """
+  columns = sorted(columns)
+  # prepare style
+  all_linestyles = ["solid", "dashed", "dotted"]
+  all_colors = list(
+    mcolors.TABLEAU_COLORS.values()
+  ) + list(
+    mcolors.BASE_COLORS.values()
+  ) + list(
+    mcolors.CSS4_COLORS.values()
+  )
+  colors = []
+  linestyles = []
+  prefixes = []
+  for column in columns:
+    # -- linestyle
+    if "-" in column and column.split("-")[0] not in prefixes:
+      new_linestyle = all_linestyles[len(prefixes)]
+      prefixes.append(column.split("-")[0])
+    elif "-" not in column:
+      new_linestyle = "solid"
+    linestyles.append(new_linestyle)
+    # -- color
+    if "-node_" in column or column.endswith("_reward"):
+      idx = 0
+      if "-node_" in column:
+        idx = int(column.split("-node_")[-1])
+      elif "node" in column and column.endswith("_reward"):
+        idx = int(column.split("_node_")[-1].replace("_reward", ""))
+      colors.append(all_colors[idx])
+  # compute average
   avg = data[columns].rolling(
     window = window,
     min_periods = 1
@@ -196,7 +226,9 @@ def plot_moving_average(
   min_iter = data["iter"].min()
   max_iter = data["iter"].max()
   # plot
-  ax = avg.plot()
+  _, ax = plt.subplots()
+  for column, color, linestyle in zip(columns, colors, linestyles):
+    avg[column].plot(color = color, linestyle = linestyle, ax = ax)
   if y_threshold is not None:
     ax.axhline(y_threshold, color = "k", linestyle = "dashed", linewidth = 2)
   plt.grid()
