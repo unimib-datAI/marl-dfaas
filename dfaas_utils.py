@@ -1,3 +1,4 @@
+import numpy as np
 import sys
 from pathlib import Path
 import tomllib
@@ -110,3 +111,32 @@ def parse_result_file(result_path):
     # isolated JSON object, the result of one training iteration.
     with open_func(result_path, mode) as result:
         return [orjson.loads(line) for line in result]
+
+
+def generate_random_float(
+        rng: np.random.Generator, limits: dict
+    ) -> float:
+    val = 0
+    if "min" in limits and "max" in limits:
+        if limits["max"] > limits["min"]:
+            val = round(rng.uniform(limits["min"], limits["max"]), 3)
+        else:
+            val = limits["min"]
+    elif "values_from" in limits:
+        val = float(rng.choice(limits["values_from"]))
+    else:
+        raise ValueError("Missing values to define limits")
+    return val
+
+
+def generate_random_int(
+    rng: np.random.Generator, limits: dict
+    ) -> int:
+    val = 0
+    if "min" in limits and "max" in limits:
+        val = int(rng.integers(limits["min"], limits["max"], endpoint = True))
+    elif "values_from" in limits:
+        val = int(rng.choice(limits["values_from"]))
+    else:
+        raise ValueError("Missing values to define limits")
+    return val
