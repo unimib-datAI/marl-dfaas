@@ -22,6 +22,8 @@ import dfaas_apl
 import dfaas_env
 from dfaas_env_config import DFaaSConfig
 
+from mappo import MAPPOConfig
+
 # Disable Ray's warnings.
 import warnings
 
@@ -210,6 +212,29 @@ def run_experiment(
     match exp_config["algorithm"]["name"]:
         case "PPO":
             experiment = build_ppo(
+                runners=exp_config["runners"],
+                dummy_env=dummy_env,
+                env_config=env_config,
+                model=model,
+                env_eval_config=env_eval_config,
+                seed=exp_config["seed"],
+                no_gpu=exp_config["disable_gpu"],
+                policies=policies,
+                policy_mapping_fn=policy_mapping_fn,
+                policies_to_train=policies_to_train,
+                evaluation_interval=exp_config["evaluation_interval"] if not run_manual_evaluation else None,
+                evaluation_num_episodes=exp_config["evaluation_num_episodes"],
+                training_num_episodes=exp_config["training_num_episodes"],
+                gamma=exp_config["algorithm"]["gamma"],
+                lambda_=exp_config["algorithm"]["lambda"],
+                entropy_coeff=exp_config["algorithm"]["entropy_coeff"],
+                entropy_coeff_decay_enable=exp_config["algorithm"]["entropy_coeff_decay_enable"],
+                entropy_coeff_decay_iterations=exp_config["algorithm"]["entropy_coeff_decay_iterations"],
+                max_iterations=exp_config["iterations"],
+                logger_type=logger_type
+            )
+        case "MAPPO":
+            experiment = build_mappo(
                 runners=exp_config["runners"],
                 dummy_env=dummy_env,
                 env_config=env_config,
@@ -544,6 +569,126 @@ def build_ppo(**kwargs):
             num_epochs=num_epochs,
             minibatch_size=minibatch_size,
             model=model,
+            lambda_=lambda_,
+            entropy_coeff=entropy_coeff,
+            entropy_coeff_schedule=entropy_coeff_schedule,
+        )
+        .framework("torch")
+        # Wait max 4 minutes for each iteration to collect the samples.
+        .env_runners(num_env_runners=runners, sample_timeout_s=240)
+        .evaluation(
+            evaluation_interval=evaluation_interval,
+            evaluation_duration=evaluation_num_episodes,
+            evaluation_num_env_runners=1 if evaluation_num_episodes > 0 else 0,
+            evaluation_config={"env_config": env_eval_config},
+        )
+        .debugging(seed=seed, logger_config={"type": logger_type})
+        .resources(num_gpus=0 if no_gpu else 1)
+        .callbacks(dfaas_env.DFaaSCallbacks)
+        .multi_agent(policies=policies, policies_to_train=policies_to_train, policy_mapping_fn=policy_mapping_fn)
+    )
+
+    # Add custom properties to the algoritm configuration, these will be dumped
+    # in the result.json file, useful for debugging after an experiment has
+    # done.
+    config.custom_properties = {}
+    config.custom_properties["episodes_per_runner"] = episodes_per_runner
+    config.custom_properties["updates_per_epoch"] = updates_per_epoch
+    config.custom_properties["total_gradient_updates"] = total_gradient_updates
+
+    return config.build()
+
+
+def build_mappo(**kwargs):
+    runners = kwargs["runners"]
+    dummy_env = kwargs["dummy_env"]
+    env_config = kwargs["env_config"]
+    model = kwargs["model"]
+    env_eval_config = kwargs["env_eval_config"]
+    seed = kwargs["seed"]
+    no_gpu = kwargs["no_gpu"]
+    policies = kwargs["policies"]
+    policy_mapping_fn = kwargs["policy_mapping_fn"]
+    policies_to_train = kwargs["policies_to_train"]
+    evaluation_num_episodes = kwargs["evaluation_num_episodes"]
+    training_num_episodes = kwargs["training_num_episodes"]
+    gamma = kwargs["gamma"]
+    lambda_ = kwargs["lambda_"]
+    entropy_coeff = kwargs["entropy_coeff"]
+    entropy_coeff_decay_enable = kwargs["entropy_coeff_decay_enable"]
+    entropy_coeff_decay_iterations = kwargs["entropy_coeff_decay_iterations"]
+    max_iterations = kwargs["max_iterations"]
+    logger_type = kwargs["logger_type"]
+    evaluation_interval = kwargs["evaluation_interval"]
+
+    # the model needs to know the number of agents
+    if "custom_model_config" not in model:
+        model["custom_model_config"] = {}
+    model["custom_model_config"]["n_agents"] = len(dummy_env.agents)
+
+    if not 0 <= gamma <= 1:
+        raise ValueError("Gamma (discount factor) must be between 0 and 1")
+    if not 0 <= lambda_ <= 1:
+        raise ValueError("Lambda must be between 0 and 1")
+
+    # Checks for the training_num_episodes and runners parameters.
+    if training_num_episodes <= 0:
+        raise ValueError("Must play at least one episode for each iteration!")
+    if runners < 0:
+        raise ValueError("The number of runners must be non-negative!")
+    if runners == 0:
+        episodes_per_runner = training_num_episodes
+    else:
+        episodes_per_runner, remainder = divmod(training_num_episodes, runners)
+        if remainder != 0:
+            raise ValueError(f"Each runner must play the same number of episodes ({remainder} != 0)!")
+
+    # entropy coefficient: see build_ppo()
+    if entropy_coeff != 0.0 and entropy_coeff_decay_enable:
+        # Decay for a custom percentage of iterations (counting timesteps).
+        if not (0 < entropy_coeff_decay_iterations <= 1):
+            raise ValueError("entropy_coeff_decay_iterations must be in (0, 1]")
+
+        end_timestep = entropy_coeff_decay_iterations * (
+            dummy_env.max_steps * len(dummy_env.agents) * episodes_per_runner * max_iterations
+        )
+        entropy_coeff_schedule = [[0, entropy_coeff], [end_timestep, 1e-6]]
+    else:
+        entropy_coeff_schedule = None
+
+    # train_batch_size: see build_ppo()
+    train_batch_size = dummy_env.max_steps * training_num_episodes
+
+    # Run 30 SGD iteration over the training batch (num_epochs). For each
+    # iteration, the training batch is divided in minibatches with defined size
+    # (minibatch_size), so the number of updates can vary. The minibatch size
+    # should divide the training batch, to have all equal-size batches.
+    #
+    # Note: if the minibatch size does not divide the training batch size, the
+    # last minibatch will have a smaller size.
+    num_epochs = 30
+    minibatch_size = dummy_env.max_steps // 2
+
+    updates_per_epoch = train_batch_size // minibatch_size
+    total_gradient_updates = num_epochs * updates_per_epoch
+
+    config = (
+        MAPPOConfig()
+        # By default RLlib uses the new API stack, but I use the old one.
+        .api_stack(enable_rl_module_and_learner=False, enable_env_runner_and_connector_v2=False)
+        # For each iteration, store only the episodes calculated in that
+        # iteration in the log result.
+        .reporting(metrics_num_episodes_for_smoothing=training_num_episodes)
+        .environment(env=dfaas_env.DFaaS.__name__, env_config=env_config)
+        .training(
+            gamma=gamma,
+            train_batch_size=train_batch_size,
+            num_epochs=num_epochs,
+            minibatch_size=minibatch_size,
+            model={
+                "custom_model": "centralizedcritic", 
+                "custom_model_config": model.get("custom_model_config",{})
+            },
             lambda_=lambda_,
             entropy_coeff=entropy_coeff,
             entropy_coeff_schedule=entropy_coeff_schedule,
