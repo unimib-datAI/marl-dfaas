@@ -2,9 +2,41 @@ from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 from typing import Tuple
 import pandas as pd
+import argparse
 import json
 import ast
 import os
+
+
+def parse_arguments() -> argparse.Namespace:
+  """
+  Parse input arguments
+  """
+  parser: argparse.ArgumentParser = argparse.ArgumentParser(
+    description = "Results postprocessing", 
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+  )
+  parser.add_argument(
+    "--base_exp_folder",
+    help = "Base results folder",
+    type = str,
+    default = "results"
+  )
+  parser.add_argument(
+    "--exp_name",
+    help = "Experiment name",
+    type = str,
+    required = True
+  )
+  parser.add_argument(
+    "--plot_iterations",
+    type = int,
+    nargs = "+",
+    default = []
+  )
+  # Parse the arguments
+  args: argparse.Namespace = parser.parse_known_args()[0]
+  return args
 
 
 def load_progress_file(
@@ -14,7 +46,13 @@ def load_progress_file(
   Load results from the progress.csv file
   """
   # load progress file
-  progress = pd.read_csv(os.path.join(exp_folder, "progress.csv"))
+  progress = pd.DataFrame()
+  if os.path.exists(os.path.join(exp_folder, "progress.csv")):
+    progress = pd.read_csv(os.path.join(exp_folder, "progress.csv"))
+  elif os.path.exists(os.path.join(exp_folder, "progress.csv.gz")):
+    progress = pd.read_csv(
+      os.path.join(exp_folder, "progress.csv.gz"), compression = "gzip"
+    )
   # build dataframes
   all_hist_stats = pd.DataFrame()
   all_episode_hist_stats = pd.DataFrame()
@@ -326,7 +364,7 @@ def main(
     )
   
 
-
 if __name__ == "__main__":
-  exp_folder = "results/DF_20251204_122058_PPO_5agents"
-  main(exp_folder)
+  args = parse_arguments()
+  exp_folder = os.path.join(args.base_exp_folder, args.exp_name)
+  main(exp_folder, plot_iterations = args.plot_iterations)
