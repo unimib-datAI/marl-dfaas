@@ -13,7 +13,7 @@ def parse_arguments() -> argparse.Namespace:
   Parse input arguments
   """
   parser: argparse.ArgumentParser = argparse.ArgumentParser(
-    description = "Results postprocessing", 
+    description = "Random networks generation", 
     formatter_class=argparse.ArgumentDefaultsHelpFormatter
   )
   parser.add_argument(
