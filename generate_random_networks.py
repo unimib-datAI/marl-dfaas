@@ -26,12 +26,14 @@ def parse_arguments() -> argparse.Namespace:
     "--n_agents",
     help = "Number of agents",
     type = int,
+    nargs = "+",
     required = True
   )
   parser.add_argument(
     "--degree",
     help = "Node degree",
-    type = int,
+    type = str,
+    nargs = "+",
     required = True
   )
   parser.add_argument(
@@ -65,7 +67,7 @@ def generate_networks(
   # random number generator
   rng = np.random.default_rng(seed = seed)
   for network_idx in range(n_networks):
-    print(f"Generating network {network_idx}")
+    print(f"        Generating network {network_idx}")
     # generate network
     network_seed = rng.integers(low = 0, high = 4850 * 4850 * 4850)
     graph = random_regular_graph(
@@ -123,9 +125,17 @@ if __name__ == "__main__":
   args = parse_arguments()
   base_env_config = args.base_env_config
   n_agents = args.n_agents
-  k = args.degree
+  degree = args.degree
   n_networks = args.n_networks
   seed = args.seed
   # run
-  generate_networks(base_env_config, n_agents, k, n_networks, seed)
+  for n in n_agents:
+    print(f"Considering {n} agents")
+    for k in degree:
+      if k == "fc":
+        k = n - 1
+      else:
+        k = int(k)
+      print(f"    Considering degree {k}")
+      generate_networks(base_env_config, n, k, n_networks, seed)
   
