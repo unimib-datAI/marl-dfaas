@@ -79,7 +79,7 @@ class CCPPOTorchPolicy(CentralizedValueMixin, PPOTorchPolicy):
     else:
       n_other_agents = custom_model_config.get("n_agents", 2) - 1
       if mode == "avg":
-        n_other_agents = 2
+        n_other_agents = 1
       # policy hasn't been initialized yet, use zeros.
       sample_batch[self.OPPONENT_OBS] = np.zeros_like(
         np.concatenate(
