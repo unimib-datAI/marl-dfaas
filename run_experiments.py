@@ -102,7 +102,7 @@ def main(exp_config: str, base_env_config: str, n_experiments: int, seed: int):
           env_config = env_config,
           runners = None,
           seed = int(exp_seed),
-          dry_run = True,
+          dry_run = False,
         )
         # -- record end
         e = datetime.now()
