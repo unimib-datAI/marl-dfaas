@@ -26,7 +26,13 @@ def parse_arguments() -> argparse.Namespace:
     "--exp_name",
     help = "Experiment name",
     type = str,
-    required = True
+    default = None
+  )
+  parser.add_argument(
+    "--exp_json",
+    help = "JSON file where the experiments list is saved",
+    type = str,
+    default = None
   )
   parser.add_argument(
     "--plot_iterations",
@@ -315,8 +321,9 @@ def single_exp_postprocessing(
     plot_reward_only: bool = False,
     plot_iterations: list = [],
     eval_only: bool = False
-  ):
+  ) -> dict:
   scenarios = ["evaluations"] if eval_only else ["progress", "evaluations"]
+  results = {}
   for scenario in scenarios:
     print(80 * "-")
     # create folder to store plots
@@ -437,21 +444,197 @@ def single_exp_postprocessing(
       compression = compression,
       index = False
     )
-  
+    results[scenario] = {
+      "all_hist_stats": all_hist_stats,
+      "all_episode_hist_stats": all_episode_hist_stats,
+      "all_hist_stats_unpacked": all_hist_stats_unpacked,
+      "avg_stats_unpacked": avg_stats_unpacked
+    }
+  return results
+
+
+def multiple_exp_postprocessing(
+    base_exp_folder: str, 
+    exp_json: str, 
+    moving_average_window: int = 10, 
+    last_iter: int = 0,
+    plot_reward_only: bool = False,
+    plot_iterations: list = [],
+    eval_only: bool = False
+  ):
+  # load experiments dictionary
+  exp_dict = {}
+  with open(exp_json, "r") as istream:
+    exp_dict = json.load(istream)
+  # get all experiment folders
+  exp_folders = os.listdir(base_exp_folder)
+  # loop over experiments
+  all_results = {}
+  for n, k, network_idx, exp_seed, exp_suffix, elapsed_time in zip(
+      exp_dict["n"], 
+      exp_dict["k"], 
+      exp_dict["network_idx"],
+      exp_dict["exp_seed"],
+      exp_dict["exp_suffix"],
+      exp_dict["elapsed_time"]
+    ):
+    # -- find exp folder
+    exp_folder = None
+    idx = 0
+    while idx < len(exp_folders) and exp_folder is None:
+      if exp_folders[idx].endswith(exp_suffix):
+        exp_folder = exp_folders[idx]
+      idx += 1
+    exp_folder = os.path.join(base_exp_folder, exp_folder)
+    # -- post-process single experiment
+    exp_results = {"progress": {}, "evaluations": {}}
+    if os.path.exists(os.path.join(exp_folder, "summary")):
+      for scenario in ["progress", "evaluations"]:
+        print(f"{exp_folder} -- {scenario}")
+        for sname in os.listdir(os.path.join(exp_folder, "summary", scenario)):
+          if sname.endswith(".csv") or sname.endswith(".csv.gz"):
+            compression = "gzip" if sname.endswith(".csv.gz") else None
+            exp_results[scenario][sname.split(".")[0]] = pd.read_csv(
+              os.path.join(exp_folder, "summary", scenario, sname),
+              compression = compression
+            )
+    else:
+      exp_results = single_exp_postprocessing(
+        exp_folder,
+        moving_average_window = moving_average_window,
+        last_iter = last_iter,
+        plot_reward_only = plot_reward_only,
+        plot_iterations = plot_iterations,
+        eval_only = eval_only
+      )
+    # -- concat
+    for scenario in ["progress", "evaluations"]:
+      if scenario not in all_results:
+        all_results[scenario] = {}
+      for key, val in exp_results.get(scenario, {}).items():
+        if key not in all_results[scenario]:
+          all_results[scenario][key] = pd.DataFrame()
+        # ----- add exp info
+        val["n"] = n
+        val["k"] = k
+        val["network_idx"] = network_idx
+        val["exp_seed"] = exp_seed
+        val["exp_suffix"] = exp_suffix
+        val["elapsed_time"] = elapsed_time
+        all_results[scenario][key] = pd.concat(
+          [all_results[scenario][key], val], ignore_index = True
+        )
+  # summary
+  for scenario, res_dict in all_results.items():
+    episode_result = res_dict["all_episode_hist_stats"]
+    # create folder to store plots
+    plot_folder = os.path.join(base_exp_folder, "plots", scenario)
+    os.makedirs(plot_folder, exist_ok = True)
+    # plot
+    nrows = len(episode_result["n"].unique())
+    ncols = len(episode_result["k"].unique()) // 2
+    # -- reward
+    _, axs = plt.subplots(
+      nrows = nrows,
+      ncols = ncols,
+      figsize = (8 * ncols, 6 * nrows)
+    )
+    ridx = 0
+    for n, n_data in episode_result.groupby("n"):
+      cidx = 0
+      for k, data in n_data.groupby("k"):
+        min_val = data.groupby("iter").min(numeric_only = True)
+        max_val = data.groupby("iter").max(numeric_only = True)
+        avg_val = data.groupby("iter").mean(numeric_only = True)
+        avg_val["episode_reward"].plot(
+          ax = axs[ridx,cidx],
+          grid = True,
+          color = mcolors.TABLEAU_COLORS["tab:blue"],
+          label = f"n = {n}; k = {k}"
+        )
+        axs[ridx,cidx].fill_between(
+          x = avg_val.index,
+          y1 = min_val["episode_reward"],
+          y2 = max_val["episode_reward"],
+          color = mcolors.TABLEAU_COLORS["tab:blue"],
+          alpha = 0.4
+        )
+        axs[ridx,cidx].set_ylabel("Episode reward", fontsize = 14)
+        axs[ridx,cidx].set_xlabel("Iteration", fontsize = 14)
+        axs[ridx,cidx].legend(fontsize = 14)
+        cidx += 1
+      ridx += 1
+    plt.savefig(
+      os.path.join(plot_folder, "episode_reward.png"),
+      dpi = 300,
+      format = "png",
+      bbox_inches = "tight"
+    )
+    plt.close()
+    # -- elapsed time
+    if scenario == "progress":
+      min_val = pd.DataFrame(
+        episode_result.groupby(["n", "k"]).min(numeric_only = True)[
+          "elapsed_time"
+        ]
+      )
+      max_val = pd.DataFrame(
+        episode_result.groupby(["n", "k"]).max(numeric_only = True)[
+          "elapsed_time"
+        ]
+      )
+      avg_val = pd.DataFrame(
+        episode_result.groupby(["n", "k"]).mean(numeric_only = True)[
+          "elapsed_time"
+        ]
+      )
+      to_plot = min_val.join(max_val, lsuffix = "_min", rsuffix = "_max").join(
+        avg_val
+      ).rename(
+        columns = {
+          "elapsed_time_min": "min",
+          "elapsed_time_max": "max",
+          "elapsed_time": "avg"
+        }
+      )
+      to_plot.plot.bar(grid = True, rot = 0, fontsize = 14)
+      plt.ylabel("Elapsed time [s]", fontsize = 14)
+      plt.xlabel("(# nodes, degree)", fontsize = 14)
+      plt.savefig(
+        os.path.join(plot_folder, "elapsed_time.png"),
+        dpi = 300,
+        format = "png",
+        bbox_inches = "tight"
+      )
+      plt.close()
+
 
 if __name__ == "__main__":
   # parse arguments
   args = parse_arguments()
   base_exp_folder = args.base_exp_folder
-  exp_name = args.exp_name
   plot_iterations = args.plot_iterations
   plot_reward_only = args.plot_reward_only
   eval_only = args.eval_only
-  # run
-  exp_folder = os.path.join(base_exp_folder, exp_name)
-  single_exp_postprocessing(
-    exp_folder, 
-    plot_reward_only = plot_reward_only, 
-    plot_iterations = plot_iterations,
-    eval_only = eval_only
-  )
+  exp_name = args.exp_name
+  exp_json = args.exp_json
+  # post-process single experiment (if the exp name is provided)
+  if exp_name is not None:
+    exp_folder = os.path.join(base_exp_folder, exp_name)
+    single_exp_postprocessing(
+      exp_folder, 
+      plot_reward_only = plot_reward_only, 
+      plot_iterations = plot_iterations,
+      eval_only = eval_only
+    )
+  # post-process multiple experiments (if the exp json is provided)
+  elif exp_json is not None:
+    multiple_exp_postprocessing(
+      base_exp_folder, 
+      exp_json,
+      plot_reward_only = plot_reward_only, 
+      plot_iterations = plot_iterations,
+      eval_only = eval_only
+    )
+  else:
+    raise ValueError("One between exp_name and exp_json must be provided")
