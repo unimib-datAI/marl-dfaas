@@ -150,7 +150,7 @@ class CustomTorchCCModel(TorchCentralizedCriticModel):
     # get model configuration info
     custom_model_config = model_config.get("custom_model_config", {})
     n_agents = custom_model_config.get("n_agents", 2)
-    n_neurons = custom_model_config.get("central_vf_nneurons", 16)
+    n_neurons = custom_model_config.get("central_vf_nneurons", [16])
     mode = custom_model_config.get("mode", "concat")
     n_obs, n_acts = None, None
     if mode == "concat":
@@ -161,10 +161,21 @@ class CustomTorchCCModel(TorchCentralizedCriticModel):
       n_acts = 1            # avg of opp_act
     # central VF maps (obs, opp_obs, opp_act) -> vf_pred
     input_size = obs_space.shape[0] * n_obs + action_space.dim * n_acts
-    self.central_vf = nn.Sequential(
-      SlimFC(input_size, n_neurons, activation_fn=nn.Tanh),
-      SlimFC(n_neurons, 1),
-    )
+    if len(n_neurons) > 1:
+      hiddens = []
+      prev_size = input_size
+      for n in n_neurons[:-1]:
+        hiddens.append(SlimFC(prev_size, n, activation_fn=nn.Tanh))
+        prev_size = n
+      self.central_vf = nn.Sequential(
+        *hiddens,
+        SlimFC(n_neurons[-1], 1),
+      )
+    else:
+      self.central_vf = nn.Sequential(
+        SlimFC(input_size, n_neurons[0], activation_fn=nn.Tanh),
+        SlimFC(n_neurons[-1], 1),
+      )
   
   def forward(self, input_dict, state, seq_lens):
     model_out, _ = self.model.forward(input_dict, state, seq_lens)
