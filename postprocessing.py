@@ -2,6 +2,7 @@ from matplotlib import colors as mcolors
 import matplotlib.pyplot as plt
 from typing import Tuple
 import pandas as pd
+import numpy as np
 import argparse
 import json
 import ast
@@ -542,13 +543,14 @@ def multiple_exp_postprocessing(
     os.makedirs(plot_folder, exist_ok = True)
     # plot
     nrows = len(episode_result["n"].unique())
-    ncols = len(episode_result["k"].unique()) // 2
+    ncols = max(len(episode_result["k"].unique()) // 2, 1)
     # -- reward
     _, axs = plt.subplots(
       nrows = nrows,
       ncols = ncols,
       figsize = (8 * ncols, 6 * nrows)
     )
+    axs = np.atleast_2d(axs).T
     ridx = 0
     for n, n_data in episode_result.groupby("n"):
       cidx = 0
@@ -607,11 +609,30 @@ def multiple_exp_postprocessing(
           "elapsed_time_max": "max",
           "elapsed_time": "avg"
         }
+      ).reset_index()
+      nrows = len(to_plot["n"].unique())
+      ncols = len(to_plot["k"].unique())
+      _, axs = plt.subplots(
+        nrows = nrows,
+        ncols = ncols,
+        figsize = (16*ncols,6*nrows)
       )
-      _, ax = plt.subplots(figsize = (24,6))
-      to_plot.plot.bar(grid = True, rot = 0, fontsize = 14, ax = ax)
-      ax.set_ylabel("Elapsed time [s]", fontsize = 14)
-      ax.set_xlabel("(# nodes, degree)", fontsize = 14)
+      axs = np.atleast_2d(axs).T
+      ridx = 0
+      for n,n_to_plot in to_plot.groupby("n"):
+        cidx = 0
+        for k,k_to_plot in n_to_plot.groupby("k"):
+          k_to_plot[["method","min","max","avg"]].plot.bar(
+            x = "method",
+            grid = True, 
+            rot = 0, 
+            fontsize = 14, 
+            ax = axs[ridx,cidx]
+          )
+          axs[ridx,cidx].set_ylabel("Elapsed time [s]", fontsize = 14)
+          # axs[ridx,cidx].set_xlabel("(# nodes, degree)", fontsize = 14)
+          cidx += 1
+        ridx += 1
       plt.savefig(
         os.path.join(plot_folder, "elapsed_time.png"),
         dpi = 300,
