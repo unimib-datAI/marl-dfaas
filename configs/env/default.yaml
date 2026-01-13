@@ -1,17 +1,21 @@
 # Automatically generated default DFaaSConfig configuration.
 # See 'dfaas_env_config.py' for more information.
-# Generated on 2025-11-25T11:06:02.230205+01:00
+# Generated on 2026-01-13T11:42:59.467816+01:00
 
+agents:
+- node_0
+- node_1
 bandwidth_base_trace_path: dataset/5G_trace.csv
 build_seed: 42
 cold_service_time: null
 cold_service_time_range:
-- 250
-- 750
+- 0.25
+- 0.75
 evaluation: false
 input_rate_method: synthetic-sinusoidal
 input_rate_same_method: true
-max_steps: 288
+max_time: 288
+min_time: 0
 network:
 - node_0 node_1
 network_links:
@@ -47,7 +51,20 @@ request_memory_mb: null
 request_memory_mb_range:
 - 128
 - 1024
+request_output_data_size_bytes: null
+request_output_data_size_bytes_mean_std:
+- 1024.0
+- 1024.0
+request_output_data_size_bytes_range:
+- 100
+- 5242880
+response_time_multiplier_range:
+- 2
+- 4
+response_time_threshold: null
+seed: 42
+time_step: 1
 warm_service_time: null
 warm_service_time_range:
-- 100
-- 500
+- 0.1
+- 0.5

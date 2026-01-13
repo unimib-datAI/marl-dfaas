@@ -70,20 +70,13 @@ class DFaaSConfig:
         # nodes), you may want also to update from/to_dict() and build(). See
         # how self.network_links is implemented for more information.
 
-        # Network structure given as Networkx's adjacency list.
-        #
-        # If you changhe this, you may want also to update "perfmodel_params",
-        # "network_links" and "node_ram_gb". Note: if you use from_dict() and do
-        # not provide these parameters, they will be generated with default
-        # values.
-        self.network = ["node_0 node_1"]
-
-        # Internal network representation as NetworkX graph (field used
-        # internally to pass to the environment).
-        self._network = nx.parse_adjlist(self.network)
+        # List of agents
+        self.agents = ["node_0", "node_1"]
 
         # Number of steps for an episode.
-        self.max_steps = 288
+        self.min_time = 0
+        self.max_time = 288
+        self.time_step = 1
 
         # Input rate generation configuration.
         self.input_rate_method = "synthetic-sinusoidal"
@@ -115,7 +108,7 @@ class DFaaSConfig:
         # generation (range in [0, 1]). Ignored if using static methods.
         #
         # - bandwidth_mbps: Actual bandwidth trace, of value for each
-        # environment step (list of size max_steps). Ignored if using
+        # environment step (list of size max_time). Ignored if using
         # "static-single" or "generated" methods.
         #
         # The bandwidth trace can be given in three ways:
@@ -145,6 +138,18 @@ class DFaaSConfig:
         # Note: since the network links are undirected, you can specify only a
         # direction of the link.
         self.network_links = {"node_0": {"node_1": self._network_links_params.copy()}}
+
+        # Network structure given as Networkx's adjacency list.
+        #
+        # If you changhe this, you may want also to update "perfmodel_params",
+        # "network_links" and "node_ram_gb". Note: if you use from_dict() and do
+        # not provide these parameters, they will be generated with default
+        # values.
+        self.network = self.build_adjacency(self.network_links)
+
+        # Internal network representation as NetworkX graph (field used
+        # internally to pass to the environment).
+        self._network = nx.parse_adjlist(self.network)
 
         # Data input size (in bytes) of the single function. The actual value
         # "request_input_data_size_bytes" is extracted from a truncated normal
@@ -249,11 +254,19 @@ class DFaaSConfig:
         # Generate the network object, it will be used to check nodes and edges.
         self._network = nx.parse_adjlist(self.network)
 
-        # self.max_steps validation.
-        if not isinstance(self.max_steps, int):
-            raise TypeError(f"max_steps must be int, got {type(self.max_steps)}")
-        if self.max_steps <= 0:
-            raise ValueError(f"max_steps must be positive, got {self.max_steps}")
+        # time validation.
+        if not isinstance(self.min_time, int):
+            raise TypeError(f"min_time must be int, got {type(self.min_time)}")
+        if self.min_time < 0:
+            raise ValueError(f"min_time must be positive, got {self.min_time}")
+        if not isinstance(self.time_step, int):
+            raise TypeError(f"time_step must be int, got {type(self.time_step)}")
+        if self.time_step <= 0:
+            raise ValueError(f"time_step must be positive, got {self.time_step}")
+        if not isinstance(self.max_time, int):
+            raise TypeError(f"max_time must be int, got {type(self.max_time)}")
+        if self.max_time <= 0 or self.max_time <= self.min_time + self.time_step:
+            raise ValueError(f"invalid max_time, got negative {self.max_time} or <= {self.min_time + self.time_step}")
 
         # self.request_input_data_size_bytes_range validation.
         if len(self.request_input_data_size_bytes_range) != 2:
@@ -469,7 +482,7 @@ class DFaaSConfig:
             if not skip_generated:
                 if link_params["bandwidth_mbps"] is None:
                     raise ValueError(f"network_links: undirected link ({u}, {v}): bandwidth_mbps should not be None")
-                if len(link_params["bandwidth_mbps"]) != self.max_steps:
+                if len(link_params["bandwidth_mbps"]) != self.max_time:
                     raise ValueError(
                         f"network_links: undirected link ({u}, {v}): bandwidth_mbps trace has wrong length"
                     )
@@ -479,10 +492,7 @@ class DFaaSConfig:
         if self.build_seed is None:
             raise TypeError("build_seed should not be None")
 
-    def build(self):
-        """Build the DFaaS environment from this configuration.
-
-        Return an initialized (but not started) DFaaS environment."""
+    def build_config(self):
         # Generate NetworkX graph (internal attribute).
         self._network = nx.parse_adjlist(self.network)
 
@@ -614,7 +624,7 @@ class DFaaSConfig:
                     # This link has set the "static" method and provided just a
                     # single value: expand to a static trace.
                     params["bandwidth_mbps"] = np.full(
-                        self.max_steps, fill_value=params["bandwidth_mbps_mean"]
+                        self.max_time, fill_value=params["bandwidth_mbps_mean"]
                     ).tolist()
 
                 case "static-trace":
@@ -631,7 +641,7 @@ class DFaaSConfig:
             traces = generate_traces(
                 base_trace=base_trace,
                 num_traces=generated,
-                max_len=self.max_steps,
+                max_len=self.max_time,
                 random_noise=random_noise,
                 seed=self.build_seed,
                 target_mean=target_mean,
@@ -659,8 +669,15 @@ class DFaaSConfig:
                     params["bandwidth_mbps"] = np.round(traces[i]).astype(int)
                     i += 1
 
-        # Create and return the DFaaS env. Note in its init method it will
-        # validate the config.
+        # Validate
+        self._validate(skip_generated=True)
+
+    def build(self):
+        """Build the DFaaS environment from this configuration.
+
+        Return an initialized (but not started) DFaaS environment."""
+        # Create and return the DFaaS env
+        self.build_config()
         return DFaaS(config=self)
 
     def to_dict(self):
@@ -753,8 +770,17 @@ class DFaaSConfig:
 
             if not node_ram_gb_changed:
                 obj.node_ram_gb = None
+        
+        if network_links_changed and not network_changed:
+            obj.network = obj.build_adjacency(obj.network_links)
 
         return obj
+    
+    @staticmethod
+    def build_adjacency(network_links):
+        return [
+            f"{n1} {n2}" for n1 in network_links for n2 in network_links[n1]
+        ]
 
 
 def _main():
