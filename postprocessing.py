@@ -348,7 +348,7 @@ def single_exp_postprocessing(
     # -- by node
     plot_moving_average(
       all_hist_stats, 
-      [f"policy_policy_{a}_reward" for a in agents], 
+      [f"policy_{a}_reward" for a in agents], 
       moving_average_window, 
       plot_folder, 
       "by_node_reward"
@@ -361,6 +361,30 @@ def single_exp_postprocessing(
       avg_stats_unpacked[f"response_time_avg_fwd-{a}"] = sum_latency(
         avg_stats_unpacked, a
       )
+    # save summary results
+    summary_folder = os.path.join(exp_folder, "summary", scenario)
+    os.makedirs(summary_folder, exist_ok = True)
+    sfx = ".gz" if compression is not None else ""
+    all_hist_stats.to_csv(
+      os.path.join(summary_folder, f"all_hist_stats.csv{sfx}"), 
+      compression = compression,
+      index = False
+    )
+    all_episode_hist_stats.to_csv(
+      os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}"), 
+      compression = compression,
+      index = False
+    )
+    all_hist_stats_unpacked.to_csv(
+      os.path.join(summary_folder, f"all_hist_stats_unpacked.csv{sfx}"), 
+      compression = compression,
+      index = False
+    )
+    avg_stats_unpacked.to_csv(
+      os.path.join(summary_folder, f"avg_stats_unpacked.csv{sfx}"), 
+      compression = compression,
+      index = False
+    )
     # plot detailed results
     if not plot_reward_only:
       # -- utility
@@ -422,30 +446,6 @@ def single_exp_postprocessing(
           plot_folder,
           f"-iter_{iteration}"
         )
-    # save summary results
-    summary_folder = os.path.join(exp_folder, "summary", scenario)
-    os.makedirs(summary_folder, exist_ok = True)
-    sfx = ".gz" if compression is not None else ""
-    all_hist_stats.to_csv(
-      os.path.join(summary_folder, f"all_hist_stats.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    all_episode_hist_stats.to_csv(
-      os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    all_hist_stats_unpacked.to_csv(
-      os.path.join(summary_folder, f"all_hist_stats_unpacked.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    avg_stats_unpacked.to_csv(
-      os.path.join(summary_folder, f"avg_stats_unpacked.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
     results[scenario] = {
       "all_hist_stats": all_hist_stats,
       "all_episode_hist_stats": all_episode_hist_stats,

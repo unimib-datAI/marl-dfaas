@@ -70,6 +70,8 @@ class DFaaSConfig:
         # nodes), you may want also to update from/to_dict() and build(). See
         # how self.network_links is implemented for more information.
 
+        self.env_name = "DFaaS"
+
         # List of agents
         self.agents = ["node_0", "node_1"]
 
@@ -678,7 +680,7 @@ class DFaaSConfig:
         Return an initialized (but not started) DFaaS environment."""
         # Create and return the DFaaS env
         self.build_config()
-        return DFaaS(config=self)
+        return DFaaS(self)
 
     def to_dict(self):
         """Convert DFaaSConfig to a dict, safe to serialize as JSON or YAML.

@@ -795,9 +795,7 @@ def _register_env_dfaas(env_config):
     """Automatically called by Ray RLLib when creating the DFaaS environment.
 
     Returns a new DFaaS environment, created with the given config."""
-    from dfaas_env_config import DFaaSConfig
-
-    return DFaaSConfig.from_dict(env_config).build()
+    return DFaaS(env_config)
 
 
 # Register the environments with Ray so that they can be used automatically when
@@ -853,8 +851,8 @@ class DFaaSCallbacks(DefaultCallbacks):
         except AttributeError:
             env = base_env.get_sub_environments()[0]
 
-        assert env.current_step == env.config.max_steps, (
-            f"'on_episode_end()' callback should be called at the end of the episode! {env.current_step = } != {env.max_steps = }"
+        assert env.current_time == env.config.max_time, (
+            f"'on_episode_end()' callback should be called at the end of the episode! {env.current_time = } != {env.max_time = }"
         )
 
         # Add all metrics from self.info to episode.hist_data
