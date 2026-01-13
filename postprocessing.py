@@ -586,36 +586,40 @@ def multiple_exp_postprocessing(
     plt.close()
     # -- elapsed time
     if scenario == "progress":
+      episode_result["time_per_iter"] = episode_result[
+        "elapsed_time"
+      ] / episode_result.groupby("method")["iter"].transform("max")
       min_val = pd.DataFrame(
         episode_result.groupby(["n", "k", "method"]).min(numeric_only = True)[
-          "elapsed_time"
+          "time_per_iter"
         ]
       )
       max_val = pd.DataFrame(
         episode_result.groupby(["n", "k", "method"]).max(numeric_only = True)[
-          "elapsed_time"
+          "time_per_iter"
         ]
       )
       avg_val = pd.DataFrame(
         episode_result.groupby(["n", "k", "method"]).mean(numeric_only = True)[
-          "elapsed_time"
+          "time_per_iter"
         ]
       )
       to_plot = min_val.join(max_val, lsuffix = "_min", rsuffix = "_max").join(
         avg_val
       ).rename(
         columns = {
-          "elapsed_time_min": "min",
-          "elapsed_time_max": "max",
-          "elapsed_time": "avg"
+          "time_per_iter_min": "min",
+          "time_per_iter_max": "max",
+          "time_per_iter": "avg"
         }
       ).reset_index()
       nrows = len(to_plot["n"].unique())
       ncols = len(to_plot["k"].unique())
+      wdt = len(to_plot["method"].unique())
       _, axs = plt.subplots(
         nrows = nrows,
         ncols = ncols,
-        figsize = (16*ncols,6*nrows)
+        figsize = (3*wdt*ncols,6*nrows)
       )
       axs = np.atleast_2d(axs).T
       ridx = 0
@@ -629,12 +633,12 @@ def multiple_exp_postprocessing(
             fontsize = 14, 
             ax = axs[ridx,cidx]
           )
-          axs[ridx,cidx].set_ylabel("Elapsed time [s]", fontsize = 14)
+          axs[ridx,cidx].set_ylabel("Time per iteration [s]", fontsize = 14)
           # axs[ridx,cidx].set_xlabel("(# nodes, degree)", fontsize = 14)
           cidx += 1
         ridx += 1
       plt.savefig(
-        os.path.join(plot_folder, "elapsed_time.png"),
+        os.path.join(plot_folder, "time_per_iter.png"),
         dpi = 300,
         format = "png",
         bbox_inches = "tight"
