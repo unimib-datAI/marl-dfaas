@@ -1,5 +1,6 @@
+from RL4CC.experiments.federated_train import FederatedTrainingExperiment
+
 from dfaas_utils import yaml_to_dict, json_to_dict
-from dfaas_train import run_experiment
 
 from datetime import datetime
 from parse import parse
@@ -60,10 +61,10 @@ def main(exp_config: str, base_env_config: str, n_experiments: int, seed: int):
   }
   rng = np.random.default_rng(seed = seed)
   # load experiment configuration
-  exp_config = yaml_to_dict(exp_config)
+  exp_config = json_to_dict(exp_config)
   # -- define algorithm suffix
   algo_suffix = ""
-  if exp_config["algorithm"]["name"] == "MAPPO":
+  if exp_config["algorithm"] == "MAPPO":
     mode = "concat"
     if exp_config.get("model") is not None:
       model = json_to_dict(exp_config.get("model"))
@@ -82,6 +83,7 @@ def main(exp_config: str, base_env_config: str, n_experiments: int, seed: int):
         env_config = yaml_to_dict(
           os.path.join(base_env_config, dirname, filename)
         )
+        exp_config["env_config"] = env_config
         # -- save info
         experiments["n"].append(int(n))
         experiments["k"].append(int(k))
@@ -96,14 +98,8 @@ def main(exp_config: str, base_env_config: str, n_experiments: int, seed: int):
         with open("experiments.json", "w") as ostream:
           ostream.write(json.dumps(experiments, indent = 2))
         # -- start experiment
-        run_experiment(
-          suffix = experiments["exp_suffix"][-1],
-          exp_config = exp_config,
-          env_config = env_config,
-          runners = None,
-          seed = int(exp_seed),
-          dry_run = False,
-        )
+        exp = FederatedTrainingExperiment(exp_config = exp_config)
+        exp.run()
         # -- record end
         e = datetime.now()
         experiments["finish_time"].append(
@@ -121,11 +117,15 @@ def main(exp_config: str, base_env_config: str, n_experiments: int, seed: int):
 
 
 if __name__ == "__main__":
-  args = parse_arguments()
-  base_env_config = args.base_env_config
-  exp_config = args.exp_config
-  n_experiments = args.n_experiments
-  seed = args.seed
+  # args = parse_arguments()
+  # base_env_config = args.base_env_config
+  # exp_config = args.exp_config
+  # n_experiments = args.n_experiments
+  # seed = args.seed
+  base_env_config = "configs/env/russorusso_onefunction"
+  exp_config = "configs/exp/ppo_federated.json"
+  n_experiments = 1
+  seed = 4850
   # check if the experiments file exists
   if os.path.exists("experiments.json"):
     answer = input("Experiments file exists; do you really want to continue?")
