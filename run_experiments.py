@@ -31,6 +31,20 @@ def parse_arguments() -> argparse.Namespace:
     required = True
   )
   parser.add_argument(
+    "--n_agents_list",
+    help = "Number of agents to consider (must be among those in the data)",
+    type = int,
+    nargs = "+",
+    required = True
+  )
+  parser.add_argument(
+    "--instance_idxs",
+    help = "Index of instance(s) to run",
+    type = int,
+    nargs = "+",
+    default = [0]
+  )
+  parser.add_argument(
     "--n_experiments",
     help = "Number of experiments (per network) to run",
     type = int,
@@ -76,6 +90,8 @@ def find_completed_experiment(
 def main(
     exp_config: str, 
     base_env_config: str, 
+    n_agents_list: list,
+    instance_idxs: list,
     n_experiments: int, 
     seed: int,
     restart_from: str = None
@@ -87,6 +103,7 @@ def main(
     "network_idx": [],
     "exp_seed": [],
     "exp_suffix": [],
+    "exp_logdir": [],
     "start_time": [],
     "finish_time": [],
     "elapsed_time": []
@@ -117,52 +134,56 @@ def main(
       for exp_seed in rng.integers(
           low = 0, high = 4850 * 4850, size = n_experiments
         ):
-        # check if the experiment was already run
-        exp_idx = find_completed_experiment(
-          int(n), int(k), int(network_idx), int(exp_seed), experiments
-        )
-        if exp_idx < 0:
-          # read environment configuration
-          env_config = yaml_to_dict(
-            os.path.join(base_env_config, dirname, filename)
+        if int(n) in n_agents_list and int(network_idx) in instance_idxs:
+          # check if the experiment was already run
+          exp_idx = find_completed_experiment(
+            int(n), int(k), int(network_idx), int(exp_seed), experiments
           )
-          exp_config["env_config"] = env_config
-          # -- save info
-          experiments["n"].append(int(n))
-          experiments["k"].append(int(k))
-          experiments["network_idx"].append(int(network_idx))
-          experiments["exp_seed"].append(int(exp_seed))
-          experiments["exp_suffix"].append(
-            f"{algo_suffix}n{n}_k{k}_i{network_idx}_s{exp_seed}"
-          )
-          experiments["start_time"].append(
-            datetime.strftime(datetime.now(), "%Y-%m-%d_%H-%M-%S.%f")
-          )
-          with open(exp_list_file, "w") as ostream:
-            ostream.write(json.dumps(experiments, indent = 2))
-          # -- start experiment
-          exp = FederatedTrainingExperiment(exp_config = exp_config)
-          exp.run()
-          # -- record end
-          e = datetime.now()
-          experiments["finish_time"].append(
-            datetime.strftime(e, "%Y-%m-%d_%H-%M-%S.%f")
-          )
-          experiments["elapsed_time"].append(
-            (
-              e - datetime.strptime(
-                experiments["start_time"][-1], "%Y-%m-%d_%H-%M-%S.%f"
-              )
-            ).total_seconds()
-          )
-          with open(exp_list_file, "w") as ostream:
-            ostream.write(json.dumps(experiments, indent = 2))
+          if exp_idx < 0:
+            # read environment configuration
+            env_config = yaml_to_dict(
+              os.path.join(base_env_config, dirname, filename)
+            )
+            exp_config["env_config"] = env_config
+            # -- save info
+            experiments["n"].append(int(n))
+            experiments["k"].append(int(k))
+            experiments["network_idx"].append(int(network_idx))
+            experiments["exp_seed"].append(int(exp_seed))
+            experiments["exp_suffix"].append(
+              f"{algo_suffix}n{n}_k{k}_i{network_idx}_s{exp_seed}"
+            )
+            experiments["start_time"].append(
+              datetime.strftime(datetime.now(), "%Y-%m-%d_%H-%M-%S.%f")
+            )
+            with open(exp_list_file, "w") as ostream:
+              ostream.write(json.dumps(experiments, indent = 2))
+            # -- start experiment
+            exp = FederatedTrainingExperiment(exp_config = exp_config)
+            exp.run()
+            # -- record end
+            e = datetime.now()
+            experiments["exp_logdir"].append(exp.logdir)
+            experiments["finish_time"].append(
+              datetime.strftime(e, "%Y-%m-%d_%H-%M-%S.%f")
+            )
+            experiments["elapsed_time"].append(
+              (
+                e - datetime.strptime(
+                  experiments["start_time"][-1], "%Y-%m-%d_%H-%M-%S.%f"
+                )
+              ).total_seconds()
+            )
+            with open(exp_list_file, "w") as ostream:
+              ostream.write(json.dumps(experiments, indent = 2))
 
 
 if __name__ == "__main__":
   args = parse_arguments()
   base_env_config = args.base_env_config
   exp_config = args.exp_config
+  n_agents_list = args.n_agents_list
+  instance_idxs = args.instance_idxs
   n_experiments = args.n_experiments
   seed = args.seed
   restart_from = args.restart_from
@@ -170,14 +191,38 @@ if __name__ == "__main__":
   if restart_from is None:
     # check if the experiments file exists
     if os.path.exists("experiments.json"):
-      answer = input("Experiments file exists; do you really want to continue?")
+      answer = input(
+        "Experiments file exists; do you really want to continue? "
+      )
       if answer.lower() in ["y","yes"]:
-        main(exp_config, base_env_config, n_experiments, seed)
+        main(
+          exp_config, 
+          base_env_config, 
+          n_agents_list, 
+          instance_idxs, 
+          n_experiments, 
+          seed
+        )
       elif answer.lower() in ["n","no"]:
         print("Aborted")
       else:
         raise ValueError("Provide y/n answer!")
     else:
-      main(exp_config, base_env_config, n_experiments, seed)
+      main(
+        exp_config, 
+        base_env_config, 
+        n_agents_list, 
+        instance_idxs, 
+        n_experiments, 
+        seed
+      )
   else:
-    main(exp_config, base_env_config, n_experiments, seed, restart_from)
+    main(
+      exp_config, 
+      base_env_config, 
+      n_agents_list, 
+      instance_idxs, 
+      n_experiments, 
+      seed, 
+      restart_from
+    )
