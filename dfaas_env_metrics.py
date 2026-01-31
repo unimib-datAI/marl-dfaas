@@ -23,27 +23,50 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # time management and list of agents
     seed = super().load_configuration(env_config)
     # load datasets
-    self.joined_metrics = pd.read_csv(env_config["joined_metrics"])
-    self.joined_metrics_avg = pd.read_csv(env_config["joined_metrics_avg"])
+    self.joined_metrics = pd.read_csv(env_config.pop("joined_metrics"))
+    self.joined_metrics_avg = pd.read_csv(env_config.pop("joined_metrics_avg"))
     if self.max_time > self.joined_metrics_avg["cp_bucket"].max():
       max_cp_bucket = self.joined_metrics_avg["cp_bucket"].max()
       raise ValueError(
         f"max_time must be <= max_cp_bucket ({self.max_time}>{max_cp_bucket})"
       )
+    # response time threshold
+    self.response_time_threshold = env_config.pop("response_time_threshold")
+    # network configuration
+    def load_dfaasconfig(env_config):
+      from dfaas_env_config import DFaaSConfig
+      return DFaaSConfig.from_dict(env_config)
+    config = load_dfaasconfig(env_config)
+    config.build_config()
+    self.network = config._network
     # workload limits
     self.workload_limits = env_config["limits"]
     # agents neighbors
-    self.agent_neighbors = env_config["neighborhood"]
+    self.agent_neighbors = {
+      agent: list(self.network.neighbors(agent)) for agent in self.agents
+    }
     # maximum number of replicas
-    self.max_n_replicas = env_config["max_n_replicas"]
+    self.max_n_replicas = {
+      agent: config.perfmodel_params[agent]["maximum_concurrency"] \
+        for agent in self.agents
+    }
     # warm/cold service time
-    self.service_times = env_config["service_times"]
+    self.service_times = {
+      agent: {
+        "warm": config.perfmodel_params[agent]["warm_service_time"],
+        "cold": config.perfmodel_params[agent]["cold_service_time"]
+      } for agent in self.agents
+    }
     # idle time before kill
-    self.idle_time_before_kill = env_config["idle_time_before_kill"]
-    # response time threshold
-    self.response_time_threshold = env_config["response_time_threshold"]
+    self.idle_time_before_kill = {
+      agent: config.perfmodel_params[agent]["idle_time_before_kill"] \
+        for agent in self.agents
+    }
     # i/o data
-    self.data_size = env_config["data_size"]
+    self.data_size = {
+      "input": config.request_input_data_size_bytes,
+      "output": config.request_output_data_size_bytes
+    }
     # evaluation environment (?)
     self.evaluation_env = env_config.get("evaluation", False)
     return seed
@@ -91,9 +114,17 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           ) for neighbor in self.agent_neighbors[agent]
         },
         # CPU utilization
-        "cpu_utilization": Box(low = 0.0, high = 1.0, dtype = np.float32),
+        "cpu_utilization": Box(
+          low = 0.0, high = 1.0, dtype = np.float32
+        ),
+        "previous_cpu_utilization": Box(
+          low = 0.0, high = 1.0, dtype = np.float32
+        ),
         # number of replicas
         "n_replicas": Box(
+          low = 0, high = self.max_n_replicas[agent], dtype = np.int32
+        ),
+        "previous_n_replicas": Box(
           low = 0, high = self.max_n_replicas[agent], dtype = np.int32
         )
       }) for agent in self.agents
@@ -114,12 +145,18 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
   def init_agent_metrics(self):
     self.info = {}
     for agent in self.agents:
+      # -- input rate and local processing latency
       self.info[agent] = {
-        "input_rate": 0
+        "input_rate": 0,
+        "avg_resp_time_loc": 0.0,
+        "cpu_utilization": 0.0,
+        "n_replicas": 0
       }
+      # -- forward and rejections
       for neighbor in self.agent_neighbors[agent]:
         self.info[agent][f"fwd_to_{neighbor}"] = 0.0
         self.info[agent][f"fwd_to_{neighbor}_rejected"] = 0.0
+        self.info[agent][f"avg_resp_time_to_{neighbor}"] = 0.0
 
   def observation(self):
     """
@@ -153,7 +190,23 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
-        self.info[agent]["avg_resp_time_loc"], dtype = np.int32
+        self.info[agent]["avg_resp_time_loc"], dtype = np.float32
+      )
+      # -- predicted and previous cpu utilization
+      obs[agent]["cpu_utilization"] = np.array(
+        cp_metrics["cpu_utilization"], dtype = np.float32
+      )
+      obs_info[agent]["cpu_utilization"] = cp_metrics["cpu_utilization"]
+      obs[agent]["previous_cpu_utilization"] = np.array(
+        self.info[agent]["cpu_utilization"], dtype = np.float32
+      )
+      # -- predicted and previous number of replicas
+      obs[agent]["n_replicas"] = np.array(
+        cp_metrics["gateway_service_count"], dtype = np.int32
+      )
+      obs_info[agent]["n_replicas"] = cp_metrics["n_replicas"]
+      obs[agent]["previous_n_replicas"] = np.array(
+        self.info[agent]["n_replicas"], dtype = np.int32
       )
       # -- previous forward to neighbors and forward latency
       for neighbor in self.agent_neighbors[agent]:
@@ -229,6 +282,9 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         maximum_concurrency = self.max_n_replicas[agent],
         faster_solution = (self.max_n_replicas[agent] <= 30)
       )
+      # cpu utilization and number of replicas
+      self.info[agent]["cpu_utilization"] = result_props["avg_utilization"]
+      self.info[agent]["n_replicas"] = result_props["avg_running_count"]
       # distribute the rejection rate to the agent and all its neighbors and 
       # compute the local / offloading latency
       rejection_rate = result_props["rejection_rate"]
