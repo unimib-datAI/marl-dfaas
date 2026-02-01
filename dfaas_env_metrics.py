@@ -10,6 +10,7 @@ import perfmodel
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.rllib.env.env_context import EnvContext
 from gymnasium.spaces import Dict, Box
+import networkx as nx
 import pandas as pd
 import numpy as np
 
@@ -25,13 +26,11 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # load datasets
     self.joined_metrics = pd.read_csv(env_config.pop("joined_metrics"))
     self.joined_metrics_avg = pd.read_csv(env_config.pop("joined_metrics_avg"))
-    if self.max_time > self.joined_metrics_avg["cp_bucket"].max():
+    if self.max_time >= self.joined_metrics_avg["cp_bucket"].max():
       max_cp_bucket = self.joined_metrics_avg["cp_bucket"].max()
       raise ValueError(
-        f"max_time must be <= max_cp_bucket ({self.max_time}>{max_cp_bucket})"
+        f"max_time must be < max_cp_bucket ({self.max_time}>={max_cp_bucket})"
       )
-    # response time threshold
-    self.response_time_threshold = env_config.pop("response_time_threshold")
     # network configuration
     def load_dfaasconfig(env_config):
       from dfaas_env_config import DFaaSConfig
@@ -39,12 +38,31 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     config = load_dfaasconfig(env_config)
     config.build_config()
     self.network = config._network
+    for u in config.network_links:
+      for v in config.network_links[u]:
+        self.network[u][v]["access_delay_ms"] = config.network_links[u][v][
+          "access_delay_ms"
+        ]
+        self.network[u][v]["bandwidth_mbps"] = config.network_links[u][v][
+          "bandwidth_mbps"
+        ]
+    # Freeze to prevent further modification.
+    self.network = nx.freeze(self.network)
     # workload limits
-    self.workload_limits = env_config["limits"]
+    self.workload_limits = {
+      "0": {
+        agent: {
+          "min": 40,
+          "max": 80
+        } for agent in self.agents
+      }
+    }
     # agents neighbors
     self.agent_neighbors = {
       agent: list(self.network.neighbors(agent)) for agent in self.agents
     }
+    # response time threshold
+    self.response_time_threshold = config.response_time_threshold
     # maximum number of replicas
     self.max_n_replicas = {
       agent: config.perfmodel_params[agent]["maximum_concurrency"] \
@@ -92,25 +110,29 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         # (and those that the neighbor rejected)
         **{
           f"previous_fwd_to_{neighbor}": Box(
-            low = self.workload_limits["0"][agent]["min"],
+            low = 0.0,
             high = self.workload_limits["0"][agent]["max"],
             dtype = np.int32
           ) for neighbor in self.agent_neighbors[agent]
         },
         **{
           f"previous_fwd_to_{neighbor}_rejected": Box(
-            low = self.workload_limits["0"][agent]["min"],
+            low = 0.0,
             high = self.workload_limits["0"][agent]["max"],
             dtype = np.int32
           ) for neighbor in self.agent_neighbors[agent]
         },
         # average latency of enqueued / forwarded requests
         "previous_avg_resp_time_loc": Box(
-          low = 0.0, high = self.response_time_threshold, dtype = np.float32
+          low = 0.0, 
+          high = 10 * self.response_time_threshold, 
+          dtype = np.float32
         ),
         **{
           f"previous_avg_resp_time_fwd_to_{neighbor}": Box(
-            low = 0.0, high = self.response_time_threshold, dtype = np.float32
+            low = 0.0, 
+            high = 10 * self.response_time_threshold, 
+            dtype = np.float32
           ) for neighbor in self.agent_neighbors[agent]
         },
         # CPU utilization
@@ -145,18 +167,22 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
   def init_agent_metrics(self):
     self.info = {}
     for agent in self.agents:
+      avg_workload = (
+        self.workload_limits["0"][agent]["max"] - \
+          self.workload_limits["0"][agent]["min"]
+      ) // 2
       # -- input rate and local processing latency
       self.info[agent] = {
-        "input_rate": 0,
+        "input_rate": self.workload_limits["0"][agent]["min"] + avg_workload,
         "avg_resp_time_loc": 0.0,
         "cpu_utilization": 0.0,
         "n_replicas": 0
       }
       # -- forward and rejections
       for neighbor in self.agent_neighbors[agent]:
-        self.info[agent][f"fwd_to_{neighbor}"] = 0.0
-        self.info[agent][f"fwd_to_{neighbor}_rejected"] = 0.0
-        self.info[agent][f"avg_resp_time_to_{neighbor}"] = 0.0
+        self.info[agent][f"fwd_to_{neighbor}"] = 0
+        self.info[agent][f"fwd_to_{neighbor}_rejected"] = 0
+        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"] = 0.0
 
   def observation(self):
     """
@@ -176,48 +202,49 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       sample_idx = self.rng.integers(low = 0, high = len(cp_metrics))
       cp_metrics = cp_metrics.iloc[sample_idx]
     # define observation
-    obs = {}
-    obs_info = {}
+    obs = {agent: {} for agent in self.agents}
+    obs_info = {agent: {} for agent in self.agents}
     for agent in self.agents:
       # -- input rate
       obs[agent]["input_rate"] = np.array(
-        cp_metrics["http_reqs"].values(), dtype = np.int32
+        [cp_metrics["http_reqs"]], dtype = np.int32
       )
-      obs_info[agent]["input_rate"] = cp_metrics["http_reqs"].values()
+      obs_info[agent]["input_rate"] = int(cp_metrics["http_reqs"])
       # -- previous input rate
       obs[agent]["previous_input_rate"] = np.array(
-        self.info[agent]["input_rate"], dtype = np.int32
+        [self.info[agent]["input_rate"]], dtype = np.int32
       )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
-        self.info[agent]["avg_resp_time_loc"], dtype = np.float32
+        [self.info[agent]["avg_resp_time_loc"]], dtype = np.float32
       )
       # -- predicted and previous cpu utilization
+      urandom = self.rng.uniform(0.5,0.8)
       obs[agent]["cpu_utilization"] = np.array(
-        cp_metrics["cpu_utilization"], dtype = np.float32
+        [urandom], dtype = np.float32
       )
-      obs_info[agent]["cpu_utilization"] = cp_metrics["cpu_utilization"]
+      obs_info[agent]["cpu_utilization"] = urandom
       obs[agent]["previous_cpu_utilization"] = np.array(
-        self.info[agent]["cpu_utilization"], dtype = np.float32
+        [self.info[agent]["cpu_utilization"]], dtype = np.float32
       )
       # -- predicted and previous number of replicas
       obs[agent]["n_replicas"] = np.array(
-        cp_metrics["gateway_service_count"], dtype = np.int32
+        [cp_metrics["gateway_service_count"]], dtype = np.int32
       )
-      obs_info[agent]["n_replicas"] = cp_metrics["n_replicas"]
+      obs_info[agent]["n_replicas"] = cp_metrics["gateway_service_count"]
       obs[agent]["previous_n_replicas"] = np.array(
-        self.info[agent]["n_replicas"], dtype = np.int32
+        [self.info[agent]["n_replicas"]], dtype = np.int32
       )
       # -- previous forward to neighbors and forward latency
       for neighbor in self.agent_neighbors[agent]:
         obs[agent][f"previous_fwd_to_{neighbor}"] = np.array(
-          self.info[agent][f"fwd_to_{neighbor}"], dtype = np.float32
+          [self.info[agent][f"fwd_to_{neighbor}"]], dtype = np.int32
         )
         obs[agent][f"previous_fwd_to_{neighbor}_rejected"] = np.array(
-          self.info[agent][f"fwd_to_{neighbor}_rejected"], dtype = np.float32
+          [self.info[agent][f"fwd_to_{neighbor}_rejected"]], dtype = np.int32
         )
         obs[agent][f"previous_avg_resp_time_fwd_to_{neighbor}"] = np.array(
-          self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"], 
+          [self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"]], 
           dtype = np.float32
         )
     obs_info["__common__"] = {
@@ -240,9 +267,11 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     self.current_metrics = self.joined_metrics[
       self.joined_metrics["trace_idx"] == trace_idx
     ]
-    self.current_metrics_avg = self.current_metrics_avg[
-      self.current_metrics_avg["trace_idx"] == trace_idx
+    self.current_metrics_avg = self.joined_metrics_avg[
+      self.joined_metrics_avg["trace_idx"] == trace_idx
     ]
+    # restart time
+    self.current_time = self.min_time
     # define observation
     obs, obs_info = self.observation()
     return obs, obs_info
@@ -260,7 +289,8 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       )
       self.info[agent]["action"] = action_dist
       self.info[agent]["loc"] = action[0]
-      self.info[agent]["fwd"] = sum(action[1:-1])
+      self.info[agent]["fwd"] = action[1:-1]
+      self.info[agent]["total_fwd"] = sum(action[1:-1])
       self.info[agent]["rej"] = action[-1]
       # -- local processing
       tot_incoming_requests[agent].append(action[0])
@@ -297,7 +327,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       self.info[agent]["local_rejected"] = tot_rejects[agent]
       self.info[agent]["avg_resp_time_loc"] = avg_resp_time
       # -- neighbors
-      for sender, reject in zip(senders, rejects[1:]):
+      for sender, reject in zip(senders[agent], rejects[1:]):
         tot_rejects[sender] += reject
         self.info[sender][f"fwd_to_{agent}_rejected"] = reject
         self.info[sender][
@@ -305,11 +335,11 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         ] = avg_resp_time + _total_network_delay(
           self.network[sender][agent]["access_delay_ms"],
           self.data_size["input"],
-          self.network[agent][neighbor]["bandwidth_mbps"][self.current_time]
+          self.network[sender][agent]["bandwidth_mbps"][self.current_time]
         ) + _total_network_delay(
-          self.network[sender][agent]["access_delay_ms"],
+          self.network[agent][sender]["access_delay_ms"],
           self.data_size["output"],
-          self.network[agent][neighbor]["bandwidth_mbps"][self.current_time]
+          self.network[agent][sender]["bandwidth_mbps"][self.current_time]
         )
   
   def step(self, action_dict):
@@ -339,7 +369,13 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     done["__all__"] = all(done.values())
     truncated = done
     # define observation
-    obs, obs_info = self.observation()
+    obs = None
+    obs_info = {}
+    if self.current_time < self.max_time:
+      obs, obs_info = self.observation()
+    else:
+      # -- return a dummy observation in the last step
+      obs = self.observation_space.sample()
     return obs, reward, done, truncated, obs_info
 
   def compute_reward(self):
@@ -348,35 +384,36 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     for agent in self.agents:
       # -- local processing
       loc_utility = 0.0
-      rt_loc = self.info["avg_resp_time_loc"][agent]
-      rej_loc = self.info[agent]["local_rejected"] - self.info[agent]["rej"]
-      if rt_loc < self.response_time_threshold and rej_loc <= 0:
-        loc_utility = 1.0 * self.info[agent]["action"][0]
-      elif rt_loc < self.response_time_threshold and rej_loc > 0:
-        loc_utility = 1.0 * (
-          self.info[agent]["action"][0] - rej_loc / self.info[agent]["loc"]
-        )
-      else:
-        loc_utility = -0.75 * self.info[agent]["action"][0]
+      if self.info[agent]["loc"] > 0:
+        rt_loc = self.info[agent]["avg_resp_time_loc"]
+        rej_loc = self.info[agent]["local_rejected"] - self.info[agent]["rej"]
+        if rt_loc < self.response_time_threshold and rej_loc <= 0:
+          loc_utility = 1.0 * self.info[agent]["action"][0]
+        elif rt_loc < self.response_time_threshold and rej_loc > 0:
+          loc_utility = 1.0 * (
+            self.info[agent]["action"][0] - rej_loc / self.info[agent]["loc"]
+          )
+        else:
+          loc_utility = -0.75 * self.info[agent]["action"][0]
       # -- forward
       fwd_utility = 0.0
       for neighbor_idx, neighbor in enumerate(self.agent_neighbors[agent]):
-        rt_fwd = self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"]
-        rej_fwd = self.info[agent][f"fwd_to_{neighbor}_rejected"]
-        if rt_fwd < self.response_time_threshold and rej_fwd <= 0.0:
-          fwd_utility += 1.0 * self.info[agent]["action"][neighbor_idx + 1]
-        elif rt_fwd < self.response_time_threshold and rej_fwd > 0.0:
-          fwd_utility += 1.0 * (
-            self.info[agent]["action"][neighbor_idx + 1] - rej_fwd / self.info[
-              agent
-            ]["fwd"][neighbor_idx + 1]
-          )
-        else:
-          fwd_utility += -1.0 * self.info[agent]["action"][neighbor_idx + 1]
+        if self.info[agent]["fwd"][neighbor_idx] > 0:
+          rt_fwd = self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"]
+          rej_fwd = self.info[agent][f"fwd_to_{neighbor}_rejected"]
+          if rt_fwd < self.response_time_threshold and rej_fwd <= 0.0:
+            fwd_utility += 1.0 * self.info[agent]["action"][neighbor_idx + 1]
+          elif rt_fwd < self.response_time_threshold and rej_fwd > 0.0:
+            fwd_utility += 1.0 * (
+              self.info[agent]["action"][neighbor_idx + 1] - rej_fwd / self.info[
+                agent
+              ]["fwd"][neighbor_idx]
+            )
+          else:
+            fwd_utility += -1.0 * self.info[agent]["action"][neighbor_idx + 1]
       # -- reject
       rej_penalty = -0.5 * self.info[agent]["action"][-1]
       reward[agent] = (
         float(loc_utility) + float(fwd_utility) + float(rej_penalty)
       )
     return reward
-  
