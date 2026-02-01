@@ -7,6 +7,7 @@ from dfaas_env import (
 )
 import perfmodel
 
+from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.rllib.env.env_context import EnvContext
 from gymnasium.spaces import Dict, Box
@@ -26,10 +27,10 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # load datasets
     self.joined_metrics = pd.read_csv(env_config.pop("joined_metrics"))
     self.joined_metrics_avg = pd.read_csv(env_config.pop("joined_metrics_avg"))
-    if self.max_time >= self.joined_metrics_avg["cp_bucket"].max():
+    if self.max_time > self.joined_metrics_avg["cp_bucket"].max():
       max_cp_bucket = self.joined_metrics_avg["cp_bucket"].max()
       raise ValueError(
-        f"max_time must be < max_cp_bucket ({self.max_time}>={max_cp_bucket})"
+        f"max_time must be <= max_cp_bucket ({self.max_time}>{max_cp_bucket})"
       )
     # network configuration
     def load_dfaasconfig(env_config):
@@ -417,3 +418,51 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         float(loc_utility) + float(fwd_utility) + float(rej_penalty)
       )
     return reward
+
+
+class DFaaSMetricsCallbacks(DefaultCallbacks):
+  """
+  User defined callbacks for the DFaaS environment.
+
+  These callbacks can be used with other environments, both multi-agent and
+  single-agent.
+
+  See the Ray's API documentation for DefaultCallbacks, the custom class
+  overrides (and uses) only a subset of callbacks and keyword arguments.
+  """
+  def on_episode_end(self, *, episode, base_env, **kwargs):
+    """
+    Called when an episode is done (after terminated/truncated have been
+    logged).
+    """
+    try:
+      env = base_env.envs[0]
+    except AttributeError:
+      env = base_env.get_sub_environments()[0]
+    # check that we are at the end
+    assert env.current_time == env.max_time, (
+      "'on_episode_end()' callback should be called at the end of the "
+      f"episode! {env.current_time = } != {env.max_time = }"
+    )
+    # add all metrics from self.info to episode.hist_data
+    for agent in env.agents + ["__common__"]:
+      agent_data = env.info[agent]
+      for metric, values in agent_data.items():
+        # Create the key in hist_data if it doesn't exist
+        if metric not in episode.hist_data:
+          episode.hist_data[metric] = [{agent: values}]
+        else:
+          # Add to existing key
+          episode.hist_data[metric][0][agent] = values
+
+  def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
+    """
+    Called at the end of Algorithm.evaluate().
+    """
+    evaluation_metrics["callbacks_ok"] = True
+
+  def on_train_result(self, *, algorithm, result, **kwargs):
+    """
+    Called at the end of Algorithm.train().
+    """
+    result["callbacks_ok"] = True
