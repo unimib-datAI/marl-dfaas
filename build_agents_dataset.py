@@ -136,3 +136,7 @@ def main():
   # save
   joined_metrics.to_csv("dataset/joined_metrics.csv")
   joined_metrics_avg.to_csv("dataset/joined_metrics_avg.csv")
+
+
+if __name__ == "__main__":
+  main()
