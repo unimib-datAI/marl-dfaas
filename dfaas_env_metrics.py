@@ -218,37 +218,42 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     Return the next observation (and the corresponding info dictionary)
     """
     # extract metrics for the current control period
-    cp_metrics = pd.DataFrame()
+    cp_metrics = {}
     sample_idx = None
     if self.evaluation_env:
       cp_metrics = self.current_metrics_avg[
         self.current_metrics_avg["cp_bucket"] == self.current_time
       ]
+      cp_metrics = {a: cp_metrics for a in self.agents}
     else:
       cp_metrics = self.current_metrics[
         self.current_metrics["cp_bucket"] == self.current_time
       ]
-      sample_idx = self.rng.integers(low = 0, high = len(cp_metrics))
-      cp_metrics = cp_metrics.iloc[sample_idx]
+      sample_idx = self.rng.integers(
+        low = 0, high = len(cp_metrics), size = len(self.agents)
+      )
+      cp_metrics = {
+        a: cp_metrics.iloc[sample_idx[i]] for i,a in enumerate(self.agents)
+      }
     # define observation
     obs = {agent: {} for agent in self.agents}
     obs_info = {agent: {} for agent in self.agents}
     for agent in self.agents:
       # -- input rate
       obs[agent]["input_rate"] = np.array(
-        [cp_metrics["http_reqs"]], dtype = np.int32
+        [cp_metrics[agent]["http_reqs"]], dtype = np.int32
       )
-      obs_info[agent]["input_rate"] = int(cp_metrics["http_reqs"])
+      obs_info[agent]["input_rate"] = int(cp_metrics[agent]["http_reqs"])
       # -- previous input rate
       obs[agent]["previous_input_rate"] = np.array(
         [self.info[agent]["input_rate"]], dtype = np.int32
       )
       # -- average latency
       obs[agent]["avg_resp_time_loc"] = np.array(
-        [cp_metrics["http_req_duration"]], dtype = np.float32
+        [cp_metrics[agent]["http_req_duration"]], dtype = np.float32
       )
       obs_info[agent]["avg_resp_time_loc"] = float(
-        cp_metrics["http_req_duration"]
+        cp_metrics[agent]["http_req_duration"]
       )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
@@ -259,15 +264,17 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       obs[agent]["cpu_utilization"] = np.array(
         [urandom], dtype = np.float32
       )
-      obs_info[agent]["cpu_utilization"] = urandom
+      obs_info[agent]["cpu_utilization"] = float(urandom)
       obs[agent]["previous_cpu_utilization"] = np.array(
         [self.info[agent]["cpu_utilization"]], dtype = np.float32
       )
       # -- predicted and previous number of replicas
       obs[agent]["n_replicas"] = np.array(
-        [cp_metrics["gateway_service_count"]], dtype = np.int32
+        [cp_metrics[agent]["gateway_service_count"]], dtype = np.int32
       )
-      obs_info[agent]["n_replicas"] = int(cp_metrics["gateway_service_count"])
+      obs_info[agent]["n_replicas"] = int(
+        cp_metrics[agent]["gateway_service_count"]
+      )
       obs[agent]["previous_n_replicas"] = np.array(
         [self.info[agent]["n_replicas"]], dtype = np.int32
       )
@@ -355,8 +362,12 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         faster_solution = (self.max_n_replicas[agent] <= 30)
       )
       # cpu utilization and number of replicas
-      self.info[agent]["cpu_utilization"] = result_props["avg_utilization"]
-      self.info[agent]["n_replicas"] = int(result_props["avg_running_count"])
+      self.info[agent]["cpu_utilization"] = float(
+        result_props["avg_utilization"]
+      )
+      self.info[agent]["n_replicas"] = int(
+        result_props["avg_running_count"]
+      )
       # distribute the rejection rate to the agent and all its neighbors and 
       # compute the local / offloading latency
       rejection_rate = result_props["rejection_rate"]
@@ -374,14 +385,16 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         self.info[sender][f"fwd_to_{agent}_rejected"] = reject
         self.info[sender][
           f"avg_resp_time_fwd_to_{agent}"
-        ] = avg_resp_time + _total_network_delay(
-          self.network[sender][agent]["access_delay_ms"],
-          self.data_size["input"],
-          self.network[sender][agent]["bandwidth_mbps"][self.current_time]
-        ) + _total_network_delay(
-          self.network[agent][sender]["access_delay_ms"],
-          self.data_size["output"],
-          self.network[agent][sender]["bandwidth_mbps"][self.current_time]
+        ] = float(
+          avg_resp_time + _total_network_delay(
+            self.network[sender][agent]["access_delay_ms"],
+            self.data_size["input"],
+            self.network[sender][agent]["bandwidth_mbps"][self.current_time]
+          ) + _total_network_delay(
+            self.network[agent][sender]["access_delay_ms"],
+            self.data_size["output"],
+            self.network[agent][sender]["bandwidth_mbps"][self.current_time]
+          )
         )
   
   def step(self, action_dict):
@@ -487,7 +500,7 @@ class DFaaSMetricsCallbacks(BaseCallbacks):
       # multi-agent the wrapper is MultiAgentEnvWrapper.
       env = base_env.get_sub_environments()[0]
     self.RELEVANT_KEYS = set()
-    for agent in env.agents:
+    for agent in env.agents + ["__common__"]:
       for key in env.info[agent]:
         self.RELEVANT_KEYS.add(key)
     super().on_episode_start(
@@ -506,12 +519,15 @@ class DFaaSMetricsCallbacks(BaseCallbacks):
       env = base_env.envs[0]
       for agent in env.agents:
         for key in self.RELEVANT_KEYS:
-          episode.hist_data[f"{key}-{agent}"] = episode.user_data[
-            f"{key}_{agent}"
-          ][:-1]
-          episode.custom_metrics[
-            f"{key}-{agent}_avg"
-          ] = np.mean(episode.user_data[f"{key}_{agent}"][:-1])
+          if f"{key}_{agent}" in episode.user_data:
+            _ = episode.hist_data.pop(f"{key}_{agent}")
+            if len(episode.user_data[f"{key}_{agent}"]) > 0:
+              episode.hist_data[f"{key}-{agent}"] = episode.user_data[
+                f"{key}_{agent}"
+              ][:-1]
+              episode.custom_metrics[
+                f"{key}-{agent}_avg"
+              ] = np.mean(episode.user_data[f"{key}_{agent}"][:-1])
     except AttributeError:
       for key in self.RELEVANT_KEYS:
         episode.hist_data[key] = episode.user_data[key]
