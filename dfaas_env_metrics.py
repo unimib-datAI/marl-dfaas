@@ -1,4 +1,5 @@
 from RL4CC.environment import BaseMultiAgentEnvironment
+from RL4CC.callbacks import BaseCallbacks
 
 from dfaas_env import (
   _convert_arrival_rate_dist, 
@@ -11,6 +12,7 @@ from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.utils.spaces.simplex import Simplex
 from ray.rllib.env.env_context import EnvContext
 from gymnasium.spaces import Dict, Box
+from copy import deepcopy
 import networkx as nx
 import pandas as pd
 import numpy as np
@@ -98,60 +100,80 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       agent: Dict({
         # input rate (of the current and previous step)
         "input_rate": Box(
-          low = self.workload_limits["0"][agent]["min"],
-          high = self.workload_limits["0"][agent]["max"],
+          low = int(self.workload_limits["0"][agent]["min"]),
+          high = int(self.workload_limits["0"][agent]["max"]),
+          shape=(1,),
           dtype = np.int32
         ),
         "previous_input_rate": Box(
-          low = self.workload_limits["0"][agent]["min"],
-          high = self.workload_limits["0"][agent]["max"],
+          low = int(self.workload_limits["0"][agent]["min"]),
+          high = int(self.workload_limits["0"][agent]["max"]),
+          shape=(1,),
           dtype = np.int32
         ),
         # rate of requests forwarded to all neighbors in the previous step 
         # (and those that the neighbor rejected)
         **{
           f"previous_fwd_to_{neighbor}": Box(
-            low = 0.0,
-            high = self.workload_limits["0"][agent]["max"],
+            low = 0,
+            high = int(self.workload_limits["0"][agent]["max"]),
+            shape=(1,),
             dtype = np.int32
           ) for neighbor in self.agent_neighbors[agent]
         },
         **{
           f"previous_fwd_to_{neighbor}_rejected": Box(
-            low = 0.0,
-            high = self.workload_limits["0"][agent]["max"],
+            low = 0,
+            high = int(self.workload_limits["0"][agent]["max"]),
+            shape=(1,),
             dtype = np.int32
           ) for neighbor in self.agent_neighbors[agent]
         },
         # average latency of enqueued / forwarded requests
+        "avg_resp_time_loc": Box(
+          low = 0.0, 
+          high = 10 * self.response_time_threshold, 
+          shape=(1,),
+          dtype = np.float32
+        ),
         "previous_avg_resp_time_loc": Box(
           low = 0.0, 
           high = 10 * self.response_time_threshold, 
+          shape=(1,),
           dtype = np.float32
         ),
         **{
           f"previous_avg_resp_time_fwd_to_{neighbor}": Box(
             low = 0.0, 
             high = 10 * self.response_time_threshold, 
+            shape=(1,),
             dtype = np.float32
           ) for neighbor in self.agent_neighbors[agent]
         },
         # CPU utilization
         "cpu_utilization": Box(
-          low = 0.0, high = 1.0, dtype = np.float32
+          low = 0.0, high = 1.0, shape=(1,), dtype = np.float32
         ),
         "previous_cpu_utilization": Box(
-          low = 0.0, high = 1.0, dtype = np.float32
+          low = 0.0, high = 1.0, shape=(1,), dtype = np.float32
         ),
         # number of replicas
         "n_replicas": Box(
-          low = 0, high = self.max_n_replicas[agent], dtype = np.int32
+          low = 0, 
+          high = int(self.max_n_replicas[agent]), 
+          shape=(1,),
+          dtype = np.int32
         ),
         "previous_n_replicas": Box(
-          low = 0, high = self.max_n_replicas[agent], dtype = np.int32
+          low = 0, 
+          high = int(self.max_n_replicas[agent]), 
+          shape=(1,),
+          dtype = np.int32
         )
       }) for agent in self.agents
     })
+    # initialize a random dummy observation to return at the end
+    self._dummy_terminal_obs = self.observation_space.sample()
   
   def define_action_spaces(self):
     """
@@ -177,7 +199,13 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         "input_rate": self.workload_limits["0"][agent]["min"] + avg_workload,
         "avg_resp_time_loc": 0.0,
         "cpu_utilization": 0.0,
-        "n_replicas": 0
+        "n_replicas": 0,
+        # -- action
+        "action": [],
+        "loc": 0,
+        "fwd": 0,
+        "total_fwd": 0,
+        "rej": 0
       }
       # -- forward and rejections
       for neighbor in self.agent_neighbors[agent]:
@@ -215,6 +243,13 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       obs[agent]["previous_input_rate"] = np.array(
         [self.info[agent]["input_rate"]], dtype = np.int32
       )
+      # -- average latency
+      obs[agent]["avg_resp_time_loc"] = np.array(
+        [cp_metrics["http_req_duration"]], dtype = np.float32
+      )
+      obs_info[agent]["avg_resp_time_loc"] = float(
+        cp_metrics["http_req_duration"]
+      )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
         [self.info[agent]["avg_resp_time_loc"]], dtype = np.float32
@@ -232,7 +267,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       obs[agent]["n_replicas"] = np.array(
         [cp_metrics["gateway_service_count"]], dtype = np.int32
       )
-      obs_info[agent]["n_replicas"] = cp_metrics["gateway_service_count"]
+      obs_info[agent]["n_replicas"] = int(cp_metrics["gateway_service_count"])
       obs[agent]["previous_n_replicas"] = np.array(
         [self.info[agent]["n_replicas"]], dtype = np.int32
       )
@@ -254,8 +289,14 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       "sample_idx": sample_idx
     }
     # update info
-    self.info = obs_info
-    return obs, obs_info
+    old_info = deepcopy(self.info)
+    for agent, agent_info in old_info.items():
+      for key, val in agent_info.items():
+        if key in obs_info[agent]:
+          self.info[agent][f"previous_{key}"] = val
+          self.info[agent][key] = obs_info[agent][key]
+    self.info["__common__"] = obs_info["__common__"]
+    return obs, self.info
   
   def reset(self, seed: int = None, options = None):
     # initialize info dictionary
@@ -315,7 +356,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       )
       # cpu utilization and number of replicas
       self.info[agent]["cpu_utilization"] = result_props["avg_utilization"]
-      self.info[agent]["n_replicas"] = result_props["avg_running_count"]
+      self.info[agent]["n_replicas"] = int(result_props["avg_running_count"])
       # distribute the rejection rate to the agent and all its neighbors and 
       # compute the local / offloading latency
       rejection_rate = result_props["rejection_rate"]
@@ -375,8 +416,8 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     if self.current_time < self.max_time:
       obs, obs_info = self.observation()
     else:
-      # -- return a dummy observation in the last step
-      obs = self.observation_space.sample()
+      # -- ignore the last step
+      obs = self._dummy_terminal_obs
     return obs, reward, done, truncated, obs_info
 
   def compute_reward(self):
@@ -420,7 +461,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     return reward
 
 
-class DFaaSMetricsCallbacks(DefaultCallbacks):
+class DFaaSMetricsCallbacks(BaseCallbacks):
   """
   User defined callbacks for the DFaaS environment.
 
@@ -430,39 +471,50 @@ class DFaaSMetricsCallbacks(DefaultCallbacks):
   See the Ray's API documentation for DefaultCallbacks, the custom class
   overrides (and uses) only a subset of callbacks and keyword arguments.
   """
-  def on_episode_end(self, *, episode, base_env, **kwargs):
+  def on_episode_start(
+      self, *, worker, base_env, policies, episode, env_index, **kwargs
+    ):
     """
-    Called when an episode is done (after terminated/truncated have been
-    logged).
+    Callback run right after an episode has started.
+    Only the episode and base_env keyword arguments are used, other
+    arguments are ignored.
     """
     try:
       env = base_env.envs[0]
     except AttributeError:
+      # With single-agent environment the wrapper env is an instance of
+      # VectorEnvWrapper and it doesn't have envs attribute. With
+      # multi-agent the wrapper is MultiAgentEnvWrapper.
       env = base_env.get_sub_environments()[0]
-    # check that we are at the end
-    assert env.current_time == env.max_time, (
-      "'on_episode_end()' callback should be called at the end of the "
-      f"episode! {env.current_time = } != {env.max_time = }"
+    self.RELEVANT_KEYS = set()
+    for agent in env.agents:
+      for key in env.info[agent]:
+        self.RELEVANT_KEYS.add(key)
+    super().on_episode_start(
+      worker = worker, 
+      base_env = base_env, 
+      policies = policies, 
+      episode = episode, 
+      env_index = env_index, 
+      **kwargs
     )
-    # add all metrics from self.info to episode.hist_data
-    for agent in env.agents + ["__common__"]:
-      agent_data = env.info[agent]
-      for metric, values in agent_data.items():
-        # Create the key in hist_data if it doesn't exist
-        if metric not in episode.hist_data:
-          episode.hist_data[metric] = [{agent: values}]
-        else:
-          # Add to existing key
-          episode.hist_data[metric][0][agent] = values
-
-  def on_evaluate_end(self, *, algorithm, evaluation_metrics, **kwargs):
-    """
-    Called at the end of Algorithm.evaluate().
-    """
-    evaluation_metrics["callbacks_ok"] = True
-
-  def on_train_result(self, *, algorithm, result, **kwargs):
-    """
-    Called at the end of Algorithm.train().
-    """
-    result["callbacks_ok"] = True
+  
+  def on_episode_end(
+      self, *, worker, base_env, policies, episode, env_index, **kwargs,
+    ):
+    try:
+      env = base_env.envs[0]
+      for agent in env.agents:
+        for key in self.RELEVANT_KEYS:
+          episode.hist_data[f"{key}-{agent}"] = episode.user_data[
+            f"{key}_{agent}"
+          ][:-1]
+          episode.custom_metrics[
+            f"{key}-{agent}_avg"
+          ] = np.mean(episode.user_data[f"{key}_{agent}"][:-1])
+    except AttributeError:
+      for key in self.RELEVANT_KEYS:
+        episode.hist_data[key] = episode.user_data[key]
+        episode.custom_metrics[f"{key}_avg"] = np.mean(episode.user_data[key])
+    # add worker index
+    episode.hist_data["worker_index"] = episode.user_data["worker_index"]
