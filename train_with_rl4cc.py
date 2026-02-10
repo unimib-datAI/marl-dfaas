@@ -20,7 +20,7 @@ import sys
 def main(exp_config_file: str):
   # load and adjust configuration
   exp_config = load_config_file(exp_config_file)
-  with open(exp_config["env_config_file"], "r") as istream:
+  with open(exp_config.pop("env_config_file"), "r") as istream:
     env_config = yaml.safe_load(istream)
   env_config["joined_metrics"] = "dataset/joined_metrics.csv"
   env_config["joined_metrics_avg"] = "dataset/joined_metrics_avg.csv"
