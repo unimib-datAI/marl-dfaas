@@ -55,8 +55,8 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     self.workload_limits = {
       "0": {
         agent: {
-          "min": 40,
-          "max": 80
+          "min": 0,
+          "max": 1200
         } for agent in self.agents
       }
     }
@@ -129,6 +129,13 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
             dtype = np.int32
           ) for neighbor in self.agent_neighbors[agent]
         },
+        # percentage of rejected requests (of the current and previous step)
+        "reject_rate": Box(
+          low = 0.0, high = 1.0, shape=(1,), dtype = np.float32
+        ),
+        "previous_reject_rate": Box(
+          low = 0.0, high = 1.0, shape=(1,), dtype = np.float32
+        ),
         # average latency of enqueued / forwarded requests
         "avg_resp_time_loc": Box(
           low = 0.0, high = np.inf, shape=(1,), dtype = np.float32
@@ -191,6 +198,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         "avg_resp_time_loc": 0.0,
         "cpu_utilization": 0.0,
         "n_replicas": 0,
+        "reject_rate": 0.0,
         # -- action
         "action": [],
         "loc": 0,
@@ -239,23 +247,35 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       obs[agent]["previous_input_rate"] = np.array(
         [self.info[agent]["input_rate"]], dtype = np.int32
       )
+      # -- reject rate
+      obs[agent]["reject_rate"] = np.array(
+        [cp_metrics[agent]["http_req_failed"]], dtype = np.float32
+      )
+      obs_info[agent]["reject_rate"] = float(
+        cp_metrics[agent]["http_req_failed"]
+      )
+      # -- previous reject rate
+      obs[agent]["previous_reject_rate"] = np.array(
+        [self.info[agent]["reject_rate"]], dtype = np.int32
+      )
       # -- average latency
       obs[agent]["avg_resp_time_loc"] = np.array(
-        [cp_metrics[agent]["http_req_duration"]], dtype = np.float32
+        [cp_metrics[agent]["http_req_duration"] / 1000], dtype = np.float32
       )
       obs_info[agent]["avg_resp_time_loc"] = float(
-        cp_metrics[agent]["http_req_duration"]
+        cp_metrics[agent]["http_req_duration"] / 1000
       )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
         [self.info[agent]["avg_resp_time_loc"]], dtype = np.float32
       )
       # -- predicted and previous cpu utilization
-      urandom = self.rng.uniform(0.5,0.8)
       obs[agent]["cpu_utilization"] = np.array(
-        [urandom], dtype = np.float32
+        [cp_metrics[agent]["cpu_usage_percent"] / 100], dtype = np.float32
       )
-      obs_info[agent]["cpu_utilization"] = float(urandom)
+      obs_info[agent]["cpu_utilization"] = float(
+        cp_metrics[agent]["cpu_usage_percent"] / 100
+      )
       obs[agent]["previous_cpu_utilization"] = np.array(
         [self.info[agent]["cpu_utilization"]], dtype = np.float32
       )
@@ -370,6 +390,12 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       tot_rejects[agent] += rejects[0]
       self.info[agent]["local_rejected"] = tot_rejects[agent]
       self.info[agent]["avg_resp_time_loc"] = avg_resp_time
+      if tot_incoming_requests[agent][0] <= 0.0:
+        self.info[agent]["reject_rate"] = 0.0
+      else:
+        self.info[agent]["reject_rate"] = float(
+          rejects[0] / tot_incoming_requests[agent][0]
+        )
       # -- neighbors
       for sender, reject in zip(senders[agent], rejects[1:]):
         tot_rejects[sender] += reject
