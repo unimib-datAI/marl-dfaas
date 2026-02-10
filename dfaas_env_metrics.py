@@ -131,23 +131,14 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         },
         # average latency of enqueued / forwarded requests
         "avg_resp_time_loc": Box(
-          low = 0.0, 
-          high = 10 * self.response_time_threshold, 
-          shape=(1,),
-          dtype = np.float32
+          low = 0.0, high = np.inf, shape=(1,), dtype = np.float32
         ),
         "previous_avg_resp_time_loc": Box(
-          low = 0.0, 
-          high = 10 * self.response_time_threshold, 
-          shape=(1,),
-          dtype = np.float32
+          low = 0.0, high = np.inf, shape=(1,), dtype = np.float32
         ),
         **{
           f"previous_avg_resp_time_fwd_to_{neighbor}": Box(
-            low = 0.0, 
-            high = 10 * self.response_time_threshold, 
-            shape=(1,),
-            dtype = np.float32
+            low = 0.0, high = np.inf, shape=(1,), dtype = np.float32
           ) for neighbor in self.agent_neighbors[agent]
         },
         # CPU utilization
