@@ -732,7 +732,7 @@ class DFaaSConfig:
         node_ram_gb_changed = False
         for key, value in config_dict.items():
             if key not in vars(obj):
-                raise KeyError(f"Unrecognized key {key!r}")
+                continue#raise KeyError(f"Unrecognized key {key!r}")
 
             match key:
                 case "bandwidth_base_trace_path":
