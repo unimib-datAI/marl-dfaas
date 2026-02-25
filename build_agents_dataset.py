@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
+import json
 import os
 
 
@@ -17,6 +18,18 @@ def average_in_control_period(
   bucket_map = {b: i for i, b in enumerate(avg_in_cp.index)}
   metrics_avg["cp_bucket"] = metrics_avg["cp_bucket"].map(bucket_map)
   avg_in_cp["cp_bucket"] = range(len(avg_in_cp))
+  return avg_in_cp, metrics_avg
+
+
+def average_in_control_period2(
+    metrics_avg: pd.DataFrame
+  ) -> pd.DataFrame:
+  metrics_avg["cp_bucket"] = metrics_avg["load_interval"].astype(int)
+  avg_in_cp = metrics_avg.groupby("cp_bucket").mean()
+  if "iterations" in avg_in_cp:
+    avg_in_cp["iterations"] = metrics_avg.groupby(
+      "cp_bucket"
+    )["iterations"].sum()
   return avg_in_cp, metrics_avg
 
 
@@ -40,11 +53,11 @@ def load_metrics(filename):
   metrics = pd.DataFrame()
   try:
     metrics = pd.read_csv(
-      filename, compression = "gzip", low_memory = False
+      filename, compression = "gzip", low_memory = True
     )
   except pd.errors.ParserError:
     metrics = pd.read_csv(
-      filename, compression = "gzip", delimiter = ";", low_memory = False
+      filename, compression = "gzip", delimiter = ";", low_memory = True
     )
   if "k6" in filename:
     metrics = metrics.loc[
@@ -55,7 +68,7 @@ def load_metrics(filename):
       ) | (
         metrics["metric_name"].str.startswith("iteration")
       ),
-      ["timestamp", "metric_name", "metric_value"]
+      ["timestamp", "metric_name", "metric_value", "extra_tags"]
     ]
   elif "prometheus" in filename:
     metrics.rename(
@@ -66,7 +79,10 @@ def load_metrics(filename):
 
 
 def plot_metric(
-    metrics_avg: pd.DataFrame, avg_in_cp: pd.DataFrame, metric: str
+    metrics_avg: pd.DataFrame, 
+    avg_in_cp: pd.DataFrame, 
+    metric: str, 
+    pred: pd.Series = None
   ):
   _, ax = plt.subplots()
   metrics_avg.plot(
@@ -86,20 +102,30 @@ def plot_metric(
     color = mcolors.TABLEAU_COLORS["tab:blue"],
     label = f"{metric} (avg.)"
   )
+  if pred is not None:
+    pred.plot(
+      linewidth = 2,
+      ax = ax,
+      grid = True,
+      color = mcolors.TABLEAU_COLORS["tab:red"],
+      label = f"{metric} (pred.)"
+    )
   plt.show()
 
 
 def reshape(metrics: pd.DataFrame) -> pd.DataFrame:
   # -- add a counter for each metric per timestamp
-  metrics["row_id"] = (
-      metrics
-          .groupby(["timestamp", "metric_name"])
-          .cumcount()
-  )
+  cols = ["timestamp", "metric_name"]
+  if "extra_tags" in metrics:
+    cols += ["extra_tags"]
+  metrics["row_id"] = metrics.groupby(cols).cumcount()
   # -- pivot using the row_id to keep duplicates
+  cols = ["timestamp", "row_id"]
+  if "extra_tags" in metrics:
+    cols += ["extra_tags"]
   metrics_wide = (
       metrics
-          .pivot(index=["timestamp", "row_id"],
+          .pivot(index=cols,
                 columns="metric_name",
                 values="metric_value")
           .reset_index()
@@ -111,9 +137,11 @@ def reshape(metrics: pd.DataFrame) -> pd.DataFrame:
 
 def main():
   control_period = "1min"
-  dataset_folder = "dataset"
+  dataset_folder = "dataset/venus_metrics_data/load_traces"
   trace_idxs = {}
+  all_traces = pd.DataFrame()
   for filename in os.listdir(dataset_folder):
+    # -- k6/prometheus results
     if (
         filename.startswith("k6_results") or 
           filename.startswith("prometheus_metrics")
@@ -125,20 +153,42 @@ def main():
         trace_idxs[trace_idx]["k6"] = os.path.join(dataset_folder, filename)
       else:
         trace_idxs[trace_idx]["pmt"] = os.path.join(dataset_folder, filename)
+    # -- traces
+    elif filename.startswith("input_requests") and filename.endswith(".json"):
+      with open(os.path.join(dataset_folder, filename), "r") as ist:
+        trace = json.load(ist)["0"]
+      trace = pd.DataFrame(trace)
+      tokens = filename.split("-")[1].split(".")[0].split("_")
+      trace.columns = [str(int(c)+int(tokens[0])) for c in trace.columns]
+      if len(all_traces) == 0:
+        all_traces = trace
+      else:
+        all_traces = all_traces.join(trace)
   #
   all_joined_metrics = pd.DataFrame()
   all_joined_metrics_avg = pd.DataFrame()
   for trace_idx, files in trace_idxs.items():
     # k6 metrics
     k6metrics = load_metrics(files["k6"])
+    k6metrics["extra_tags"] = [
+      int(t.split("=")[-1]) for t in k6metrics["extra_tags"]
+    ]
     k6metrics_wide = reshape(k6metrics)
+    k6metrics_wide["load_interval"] = k6metrics_wide["extra_tags"] // 2
+    k6metrics_wide.drop("extra_tags", axis = "columns", inplace = True)
     k6metrics_avg = compute_average(k6metrics_wide)
-    k6avg_in_cp, k6metrics_avg = average_in_control_period(
-      k6metrics_avg, control_period
-    )
+    k6avg_in_cp, k6metrics_avg = average_in_control_period2(k6metrics_avg)
     k6metrics_wide["date"] = [
       datetime.fromtimestamp(t) for t in k6metrics_wide["timestamp"]
     ]
+    k6metrics_avg["date"] = k6metrics_avg.index
+    k6datelimits = pd.DataFrame(
+      k6metrics_avg.groupby("cp_bucket")["date"].min()
+    ).join(
+      pd.DataFrame(k6metrics_avg.groupby("cp_bucket")["date"].max()), 
+      lsuffix = "_min",
+      rsuffix = "_max"
+    )
     # prometheus metrics
     prmetrics = load_metrics(files["pmt"])
     prmetrics = prmetrics[
@@ -160,7 +210,9 @@ def main():
     ]
     # plot
     plot_metric(k6metrics_avg, k6avg_in_cp, "http_req_duration")
-    plot_metric(k6metrics_avg, k6avg_in_cp, "http_reqs")
+    plot_metric(
+      k6metrics_avg, k6avg_in_cp, "http_reqs", all_traces[str(trace_idx)]
+    )
     plot_metric(prmetrics_avg, pravg_in_cp, "container_memory_usage_bytes")
     plot_metric(prmetrics_avg, pravg_in_cp, "gateway_service_count")
     plot_metric(prmetrics_avg, pravg_in_cp, "gateway_function_invocation_started")
