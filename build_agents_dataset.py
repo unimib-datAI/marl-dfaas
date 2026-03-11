@@ -58,7 +58,14 @@ def average_in_control_period2(
 
 
 def compute_average(metrics_wide: pd.DataFrame) -> pd.DataFrame:
-  metrics_avg = metrics_wide.groupby("timestamp").mean()
+  metrics_avg = metrics_wide.groupby("timestamp").mean().ffill()
+  # metrics_avg = (
+  #   metrics_wide
+  #   .groupby("timestamp")
+  #   .filter(lambda g: not g.isna().all().any())
+  #   .groupby("timestamp")
+  #   .mean()
+  # )
   if "http_reqs" in metrics_avg:
     metrics_avg["http_reqs"] = metrics_wide.groupby(
       "timestamp"
@@ -192,7 +199,7 @@ def main():
       except ValueError:
         trace_type_to_idx.append(trace_type)
         trace_idx = len(trace_type_to_idx) - 1
-      trace_idx = f"{trace_idx}{node_idx}"  
+      trace_idx = f"{trace_idx}-{node_idx}"
       # -- k6/prometheus results
       trace_idxs[trace_idx] = {
         "k6": os.path.join(dataset_folder, "k6_results.csv.gz"), 
@@ -291,7 +298,7 @@ def main():
       prmetrics_avg.reset_index(drop = True).drop(
         columns = ["load_interval", "cp_bucket"]
       ),
-      how = "right"
+      how = "inner"
     )
     joined_metrics["trace_idx"] = trace_idx
     all_joined_metrics = pd.concat(
@@ -300,7 +307,7 @@ def main():
     # -- average
     joined_metrics_avg = k6avg_in_cp.join(
       pravg_in_cp.drop(columns = ["load_interval"]),
-      how = "right"
+      how = "inner"
     )
     joined_metrics_avg["trace_idx"] = trace_idx
     all_joined_metrics_avg = pd.concat(
