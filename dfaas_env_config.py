@@ -87,7 +87,7 @@ class DFaaSConfig:
         self.input_rate_same_method = True
 
         # Environment mode.
-        self.evaluation = False
+        self.is_evaluation = False
 
         # Path to the bandwidth 5G base trace, used to generate the bandwidth
         # traces. This field is used only if at least one link uses the
