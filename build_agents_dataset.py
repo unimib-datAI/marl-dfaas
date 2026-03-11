@@ -214,12 +214,14 @@ def main():
   # -- save
   res_dataset_folder = "dataset"
   all_traces.to_csv(
-    os.path.join(res_dataset_folder, "all_traces.csv"), index = False
+    os.path.join(res_dataset_folder, "mlimage_all_traces.csv"), index = False
   )
-  with open(os.path.join(res_dataset_folder, "trace_idxs.json"), "w") as ist:
+  with open(
+      os.path.join(res_dataset_folder, "mlimage_trace_idxs.json"), "w"
+    ) as ist:
     ist.write(json.dumps(trace_idxs, indent = 2))
   with open(
-      os.path.join(res_dataset_folder, "trace_type_to_idx.txt"), "w"
+      os.path.join(res_dataset_folder, "mlimage_trace_type_to_idx.txt"), "w"
     ) as ist:
     for el in trace_type_to_idx:
       ist.write(f"{el}\n")
