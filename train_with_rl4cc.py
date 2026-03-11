@@ -22,8 +22,8 @@ def main(exp_config_file: str):
   exp_config = load_config_file(exp_config_file)
   with open(exp_config.pop("env_config_file"), "r") as istream:
     env_config = yaml.safe_load(istream)
-  env_config["joined_metrics"] = "dataset/joined_metrics.csv"
-  env_config["joined_metrics_avg"] = "dataset/joined_metrics_avg.csv"
+  env_config["joined_metrics"] = "dataset/mlimage_joined_metrics.csv"
+  env_config["joined_metrics_avg"] = "dataset/mlimage_joined_metrics_avg.csv"
   exp_config["env_config"] = env_config
   # define experiment
   exp = TrainingExperiment(exp_config = exp_config)
