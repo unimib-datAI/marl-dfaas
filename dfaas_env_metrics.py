@@ -89,7 +89,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       "output": config.request_output_data_size_bytes
     }
     # evaluation environment (?)
-    self.evaluation_env = env_config.get("evaluation", False)
+    self.evaluation_env = env_config.get("is_evaluation", False)
     return seed
   
   def define_observation_spaces(self):
@@ -204,7 +204,11 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         "loc": 0,
         "fwd": 0,
         "total_fwd": 0,
-        "rej": 0
+        "rej": 0,
+        # -- sample information
+        "trace_idx_trace": None,
+        "trace_idx_node": None,
+        "sample_idx": None
       }
       # -- forward and rejections
       for neighbor in self.agent_neighbors[agent]:
@@ -219,24 +223,29 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # extract metrics for the current control period
     cp_metrics = {}
     sample_idx = None
+    obs_info = {agent: {} for agent in self.agents}
     if self.evaluation_env:
-      cp_metrics = self.current_metrics_avg[
-        self.current_metrics_avg["cp_bucket"] == self.current_time
-      ]
-      cp_metrics = {a: cp_metrics for a in self.agents}
+      for a in self.agents:
+        cp_metrics[a] = self.current_metrics_avg[a][
+          self.current_metrics_avg[a]["cp_bucket"] == self.current_time
+        ]
+        tidx = cp_metrics[a]["trace_idx"].iloc[0].split("-")
+        obs_info[a]["trace_idx_trace"] = int(tidx[0])
+        obs_info[a]["trace_idx_node"] = int(tidx[1])
+        obs_info[a]["sample_idx"] = None
     else:
-      cp_metrics = self.current_metrics[
-        self.current_metrics["cp_bucket"] == self.current_time
-      ]
-      sample_idx = self.rng.integers(
-        low = 0, high = len(cp_metrics), size = len(self.agents)
-      )
-      cp_metrics = {
-        a: cp_metrics.iloc[sample_idx[i]] for i,a in enumerate(self.agents)
-      }
+      for a in self.agents:
+        cpm = self.current_metrics[a][
+          self.current_metrics[a]["cp_bucket"] == self.current_time
+        ]
+        sample_idx = self.rng.integers(low = 0, high = len(cpm))
+        cp_metrics[a] = cpm.iloc[sample_idx]
+        tidx = cp_metrics[a]["trace_idx"].split("-")
+        obs_info[a]["trace_idx_trace"] = int(tidx[0])
+        obs_info[a]["trace_idx_node"] = int(tidx[1])
+        obs_info[a]["sample_idx"] = int(sample_idx)
     # define observation
     obs = {agent: {} for agent in self.agents}
-    obs_info = {agent: {} for agent in self.agents}
     for agent in self.agents:
       # -- input rate
       obs[agent]["input_rate"] = np.array(
@@ -302,9 +311,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           dtype = np.float32
         )
     obs_info["__common__"] = {
-      "current_time": self.current_time,
-      "trace_idx": self.current_metrics["trace_idx"].iloc[0],
-      "sample_idx": sample_idx
+      "current_time": self.current_time
     }
     # update info
     old_info = deepcopy(self.info)
@@ -322,14 +329,21 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # random number generator
     self.rng = np.random.default_rng(seed = seed)
     # extract the next load trace index
-    trace_idx = self.rng.choice(self.joined_metrics["trace_idx"].unique())
+    trace_idxs = self.rng.choice(
+      self.joined_metrics["trace_idx"].unique(),
+      size = len(self.agents)
+    )
     # -- prepare subset of current metrics
-    self.current_metrics = self.joined_metrics[
-      self.joined_metrics["trace_idx"] == trace_idx
-    ]
-    self.current_metrics_avg = self.joined_metrics_avg[
-      self.joined_metrics_avg["trace_idx"] == trace_idx
-    ]
+    self.current_metrics = {
+      a: self.joined_metrics[
+        self.joined_metrics["trace_idx"] == trace_idx
+      ] for a,trace_idx in zip(self.agents,trace_idxs)
+    }
+    self.current_metrics_avg = {
+      a: self.joined_metrics_avg[
+        self.joined_metrics_avg["trace_idx"] == trace_idx
+      ] for a,trace_idx in zip(self.agents,trace_idxs)
+    }
     # restart time
     self.current_time = self.min_time
     # define observation
@@ -364,14 +378,20 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # simulate
     for agent in tot_incoming_requests:
       incoming_rate_total = sum(tot_incoming_requests[agent])
-      result_props, _ = perfmodel.get_sls_warm_count_dist(
-        incoming_rate_total,
-        self.service_times[agent]["warm"],
-        self.service_times[agent]["cold"],
-        self.idle_time_before_kill[agent],
-        maximum_concurrency = self.max_n_replicas[agent],
-        faster_solution = (self.max_n_replicas[agent] <= 30)
-      )
+      result_props = {
+        "avg_utilization": 0.0,
+        "avg_running_count": 0,
+        "rejection_rate": 0.0
+      }
+      if incoming_rate_total > 0:
+        result_props, _ = perfmodel.get_sls_warm_count_dist(
+          incoming_rate_total,
+          self.service_times[agent]["warm"],
+          self.service_times[agent]["cold"],
+          self.idle_time_before_kill[agent],
+          maximum_concurrency = self.max_n_replicas[agent],
+          faster_solution = (self.max_n_replicas[agent] <= 30)
+        )
       # cpu utilization and number of replicas
       self.info[agent]["cpu_utilization"] = float(
         result_props["avg_utilization"]
@@ -542,9 +562,14 @@ class DFaaSMetricsCallbacks(BaseCallbacks):
               episode.hist_data[f"{key}-{agent}"] = episode.user_data[
                 f"{key}_{agent}"
               ][:-1]
-              episode.custom_metrics[
-                f"{key}-{agent}_avg"
-              ] = np.mean(episode.user_data[f"{key}_{agent}"][:-1])
+              try:
+                episode.custom_metrics[
+                  f"{key}-{agent}_avg"
+                ] = np.mean(episode.user_data[f"{key}_{agent}"][:-1])
+              except Exception:
+                episode.custom_metrics[
+                  f"{key}-{agent}_avg"
+                ] = None
     except AttributeError:
       for key in self.RELEVANT_KEYS:
         episode.hist_data[key] = episode.user_data[key]
