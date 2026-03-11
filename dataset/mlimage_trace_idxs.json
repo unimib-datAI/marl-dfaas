@@ -1,100 +1,100 @@
 {
-  "08": {
+  "0-8": {
     "k6": "/home/federica/mlimage/pwr_50_node_8/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_8/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_8/dfaas_node_k6_stages.csv"
   },
-  "07": {
+  "0-7": {
     "k6": "/home/federica/mlimage/pwr_50_node_7/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_7/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_7/dfaas_node_k6_stages.csv"
   },
-  "10": {
+  "1-0": {
     "k6": "/home/federica/mlimage/pwr_25_node_0/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_0/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_0/dfaas_node_k6_stages.csv"
   },
-  "18": {
+  "1-8": {
     "k6": "/home/federica/mlimage/pwr_25_node_8/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_8/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_8/dfaas_node_k6_stages.csv"
   },
-  "16": {
+  "1-6": {
     "k6": "/home/federica/mlimage/pwr_25_node_6/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_6/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_6/dfaas_node_k6_stages.csv"
   },
-  "13": {
+  "1-3": {
     "k6": "/home/federica/mlimage/pwr_25_node_3/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_3/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_3/dfaas_node_k6_stages.csv"
   },
-  "17": {
+  "1-7": {
     "k6": "/home/federica/mlimage/pwr_25_node_7/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_7/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_7/dfaas_node_k6_stages.csv"
   },
-  "00": {
+  "0-0": {
     "k6": "/home/federica/mlimage/pwr_50_node_0/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_0/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_0/dfaas_node_k6_stages.csv"
   },
-  "11": {
+  "1-1": {
     "k6": "/home/federica/mlimage/pwr_25_node_1/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_1/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_1/dfaas_node_k6_stages.csv"
   },
-  "02": {
+  "0-2": {
     "k6": "/home/federica/mlimage/pwr_50_node_2/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_2/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_2/dfaas_node_k6_stages.csv"
   },
-  "01": {
+  "0-1": {
     "k6": "/home/federica/mlimage/pwr_50_node_1/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_1/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_1/dfaas_node_k6_stages.csv"
   },
-  "04": {
+  "0-4": {
     "k6": "/home/federica/mlimage/pwr_50_node_4/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_4/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_4/dfaas_node_k6_stages.csv"
   },
-  "03": {
+  "0-3": {
     "k6": "/home/federica/mlimage/pwr_50_node_3/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_3/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_3/dfaas_node_k6_stages.csv"
   },
-  "15": {
+  "1-5": {
     "k6": "/home/federica/mlimage/pwr_25_node_5/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_5/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_5/dfaas_node_k6_stages.csv"
   },
-  "14": {
+  "1-4": {
     "k6": "/home/federica/mlimage/pwr_25_node_4/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_4/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_4/dfaas_node_k6_stages.csv"
   },
-  "06": {
+  "0-6": {
     "k6": "/home/federica/mlimage/pwr_50_node_6/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_6/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_6/dfaas_node_k6_stages.csv"
   },
-  "19": {
+  "1-9": {
     "k6": "/home/federica/mlimage/pwr_25_node_9/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_9/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_9/dfaas_node_k6_stages.csv"
   },
-  "12": {
+  "1-2": {
     "k6": "/home/federica/mlimage/pwr_25_node_2/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_25_node_2/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_25_node_2/dfaas_node_k6_stages.csv"
   },
-  "05": {
+  "0-5": {
     "k6": "/home/federica/mlimage/pwr_50_node_5/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_5/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_5/dfaas_node_k6_stages.csv"
   },
-  "09": {
+  "0-9": {
     "k6": "/home/federica/mlimage/pwr_50_node_9/k6_results.csv.gz",
     "pmt": "/home/federica/mlimage/pwr_50_node_9/prometheus_metrics.csv.gz",
     "stages": "/home/federica/mlimage/pwr_50_node_9/dfaas_node_k6_stages.csv"
