@@ -208,13 +208,20 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         # -- sample information
         "trace_idx_trace": None,
         "trace_idx_node": None,
-        "sample_idx": None
+        "sample_idx": None,
+        # -- utility
+        "loc_utility": 0.0,
+        "fwd_utility": 0.0,
+        "rej_penalty": 0.0
       }
       # -- forward and rejections
       for neighbor in self.agent_neighbors[agent]:
         self.info[agent][f"fwd_to_{neighbor}"] = 0
         self.info[agent][f"fwd_to_{neighbor}_rejected"] = 0
         self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"] = 0.0
+        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_rt"] = 0.0
+        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_ndf"] = 0.0
+        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_ndb"] = 0.0
 
   def observation(self):
     """
@@ -329,10 +336,14 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     # random number generator
     self.rng = np.random.default_rng(seed = seed)
     # extract the next load trace index
-    trace_idxs = self.rng.choice(
-      self.joined_metrics["trace_idx"].unique(),
-      size = len(self.agents)
-    )
+    trace_idxs = []
+    if not self.evaluation_env:
+      trace_idxs = self.rng.choice(
+        self.joined_metrics["trace_idx"].unique(),
+        size = len(self.agents)
+      )
+    else:
+      trace_idxs = [f"0-{a}" for a in range(len(self.agents))]
     # -- prepare subset of current metrics
     self.current_metrics = {
       a: self.joined_metrics[
@@ -406,7 +417,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         rejection_rate, 
         tot_incoming_requests[agent]
       )
-      avg_resp_time = result_props.get("avg_resp_time", 0.0)
+      avg_resp_time = float(result_props.get("avg_resp_time", 0.0))
       tot_rejects[agent] += rejects[0]
       self.info[agent]["local_rejected"] = tot_rejects[agent]
       self.info[agent]["avg_resp_time_loc"] = avg_resp_time
@@ -420,19 +431,32 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       for sender, reject in zip(senders[agent], rejects[1:]):
         tot_rejects[sender] += reject
         self.info[sender][f"fwd_to_{agent}_rejected"] = reject
-        self.info[sender][
-          f"avg_resp_time_fwd_to_{agent}"
-        ] = float(
-          avg_resp_time + _total_network_delay(
+        nd_forward = float(
+          _total_network_delay(
             self.network[sender][agent]["access_delay_ms"],
             self.data_size["input"],
             self.network[sender][agent]["bandwidth_mbps"][self.current_time]
-          ) + _total_network_delay(
+          )
+        )
+        nd_backward = float(
+          _total_network_delay(
             self.network[agent][sender]["access_delay_ms"],
             self.data_size["output"],
             self.network[agent][sender]["bandwidth_mbps"][self.current_time]
           )
         )
+        self.info[sender][
+          f"avg_resp_time_fwd_to_{agent}"
+        ] = float(avg_resp_time + nd_forward + nd_backward)
+        self.info[sender][
+          f"avg_resp_time_fwd_to_{agent}_rt"
+        ] = float(avg_resp_time)
+        self.info[sender][
+          f"avg_resp_time_fwd_to_{agent}_ndf"
+        ] = float(nd_forward)
+        self.info[sender][
+          f"avg_resp_time_fwd_to_{agent}_ndb"
+        ] = float(nd_backward)
   
   def step(self, action_dict):
     """
@@ -487,6 +511,7 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           )
         else:
           loc_utility = -0.75 * self.info[agent]["action"][0]
+      self.info[agent]["loc_utility"] = float(loc_utility)
       # -- forward
       fwd_utility = 0.0
       for neighbor_idx, neighbor in enumerate(self.agent_neighbors[agent]):
@@ -494,17 +519,19 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           rt_fwd = self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"]
           rej_fwd = self.info[agent][f"fwd_to_{neighbor}_rejected"]
           if rt_fwd < self.response_time_threshold and rej_fwd <= 0.0:
-            fwd_utility += 1.0 * self.info[agent]["action"][neighbor_idx + 1]
+            fwd_utility += 0.80 * self.info[agent]["action"][neighbor_idx + 1]
           elif rt_fwd < self.response_time_threshold and rej_fwd > 0.0:
-            fwd_utility += 1.0 * (
+            fwd_utility += 0.80 * (
               self.info[agent]["action"][neighbor_idx + 1] - rej_fwd / self.info[
                 agent
               ]["fwd"][neighbor_idx]
             )
           else:
             fwd_utility += -1.0 * self.info[agent]["action"][neighbor_idx + 1]
+      self.info[agent]["fwd_utility"] = float(fwd_utility)
       # -- reject
       rej_penalty = -0.5 * self.info[agent]["action"][-1]
+      self.info[agent]["rej_penalty"] = float(rej_penalty)
       reward[agent] = (
         float(loc_utility) + float(fwd_utility) + float(rej_penalty)
       )
