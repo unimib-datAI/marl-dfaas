@@ -52,77 +52,132 @@ def parse_arguments() -> argparse.Namespace:
     default = False,
     action = "store_true"
   )
+  parser.add_argument(
+    "--reload_all",
+    default = False,
+    action = "store_true"
+  )
   # Parse the arguments
   args: argparse.Namespace = parser.parse_known_args()[0]
   return args
 
 
 def load_progress_file(
-    exp_folder: str, last_iter: int, fname: str = "progress"
+    exp_folder: str, 
+    last_iter: int, 
+    fname: str = "progress", 
+    reload_all: bool = False
   ) -> Tuple[pd.DataFrame, pd.DataFrame, str]:
   """
   Load results from the progress.csv file
   """
-  # load progress file
-  progress = pd.DataFrame()
-  compression = None
-  if os.path.exists(os.path.join(exp_folder, f"{fname}.csv")):
-    progress = pd.read_csv(os.path.join(exp_folder, f"{fname}.csv"))
-  elif os.path.exists(os.path.join(exp_folder, f"{fname}.csv.gz")):
-    progress = pd.read_csv(
-      os.path.join(exp_folder, f"{fname}.csv.gz"), compression = "gzip"
-    )
-    compression = "gzip"
-  # build dataframes
   all_hist_stats = pd.DataFrame()
   all_episode_hist_stats = pd.DataFrame()
-  pfx = "" if fname == "progress" else "after_"
-  for it in progress[f"{pfx}training_iteration"]:
-    print(f"Iter {it}")
-    # process results only if they are not already available
-    if it > last_iter:
-      row = progress[progress[f"{pfx}training_iteration"] == it]
-      # hist stats
-      hist_stats_cols = [
-        c for c in row.columns if c.startswith("env_runners/hist_stats/")
-      ]
-      hist_stats_dict = {
-        c.split("/")[-1]: ast.literal_eval(
-          row[c].iloc[0]
-        ) for c in hist_stats_cols
-      }
-      hist_stats = pd.DataFrame({
-        k: v for k, v in hist_stats_dict.items() if "episode_" not in k
-      })
-      episode_hist_stats = pd.DataFrame({
-        k: v for k, v in hist_stats_dict.items() if "episode_" in k
-      })
-      # add information about the episode number
-      hist_stats["episode"] = [-1] * len(hist_stats)
-      # for _, temp in hist_stats.groupby("current_time"):
-      #   hist_stats.loc[temp.index, "episode"] = range(len(temp))
-      # concatenate
-      hist_stats["iter"] = [it] * len(hist_stats)
-      hist_stats["step"] = range(len(hist_stats))
-      episode_hist_stats["iter"] = [it] * len(episode_hist_stats)
-      all_hist_stats = pd.concat(
-        [all_hist_stats, hist_stats], ignore_index = True
+  all_policy_hist_stats = pd.DataFrame()
+  files_exist = False
+  compression = None
+  if not reload_all:
+    summary_folder = os.path.join(exp_folder, "summary", fname)
+    files_exist, sfx = summary_files_exist(summary_folder)
+    compression = "gzip" if sfx != "" else None
+    if files_exist:
+      print("Loading existing files...")
+      all_hist_stats = pd.read_csv(
+        os.path.join(summary_folder, f"all_hist_stats.csv{sfx}"), 
+        compression = compression
       )
-      all_episode_hist_stats = pd.concat(
-        [all_episode_hist_stats, episode_hist_stats], ignore_index = True
+      print("  done (all_hist_stats)")
+      all_episode_hist_stats = pd.read_csv(
+        os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}"), 
+        compression = compression
       )
-  return all_hist_stats, all_episode_hist_stats, compression
+      print("  done (all_episode_hist_stats)")
+      all_policy_hist_stats = pd.read_csv(
+        os.path.join(summary_folder, f"all_policy_hist_stats.csv{sfx}"), 
+        compression = compression
+      )
+      print("  done (all_policy_hist_stats)")
+  # load progress file
+  if not files_exist:
+    progress = pd.DataFrame()
+    if os.path.exists(os.path.join(exp_folder, f"{fname}.csv")):
+      progress = pd.read_csv(os.path.join(exp_folder, f"{fname}.csv"))
+    elif os.path.exists(os.path.join(exp_folder, f"{fname}.csv.gz")):
+      progress = pd.read_csv(
+        os.path.join(exp_folder, f"{fname}.csv.gz"), compression = "gzip"
+      )
+      compression = "gzip"
+    # build dataframes
+    pfx = "" if fname == "progress" else "after_"
+    for it in progress[f"{pfx}training_iteration"]:
+      print(f"Iter {it}")
+      # process results only if they are not already available
+      if it > last_iter:
+        row = progress[progress[f"{pfx}training_iteration"] == it]
+        # hist stats
+        hist_stats_cols = [
+          c for c in row.columns if c.startswith("env_runners/hist_stats/")
+        ]
+        hist_stats_dict = {
+          c.split("/")[-1]: ast.literal_eval(
+            row[c].iloc[0]
+          ) for c in hist_stats_cols
+        }
+        hist_stats = {
+          k: v for k, v in hist_stats_dict.items() if not (
+            "episode_" in k or "policy_" in k or "worker_index" in k
+          )
+        }
+        hist_stats = pd.DataFrame(hist_stats)
+        episode_hist_stats = pd.DataFrame({
+          k: v for k, v in hist_stats_dict.items() if "episode_" in k
+        })
+        policy_hist_stats = pd.DataFrame({
+          k: v for k, v in hist_stats_dict.items() if "policy_" in k
+        })
+        # add information about the episode number
+        hist_stats["episode"] = [-1] * len(hist_stats)
+        # for _, temp in hist_stats.groupby("current_time"):
+        #   hist_stats.loc[temp.index, "episode"] = range(len(temp))
+        # concatenate
+        hist_stats["iter"] = [it] * len(hist_stats)
+        hist_stats["step"] = range(len(hist_stats))
+        episode_hist_stats["iter"] = [it] * len(episode_hist_stats)
+        policy_hist_stats["iter"] = [it] * len(policy_hist_stats)
+        all_hist_stats = pd.concat(
+          [all_hist_stats, hist_stats], ignore_index = True
+        )
+        all_episode_hist_stats = pd.concat(
+          [all_episode_hist_stats, episode_hist_stats], ignore_index = True
+        )
+        all_policy_hist_stats = pd.concat(
+          [all_policy_hist_stats, policy_hist_stats], ignore_index = True
+        )
+  return (
+    all_hist_stats, 
+    all_episode_hist_stats, 
+    all_policy_hist_stats, 
+    compression,
+    not files_exist
+  )
 
 
 def plot_action(
-    df: pd.DataFrame, agents: list, plot_folder: str = None, suffix: str = ""
+    df: pd.DataFrame, 
+    agents: list, 
+    plot_folder: str = None, 
+    suffix: str = "",
+    use_previous: bool = False
   ):
+  to_plot = df
+  to_plot.index = range(len(to_plot))
+  pfx = "previous_" if use_previous else ""
   _, axs = plt.subplots(
     nrows = len(agents), ncols = 1, figsize = (30,4 * len(agents))
   )
   for idx, agent in enumerate(agents):
     # -- input load
-    df[f"observation_input_rate-{agent}"].plot(
+    to_plot[f"{pfx}input_rate-{agent}"].plot(
       linewidth = 2,
       marker = ".",
       color = "k",
@@ -131,10 +186,10 @@ def plot_action(
       legend = False
     )
     # -- action
-    df[[
-      f"action_local-{agent}", 
-      f"action_forward-{agent}", 
-      f"action_reject-{agent}"
+    to_plot[[
+      f"loc-{agent}", 
+      f"total_fwd-{agent}", 
+      f"rej-{agent}"
     ]].plot.bar(
       stacked = True,
       ax = axs[idx],
@@ -159,12 +214,14 @@ def plot_action(
 def plot_forward(
     df: pd.DataFrame, agents: list, plot_folder: str = None, suffix: str = ""
   ):
+  to_plot = df
+  to_plot.index = range(len(to_plot))
   _, axs = plt.subplots(
     nrows = len(agents), ncols = 1, figsize = (30,4 * len(agents))
   )
   for idx, agent in enumerate(agents):
     # -- total number of forwarded requests
-    df[f"action_forward-{agent}"].plot(
+    to_plot[f"total_fwd-{agent}"].plot(
       linewidth = 2,
       marker = ".",
       color = "k",
@@ -173,8 +230,8 @@ def plot_forward(
       legend = False
     )
     # -- details
-    df[[
-      f"action_forward_to_{neighbor}-{agent}" 
+    to_plot[[
+      f"fwd_to_{neighbor}-{agent}" 
         for neighbor in agents if neighbor != agent
     ]].plot.bar(
       stacked = True,
@@ -270,14 +327,48 @@ def plot_moving_average(
     plt.show()
 
 
-def sum_latency(df: pd.DataFrame, agent: str) -> pd.Series:
-  return df[
-    f"response_time_avg_forwarded-{agent}"
-  ] + df[
-    f"network_forward_delay_avg-{agent}"
-  ] + df[
-    f"network_return_delay_avg-{agent}"
+def aggregate_over_neighbors(
+    df: pd.DataFrame, agent: str, key: str, how: str = "avg"
+  ) -> np.array:
+  colnames = ["avg_resp_time_fwd_to"] if key == "resp_time" else [
+    "fwd_to", "_rejected"
   ]
+  cols = [
+    c for c in df.columns  if all(
+      [k in c for k in colnames]
+    ) and c.endswith(
+      f"-{agent}"
+    )
+  ]
+  res = pd.Series()
+  if how == "avg":
+    res = df[cols].mean(axis = 1).values
+  elif how == "sum":
+    res = df[cols].sum(axis = 1).values
+  else:
+    raise ValueError(f"Unknown aggregation: {how}")
+  return res
+
+
+def summary_files_exist(summary_folder: str) -> bool:
+  files_exist = True
+  sfx = ""
+  if not os.path.exists(os.path.join(summary_folder, "all_hist_stats.csv")):
+    if os.path.exists(os.path.join(summary_folder, "all_hist_stats.csv.gz")):
+      sfx = ".gz"
+    else:
+      files_exist = False
+  if files_exist:
+    if not os.path.exists(
+        os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}")
+      ):
+      files_exist = False
+    if files_exist:
+      if not os.path.exists(
+          os.path.join(summary_folder, f"all_policy_hist_stats.csv{sfx}")
+        ):
+        files_exist = False
+  return files_exist, sfx
 
 
 def unpack_step_values(
@@ -302,8 +393,6 @@ def unpack_step_values(
         df_dict["iter"] = iteration
         # merge
         df_col = pd.concat([df_col, pd.DataFrame(df_dict)], ignore_index=True)
-    else:
-      print(". here")
     # join
     if len(new_df) == 0:
       new_df = df_col
@@ -318,6 +407,7 @@ def unpack_step_values(
 
 def single_exp_postprocessing(
     exp_folder: str, 
+    reload_all: bool = False,
     moving_average_window: int = 10, 
     last_iter: int = 0,
     plot_reward_only: bool = False,
@@ -332,11 +422,21 @@ def single_exp_postprocessing(
     plot_folder = os.path.join(exp_folder, "plots", scenario)
     os.makedirs(plot_folder, exist_ok = True)
     # load data
-    all_hist_stats, all_episode_hist_stats, compression = load_progress_file(
-      exp_folder, last_iter, scenario
+    (
+      all_hist_stats, 
+      all_episode_hist_stats, 
+      all_policy_hist_stats, 
+      compression,
+      new_results_loaded
+    ) = load_progress_file(
+      exp_folder, last_iter, scenario, reload_all
     )
-    # unpack by-step values
-    all_hist_stats_unpacked, agents = unpack_step_values(all_hist_stats)
+    # identify agents
+    agents = [
+      "_".join(
+        c.split("_")[1:-1]
+      ) for c in all_policy_hist_stats.columns if c != "iter"
+    ]
     # plot episode reward moving average
     plot_moving_average(
       all_episode_hist_stats, 
@@ -347,44 +447,56 @@ def single_exp_postprocessing(
     )
     # -- by node
     plot_moving_average(
-      all_hist_stats, 
-      [f"policy_{a}_reward" for a in agents], 
+      all_policy_hist_stats, 
+      [c for c in all_policy_hist_stats.columns if c != "iter"], 
       moving_average_window, 
       plot_folder, 
       "by_node_reward"
     )
     # compute by-episode average
-    avg_stats_unpacked = all_hist_stats_unpacked.groupby(
-      "iter"
-    ).mean().reset_index()
-    for a in agents:
-      avg_stats_unpacked[f"response_time_avg_fwd-{a}"] = sum_latency(
-        avg_stats_unpacked, a
-      )
-    # save summary results
     summary_folder = os.path.join(exp_folder, "summary", scenario)
-    os.makedirs(summary_folder, exist_ok = True)
     sfx = ".gz" if compression is not None else ""
-    all_hist_stats.to_csv(
-      os.path.join(summary_folder, f"all_hist_stats.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    all_episode_hist_stats.to_csv(
-      os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    all_hist_stats_unpacked.to_csv(
-      os.path.join(summary_folder, f"all_hist_stats_unpacked.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
-    avg_stats_unpacked.to_csv(
-      os.path.join(summary_folder, f"avg_stats_unpacked.csv{sfx}"), 
-      compression = compression,
-      index = False
-    )
+    avg_stats_unpacked = pd.DataFrame()
+    new_results_loaded = True
+    if new_results_loaded:
+      avg_stats_unpacked = all_hist_stats.groupby(
+        "iter"
+      ).mean(numeric_only = True).reset_index()
+      for a in agents:
+        avg_stats_unpacked[f"avg_resp_time_fwd-{a}"] = aggregate_over_neighbors(
+          avg_stats_unpacked, a, "resp_time"
+        )
+        avg_stats_unpacked[f"fwd_rejected-{a}"] = aggregate_over_neighbors(
+          avg_stats_unpacked, a, "fwd_rejected", "sum"
+        )
+      # save summary results
+      os.makedirs(summary_folder, exist_ok = True)
+      all_hist_stats.to_csv(
+        os.path.join(summary_folder, f"all_hist_stats.csv{sfx}"), 
+        compression = compression,
+        index = False
+      )
+      all_episode_hist_stats.to_csv(
+        os.path.join(summary_folder, f"all_episode_hist_stats.csv{sfx}"), 
+        compression = compression,
+        index = False
+      )
+      all_policy_hist_stats.to_csv(
+        os.path.join(summary_folder, f"all_policy_hist_stats.csv{sfx}"), 
+        compression = compression,
+        index = False
+      )
+      avg_stats_unpacked.to_csv(
+        os.path.join(summary_folder, f"avg_stats_unpacked.csv{sfx}"), 
+        compression = compression,
+        index = False
+      )
+    else:
+      avg_stats_unpacked = pd.read_csv(
+        os.path.join(summary_folder, f"avg_stats_unpacked.csv{sfx}"), 
+        compression = compression
+      )
+      print("  done (avg_stats_unpacked)")
     # plot detailed results
     if not plot_reward_only:
       # -- utility
@@ -405,24 +517,22 @@ def single_exp_postprocessing(
       plot_moving_average(
         avg_stats_unpacked, 
         [
-          f"response_time_avg_local-{a}" for a in agents
+          f"avg_resp_time_loc-{a}" for a in agents
         ] + [
-          f"response_time_avg_fwd-{a}" for a in agents
+          f"avg_resp_time_fwd-{a}" for a in agents
         ], 
         moving_average_window, 
         plot_folder, 
         "response_time_avg",
-        y_threshold = 0.5
+        y_threshold = 1.2
       )
       # -- rejections
       plot_moving_average(
         avg_stats_unpacked, 
         [
-          f"action_reject-{a}" for a in agents
+          f"rej-{a}" for a in agents
         ] + [
-          f"incoming_rate_reject-{a}" for a in agents
-        ] + [
-          f"forward_reject_rate-{a}" for a in agents
+          f"fwd_rejected-{a}" for a in agents
         ], 
         moving_average_window, 
         plot_folder, 
@@ -434,22 +544,24 @@ def single_exp_postprocessing(
       plot_forward(avg_stats_unpacked, agents, plot_folder)
       # -- actions and detailed forwarding info in specific iterations
       for iteration in plot_iterations:
-        plot_action(
-          all_hist_stats_unpacked[all_hist_stats_unpacked["iter"] == iteration], 
-          agents, 
-          plot_folder,
-          f"-iter_{iteration}"
-        )
-        plot_forward(
-          all_hist_stats_unpacked[all_hist_stats_unpacked["iter"] == iteration], 
-          agents, 
-          plot_folder,
-          f"-iter_{iteration}"
-        )
+        if iteration in all_hist_stats["iter"].values:
+          plot_action(
+            all_hist_stats[all_hist_stats["iter"] == iteration], 
+            agents, 
+            plot_folder,
+            f"-iter_{iteration}",
+            use_previous = True
+          )
+          plot_forward(
+            all_hist_stats[all_hist_stats["iter"] == iteration], 
+            agents, 
+            plot_folder,
+            f"-iter_{iteration}"
+          )
     results[scenario] = {
       "all_hist_stats": all_hist_stats,
       "all_episode_hist_stats": all_episode_hist_stats,
-      "all_hist_stats_unpacked": all_hist_stats_unpacked,
+      "all_policy_hist_stats": all_policy_hist_stats,
       "avg_stats_unpacked": avg_stats_unpacked
     }
   return results
@@ -510,6 +622,7 @@ def multiple_exp_postprocessing(
       else:
         exp_results = single_exp_postprocessing(
           exp_folder,
+          reload_all = True,
           moving_average_window = moving_average_window,
           last_iter = last_iter,
           plot_reward_only = plot_reward_only,
@@ -655,11 +768,13 @@ if __name__ == "__main__":
   eval_only = args.eval_only
   exp_name = args.exp_name
   exp_json = args.exp_json
+  reload_all = args.reload_all
   # post-process single experiment (if the exp name is provided)
   if exp_name is not None:
     exp_folder = os.path.join(base_exp_folder, exp_name)
     single_exp_postprocessing(
       exp_folder, 
+      reload_all = reload_all,
       plot_reward_only = plot_reward_only, 
       plot_iterations = plot_iterations,
       eval_only = eval_only
