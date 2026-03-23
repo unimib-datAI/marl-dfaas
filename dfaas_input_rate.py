@@ -1,11 +1,12 @@
-"""This module contains several methods for generating the average rate of input
-requests, also called the input rate.
+"""This module provides several methods to generate the average rate of input
+requests, also referred to as the "input rate" or "input trace".
 
-You can call a generator directly or use the registry, which maps generator
-names to their respective implementation functions.
+It exposes both a CLI utility for generating input traces and a Python API.
+The API includes a registry that maps input trace generator names to their
+corresponding implementation functions.
 
-The DFaaS environment uses this module at the beginning of an episode to obtain
-the input rate for all steps."""
+The DFaaS environment uses this module at the beginning of each episode to
+retrieve the input rate for all steps."""
 
 from pathlib import Path
 import errno
@@ -142,18 +143,6 @@ def synthetic_normal(max_steps, agents, rng):
     return input_requests
 
 
-def _gen_synthetic_sinusoidal(rng):
-    """Returns a single generated synthetic input rate trace. Usually used for
-    tests."""
-    # These are just fixed values for one trace.
-    agents = ["node_0"]
-    max_steps, min_reqs, max_reqs = 288, 1, 150
-
-    trace = synthetic_sinusoidal(max_steps, agents, rng)
-
-    return trace["node_0"]
-
-
 @_register_generator("synthetic-sinusoidal")
 def synthetic_sinusoidal(max_steps, agents, rng=None):
     """Generate synthetic sinusoidal input rate traces for a set of agents.
@@ -225,7 +214,6 @@ def synthetic_constant(max_steps, agents):
         raise ValueError("Only two agents supported by this input rate generation method")
 
     input_rate = {}
-    constant_rates = np.array([5, 100], dtype=np.int32)
     for agent, rate in zip(agents, [5, 100]):
         input_rate[agent] = np.repeat(rate, max_steps)
 
@@ -439,25 +427,101 @@ def real(max_steps, agents, limits, rng, evaluation):
     return input_requests, hashes
 
 
-def _gen_example_input_rate(seed):
-    """Generate a sample trace and print it to standard output."""
-    rng = np.random.default_rng(seed=seed)  # RNG used to generate the requests.
-
-    trace = _gen_synthetic_sinusoidal(rng)
-
-    print(trace)
-
-
-if __name__ == "__main__":
+def _main():
     import argparse
+    import json
+    import sys
 
-    description = """Generate an input rate trace and print to the standard
-    output."""
+    # Use all generator except for "real", since it requires additional files
+    # and options.
+    generator_choices = [k for k in _generator if k != "real"]
 
-    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    description = (
+        "Generate an input rate trace with a chosen generator and options.\n\n"
+        "The CSV output is a row for each timestep and column for each agent.\n"
+        "The JSON output is a dict with a key for each agent with an array."
+    )
 
-    parser.add_argument("--seed", type=int, default=42, help="RNG seed used to generate the trace")
+    parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawDescriptionHelpFormatter)
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="RNG seed (used by synthetic-normal, synthetic-sinusoidal, synthetic-double-linear-growth)",
+    )
+    parser.add_argument("--steps", type=int, default=288, help="Number of time steps to generate")
+    parser.add_argument("--agents", type=int, default=2, help="Number of agents (node_0, node_1, ...)")
+    parser.add_argument(
+        "--method",
+        type=str,
+        choices=generator_choices,
+        metavar="{%s}" % ",".join(generator_choices),
+        default="synthetic-sinusoidal",
+        help="Input rate generator. Choices: %(choices)s",
+    )
+    parser.add_argument("--output", type=Path, default=None, help="Output file (if not given, print to stdout)")
+    parser.add_argument(
+        "--format", type=str, choices=["csv", "json"], default="json", help="Output format: csv or json"
+    )
+    parser.add_argument(
+        "--max-per-agent",
+        type=int,
+        default=63,
+        help="Max input rate per agent (only for synthetic-double-linear-growth)",
+    )
 
     args = parser.parse_args()
 
-    _gen_example_input_rate(args.seed)
+    num_agents = args.agents
+    steps = args.steps
+    method = args.method
+    seed = args.seed
+    rng = np.random.default_rng(seed=seed)
+    agent_names = [f"node_{i}" for i in range(num_agents)]
+
+    # Use a dict to pass additional options to a generator.
+    gen_kwargs = {}
+    if method in ("synthetic-normal", "synthetic-sinusoidal", "synthetic-double-linear-growth"):
+        gen_kwargs["rng"] = rng
+    if method == "synthetic-double-linear-growth":
+        gen_kwargs["max_per_agent"] = args.max_per_agent
+
+    try:
+        func = generator(method)
+        if method == "synthetic-constant":
+            trace = func(steps, agent_names)
+        elif method == "synthetic-linear-growth":
+            trace = func(steps, agent_names)
+        elif method == "synthetic-double-linear-growth":
+            trace = func(steps, agent_names, **gen_kwargs)
+        elif method == "synthetic-step-change":
+            trace = func(steps, agent_names)
+        else:
+            trace = func(steps, agent_names, **gen_kwargs)
+    except Exception as error:
+        print(f"Error generating trace: {error}", file=sys.stderr)
+        sys.exit(1)
+
+    # Output the result (JSON/CSV, stdout/file).
+    if args.format == "csv":
+        df = pd.DataFrame({k: v for k, v in trace.items()})
+
+        if args.output:
+            df.to_csv(args.output, index=False)
+        else:
+            print(df.to_csv(index=False), end="")
+    elif args.format == "json":
+        # Convert the trace to dict (to be dumped as JSON).
+        obj = {k: list(map(int, v)) for k, v in trace.items()}
+        js = json.dumps(obj, indent=2)
+
+        if args.output:
+            with open(args.output, "w") as f:
+                f.write(js)
+        else:
+            print(js)
+
+
+if __name__ == "__main__":
+    _main()
