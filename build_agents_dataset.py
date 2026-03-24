@@ -1,7 +1,10 @@
+import perfmodel
+
 from datetime import datetime, timedelta
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 import json
 import os
 
@@ -183,6 +186,16 @@ def reshape(metrics: pd.DataFrame) -> pd.DataFrame:
 def main():
   control_period = "1min"
   base_dataset_folder = "/home/federica/mlimage"
+  seed = 4850
+  warm_service_time_range = (0.000253, 0.002553)
+  cold_service_time_range = (1.023415, 32.770124)
+  n_simulations = 10
+  rng = np.random.default_rng(seed = seed)
+  warm_service_time = []
+  cold_service_time = []
+  for _ in range(n_simulations):
+    warm_service_time.append(rng.uniform(*warm_service_time_range))
+    cold_service_time.append(rng.uniform(*cold_service_time_range))
   # index traces
   trace_idxs = {}
   all_traces = pd.DataFrame()
@@ -317,6 +330,21 @@ def main():
       ], 
       ignore_index = True
     )
+    # ---- add simulated time
+    for ws, cs in zip(warm_service_time, cold_service_time):
+      rt = []
+      incoming_rates = all_joined_metrics_avg["http_reqs"].values
+      for incoming_rate_total in incoming_rates:
+        res, _ = perfmodel.get_sls_warm_count_dist(
+          incoming_rate_total,
+          ws,
+          cs,
+          10,
+          5,
+          faster_solution = True
+        )
+        rt.append(float(res.get("avg_resp_time", 0.0)))
+      all_joined_metrics_avg[f"simulated_response_time-{ws}_{cs}"] = rt
     # save
     all_joined_metrics.to_csv(
       "dataset/mlimage_joined_metrics.csv", index = False
