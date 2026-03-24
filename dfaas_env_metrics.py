@@ -219,9 +219,9 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         self.info[agent][f"fwd_to_{neighbor}"] = 0
         self.info[agent][f"fwd_to_{neighbor}_rejected"] = 0
         self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"] = 0.0
-        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_rt"] = 0.0
-        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_ndf"] = 0.0
-        self.info[agent][f"avg_resp_time_fwd_to_{neighbor}_ndb"] = 0.0
+        self.info[agent][f"art_fwd_to_{neighbor}_rt"] = 0.0
+        self.info[agent][f"network_delay_to_{neighbor}"] = 0.0
+        self.info[agent][f"network_delay_from_{neighbor}"] = 0.0
 
   def observation(self):
     """
@@ -318,7 +318,8 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           dtype = np.float32
         )
     obs_info["__common__"] = {
-      "current_time": self.current_time
+      "current_time": self.current_time,
+      "response_time_threshold": self.response_time_threshold
     }
     # update info
     old_info = deepcopy(self.info)
@@ -449,13 +450,13 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           f"avg_resp_time_fwd_to_{agent}"
         ] = float(avg_resp_time + nd_forward + nd_backward)
         self.info[sender][
-          f"avg_resp_time_fwd_to_{agent}_rt"
+          f"art_fwd_to_{agent}"
         ] = float(avg_resp_time)
         self.info[sender][
-          f"avg_resp_time_fwd_to_{agent}_ndf"
+          f"network_delay_to_{agent}"
         ] = float(nd_forward)
         self.info[sender][
-          f"avg_resp_time_fwd_to_{agent}_ndb"
+          f"network_delay_from_{agent}"
         ] = float(nd_backward)
   
   def step(self, action_dict):
@@ -519,9 +520,9 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
           rt_fwd = self.info[agent][f"avg_resp_time_fwd_to_{neighbor}"]
           rej_fwd = self.info[agent][f"fwd_to_{neighbor}_rejected"]
           if rt_fwd < self.response_time_threshold and rej_fwd <= 0.0:
-            fwd_utility += 0.80 * self.info[agent]["action"][neighbor_idx + 1]
+            fwd_utility += 0.50 * self.info[agent]["action"][neighbor_idx + 1]
           elif rt_fwd < self.response_time_threshold and rej_fwd > 0.0:
-            fwd_utility += 0.80 * (
+            fwd_utility += 0.50 * (
               self.info[agent]["action"][neighbor_idx + 1] - rej_fwd / self.info[
                 agent
               ]["fwd"][neighbor_idx]
