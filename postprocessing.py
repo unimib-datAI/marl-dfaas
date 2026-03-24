@@ -261,7 +261,8 @@ def plot_moving_average(
     window: int, 
     plot_folder: str = None,
     title_key: str = "training",
-    y_threshold: float = None
+    y_threshold: float = None,
+    alpha: float = 1.0
   ):
   """
   Plot the moving average over the given window of the results in the listed 
@@ -306,7 +307,9 @@ def plot_moving_average(
   # plot
   _, ax = plt.subplots()
   for column, color, linestyle in zip(columns, colors, linestyles):
-    avg[column].plot(color = color, linestyle = linestyle, ax = ax)
+    avg[column].plot(
+      color = color, linestyle = linestyle, ax = ax, alpha = alpha
+    )
   if y_threshold is not None:
     ax.axhline(y_threshold, color = "k", linestyle = "dashed", linewidth = 2)
   plt.grid()
@@ -330,12 +333,15 @@ def plot_moving_average(
 def aggregate_over_neighbors(
     df: pd.DataFrame, agent: str, key: str, how: str = "avg"
   ) -> np.array:
-  colnames = ["avg_resp_time_fwd_to"] if key == "resp_time" else [
+  colnames_in = ["avg_resp_time_fwd_to"] if key == "resp_time" else [
     "fwd_to", "_rejected"
   ]
+  colnames_out = ["_ndb", "_ndf", "_rt"] if key == "resp_time" else []
   cols = [
-    c for c in df.columns  if all(
-      [k in c for k in colnames]
+    c for c in df.columns if all(
+      [k in c for k in colnames_in]
+    ) and not any(
+      [k in c for k in colnames_out]
     ) and c.endswith(
       f"-{agent}"
     )
@@ -524,7 +530,23 @@ def single_exp_postprocessing(
         moving_average_window, 
         plot_folder, 
         "response_time_avg",
-        y_threshold = 1.2
+        y_threshold = avg_stats_unpacked[
+          "response_time_threshold-node_0"
+        ].iloc[0]
+      )
+      plot_moving_average(
+        avg_stats_unpacked, 
+        [
+          f"previous_avg_resp_time_loc-{a}" for a in agents
+        ] + [
+          f"avg_resp_time_fwd-{a}" for a in agents
+        ], 
+        moving_average_window, 
+        plot_folder, 
+        "previous_response_time_avg",
+        y_threshold = avg_stats_unpacked[
+          "response_time_threshold-node_0"
+        ].iloc[0]
       )
       # -- rejections
       plot_moving_average(
@@ -538,13 +560,26 @@ def single_exp_postprocessing(
         plot_folder, 
         "reject"
       )
+      # -- number of replicas
+      plot_moving_average(
+        avg_stats_unpacked, 
+        [
+          f"previous_n_replicas-{a}" for a in agents
+        ] + [
+          f"n_replicas-{a}" for a in agents
+        ], 
+        moving_average_window, 
+        plot_folder, 
+        "n_replicas_avg"
+      )
       # -- "average" actions
       plot_action(avg_stats_unpacked, agents, plot_folder)
       # -- "average" detailed forwarding choices
       plot_forward(avg_stats_unpacked, agents, plot_folder)
-      # -- actions and detailed forwarding info in specific iterations
+      # -- detailed info in specific iterations
       for iteration in plot_iterations:
         if iteration in all_hist_stats["iter"].values:
+          # ---- actions and detailed forwarding
           plot_action(
             all_hist_stats[all_hist_stats["iter"] == iteration], 
             agents, 
@@ -557,6 +592,54 @@ def single_exp_postprocessing(
             agents, 
             plot_folder,
             f"-iter_{iteration}"
+          )
+          # ---- response times
+          for a in agents:
+            all_hist_stats[f"avg_resp_time_fwd-{a}"] = aggregate_over_neighbors(
+              all_hist_stats, a, "resp_time"
+            )
+          plot_moving_average(
+            all_hist_stats, 
+            [
+              f"avg_resp_time_loc-{a}" for a in agents
+            ] + [
+              f"avg_resp_time_fwd-{a}" for a in agents
+            ], 
+            moving_average_window, 
+            plot_folder, 
+            f"response_time_detailed-iter_{iteration}",
+            y_threshold = all_hist_stats[
+              "response_time_threshold-node_0"
+            ].iloc[0],
+            alpha = 0.4
+          )
+          plot_moving_average(
+            all_hist_stats, 
+            [
+              f"previous_avg_resp_time_loc-{a}" for a in agents
+            ] + [
+              f"avg_resp_time_fwd-{a}" for a in agents
+            ], 
+            moving_average_window, 
+            plot_folder, 
+            f"previous_response_time_detailed-iter_{iteration}",
+            y_threshold = all_hist_stats[
+              "response_time_threshold-node_0"
+            ].iloc[0],
+            alpha = 0.4
+          )
+          # -- number of replicas
+          plot_moving_average(
+            all_hist_stats, 
+            [
+              f"previous_n_replicas-{a}" for a in agents
+            ] + [
+              f"n_replicas-{a}" for a in agents
+            ], 
+            moving_average_window, 
+            plot_folder, 
+            f"n_replicas_detailed-iter_{iteration}",
+            alpha = 0.7
           )
     results[scenario] = {
       "all_hist_stats": all_hist_stats,
