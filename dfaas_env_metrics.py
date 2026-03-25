@@ -236,6 +236,10 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         cp_metrics[a] = self.current_metrics_avg[a][
           self.current_metrics_avg[a]["cp_bucket"] == self.current_time
         ]
+        assert len(cp_metrics[a]) > 0, (
+          f"no data for {a} on t = {self.current_time} "
+          f"(trace {self.current_metrics_avg[a]['trace_idx'].unique()})"
+        )
         tidx = cp_metrics[a]["trace_idx"].iloc[0].split("-")
         obs_info[a]["trace_idx_trace"] = int(tidx[0])
         obs_info[a]["trace_idx_node"] = int(tidx[1])
@@ -245,6 +249,10 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
         cpm = self.current_metrics[a][
           self.current_metrics[a]["cp_bucket"] == self.current_time
         ]
+        assert len(cpm) > 0, (
+          f"no data for {a} on t = {self.current_time} "
+          f"(trace {self.current_metrics[a]['trace_idx'].unique()})"
+        )
         sample_idx = self.rng.integers(low = 0, high = len(cpm))
         cp_metrics[a] = cpm.iloc[sample_idx]
         tidx = cp_metrics[a]["trace_idx"].split("-")
@@ -256,30 +264,33 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
     for agent in self.agents:
       # -- input rate
       obs[agent]["input_rate"] = np.array(
-        [cp_metrics[agent]["http_reqs"]], dtype = np.int32
+        [cp_metrics[agent]["http_reqs"].item()], dtype = np.int32
       )
-      obs_info[agent]["input_rate"] = int(cp_metrics[agent]["http_reqs"])
+      obs_info[agent]["input_rate"] = int(
+        cp_metrics[agent]["http_reqs"].item()
+      )
       # -- previous input rate
       obs[agent]["previous_input_rate"] = np.array(
         [self.info[agent]["input_rate"]], dtype = np.int32
       )
       # -- reject rate
       obs[agent]["reject_rate"] = np.array(
-        [cp_metrics[agent]["http_req_failed"]], dtype = np.float32
+        [cp_metrics[agent]["http_req_failed"].item()], dtype = np.float32
       )
       obs_info[agent]["reject_rate"] = float(
-        cp_metrics[agent]["http_req_failed"]
+        cp_metrics[agent]["http_req_failed"].item()
       )
       # -- previous reject rate
       obs[agent]["previous_reject_rate"] = np.array(
-        [self.info[agent]["reject_rate"]], dtype = np.int32
+        [self.info[agent]["reject_rate"]], dtype = np.float32
       )
       # -- average latency
       obs[agent]["avg_resp_time_loc"] = np.array(
-        [cp_metrics[agent]["http_req_duration"] / 1000], dtype = np.float32
+        [cp_metrics[agent]["http_req_duration"].item() / 1000], 
+        dtype = np.float32
       )
       obs_info[agent]["avg_resp_time_loc"] = float(
-        cp_metrics[agent]["http_req_duration"] / 1000
+        cp_metrics[agent]["http_req_duration"].item() / 1000
       )
       # -- previous average latency
       obs[agent]["previous_avg_resp_time_loc"] = np.array(
@@ -287,20 +298,21 @@ class DFaaSMetricsEnvironment(BaseMultiAgentEnvironment):
       )
       # -- predicted and previous cpu utilization
       obs[agent]["cpu_utilization"] = np.array(
-        [cp_metrics[agent]["cpu_usage_percent"] / 100], dtype = np.float32
+        [cp_metrics[agent]["cpu_usage_percent"].item() / 100], 
+        dtype = np.float32
       )
       obs_info[agent]["cpu_utilization"] = float(
-        cp_metrics[agent]["cpu_usage_percent"] / 100
+        cp_metrics[agent]["cpu_usage_percent"].item() / 100
       )
       obs[agent]["previous_cpu_utilization"] = np.array(
         [self.info[agent]["cpu_utilization"]], dtype = np.float32
       )
       # -- predicted and previous number of replicas
       obs[agent]["n_replicas"] = np.array(
-        [cp_metrics[agent]["gateway_service_count"]], dtype = np.int32
+        [cp_metrics[agent]["gateway_service_count"].item()], dtype = np.int32
       )
       obs_info[agent]["n_replicas"] = int(
-        cp_metrics[agent]["gateway_service_count"]
+        cp_metrics[agent]["gateway_service_count"].item()
       )
       obs[agent]["previous_n_replicas"] = np.array(
         [self.info[agent]["n_replicas"]], dtype = np.int32
